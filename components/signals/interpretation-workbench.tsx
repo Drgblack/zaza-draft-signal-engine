@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 
-import { Button } from "@/components/ui/button";
+import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -383,6 +384,12 @@ export function InterpretationWorkbench({
                 <Button onClick={handleSaveInterpretation} disabled={isSaving}>
                   {isSaving ? "Saving..." : "Save interpretation"}
                 </Button>
+                <Link
+                  href={`/signals/${signal.recordId}/generate`}
+                  className={buttonVariants({ variant: "secondary", size: "md" })}
+                >
+                  Open generation
+                </Link>
                 <p className="text-sm text-slate-500">Saving sets the record status to `Interpreted`.</p>
               </div>
             </>

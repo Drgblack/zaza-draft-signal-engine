@@ -82,12 +82,32 @@ export function SignalsTable({
                       {signal.postedDate ? <div className="mt-1">Posted {formatDateTime(signal.postedDate)}</div> : null}
                     </td>
                     <td className="px-6 py-4 align-top text-right">
-                      <Link
-                        href={`/signals/${signal.recordId}/interpret`}
-                        className={buttonVariants({ variant: "secondary", size: "sm", className: "whitespace-nowrap" })}
-                      >
-                        {signal.status === "Interpreted" ? "Review" : "Interpret"}
-                      </Link>
+                      <div className="flex flex-col items-end gap-2">
+                        <Link
+                          href={`/signals/${signal.recordId}/interpret`}
+                          className={buttonVariants({ variant: "secondary", size: "sm", className: "whitespace-nowrap" })}
+                        >
+                          {signal.status === "Interpreted" ? "Review" : "Interpret"}
+                        </Link>
+                        {signal.signalCategory &&
+                        signal.severityScore &&
+                        signal.signalSubtype &&
+                        signal.teacherPainPoint &&
+                        signal.riskToTeacher &&
+                        signal.hookTemplateUsed &&
+                        signal.contentAngle &&
+                        signal.platformPriority &&
+                        signal.suggestedFormatPriority ? (
+                          <Link
+                            href={`/signals/${signal.recordId}/generate`}
+                            className={buttonVariants({ variant: "ghost", size: "sm", className: "whitespace-nowrap" })}
+                          >
+                            Generate
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-slate-400">Needs interpretation</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

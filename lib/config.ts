@@ -3,7 +3,10 @@ export interface AppConfig {
   airtablePat?: string;
   airtableBaseId?: string;
   airtableTableName?: string;
+  anthropicApiKey?: string;
+  openaiApiKey?: string;
   isAirtableConfigured: boolean;
+  generationProvider: "anthropic" | "openai" | "mock";
   missingAirtableEnv: string[];
 }
 
@@ -16,6 +19,8 @@ function buildAppConfig(): AppConfig {
   const airtablePat = readEnv("AIRTABLE_PAT");
   const airtableBaseId = readEnv("AIRTABLE_BASE_ID");
   const airtableTableName = readEnv("AIRTABLE_TABLE_NAME");
+  const anthropicApiKey = readEnv("ANTHROPIC_API_KEY");
+  const openaiApiKey = readEnv("OPENAI_API_KEY");
   const appName = readEnv("NEXT_PUBLIC_APP_NAME") ?? "Zaza Draft Signal Engine";
 
   const missingAirtableEnv = [
@@ -31,7 +36,10 @@ function buildAppConfig(): AppConfig {
     airtablePat,
     airtableBaseId,
     airtableTableName,
+    anthropicApiKey,
+    openaiApiKey,
     isAirtableConfigured: missingAirtableEnv.length === 0,
+    generationProvider: anthropicApiKey ? "anthropic" : openaiApiKey ? "openai" : "mock",
     missingAirtableEnv,
   };
 }

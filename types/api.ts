@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  GENERATION_SOURCES,
   HOOK_TEMPLATES,
   INTERPRETATION_CONFIDENCE_LEVELS,
   INTERPRETATION_SOURCES,
@@ -15,6 +16,9 @@ import {
   type PlatformPriority,
   type RelevanceToZazaDraft,
   type SignalCreatePayload,
+  type SignalGenerationInput,
+  type SignalGenerationResult,
+  type SignalGenerationSavePayload,
   type SignalInterpretationInput,
   type SignalInterpretationSavePayload,
   type SeverityScore,
@@ -100,12 +104,60 @@ export const saveInterpretationRequestSchema = interpretationResultSchema.extend
   status: z.enum(SIGNAL_STATUSES).optional(),
 });
 
-export const generateRequestSchema = z.object({
+export const generationSignalSchema = z.object({
+  recordId: z.string().trim().min(1).optional(),
   sourceTitle: z.string().trim().min(1),
-  signalCategory: z.enum(SIGNAL_CATEGORIES).nullable().optional(),
-  severityScore: z.union([z.enum(["1", "2", "3"]), z.number().int().min(1).max(3)]).nullable().optional(),
-  hookTemplateUsed: optionalNullableString,
-  contentAngle: optionalNullableString,
+  sourceType: optionalNullableString,
+  sourcePublisher: optionalNullableString,
+  sourceDate: optionalNullableString,
+  sourceUrl: optionalNullableString,
+  rawExcerpt: optionalNullableString,
+  manualSummary: optionalNullableString,
+  signalCategory: z.enum(SIGNAL_CATEGORIES),
+  severityScore: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  signalSubtype: z.string().trim().min(1),
+  emotionalPattern: z.string().trim().min(1),
+  teacherPainPoint: z.string().trim().min(1),
+  relevanceToZazaDraft: z.enum(RELEVANCE_LEVELS),
+  riskToTeacher: z.string().trim().min(1),
+  interpretationNotes: z.string().trim().min(1),
+  hookTemplateUsed: z.enum(HOOK_TEMPLATES),
+  contentAngle: z.string().trim().min(1),
+  platformPriority: z.enum(PLATFORM_PRIORITIES),
+  suggestedFormatPriority: z.enum(SUGGESTED_FORMAT_PRIORITIES),
+});
+
+export const generateRequestSchema = z
+  .object({
+    signalId: z.string().trim().min(1).optional(),
+    signal: generationSignalSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (!value.signalId && !value.signal) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide either a signalId or a generation payload.",
+        path: ["signalId"],
+      });
+    }
+  });
+
+export const generationResultSchema = z.object({
+  xDraft: z.string().trim().min(1),
+  linkedInDraft: z.string().trim().min(1),
+  redditDraft: z.string().trim().min(1),
+  imagePrompt: z.string().trim().min(1),
+  videoScript: z.string().trim().min(1),
+  ctaOrClosingLine: z.string().trim().min(1),
+  hashtagsOrKeywords: z.string().trim().min(1),
+  generationSource: z.enum(GENERATION_SOURCES),
+  generationModelVersion: z.string().trim().min(1),
+  promptVersion: z.string().trim().min(1),
+  generatedAt: z.string().trim().min(1),
+});
+
+export const saveGenerationRequestSchema = generationResultSchema.extend({
+  status: z.enum(SIGNAL_STATUSES).optional(),
 });
 
 export interface SignalsApiResponse {
@@ -172,14 +224,17 @@ export interface SaveInterpretationResponse {
 
 export interface GenerationResponse {
   success: true;
-  outputs: {
-    xDraft: string;
-    linkedInDraft: string;
-    redditDraft: string;
-    imagePrompt: string;
-    videoScript: string;
-    ctaOrClosingLine: string;
-  };
+  signal: SignalGenerationInput;
+  outputs: SignalGenerationResult;
+}
+
+export interface SaveGenerationResponse {
+  success: boolean;
+  persisted: boolean;
+  source: SignalDataSource;
+  signal: SignalRecord;
+  message: string;
+  error?: string;
 }
 
 export function normalizeSeverityScore(value: unknown): SeverityScore | null {
@@ -258,11 +313,57 @@ export function toInterpretationSavePayload(
   };
 }
 
+export function toGenerationInput(
+  value: z.infer<typeof generationSignalSchema>,
+): SignalGenerationInput {
+  return {
+    recordId: value.recordId,
+    sourceTitle: value.sourceTitle.trim(),
+    sourceType: normalizeOptionalString(value.sourceType),
+    sourcePublisher: normalizeOptionalString(value.sourcePublisher),
+    sourceDate: normalizeOptionalString(value.sourceDate),
+    sourceUrl: normalizeOptionalString(value.sourceUrl),
+    rawExcerpt: normalizeOptionalString(value.rawExcerpt),
+    manualSummary: normalizeOptionalString(value.manualSummary),
+    signalCategory: value.signalCategory,
+    severityScore: value.severityScore,
+    signalSubtype: value.signalSubtype.trim(),
+    emotionalPattern: value.emotionalPattern.trim(),
+    teacherPainPoint: value.teacherPainPoint.trim(),
+    relevanceToZazaDraft: value.relevanceToZazaDraft,
+    riskToTeacher: value.riskToTeacher.trim(),
+    interpretationNotes: value.interpretationNotes.trim(),
+    hookTemplateUsed: value.hookTemplateUsed,
+    contentAngle: value.contentAngle.trim(),
+    platformPriority: value.platformPriority,
+    suggestedFormatPriority: value.suggestedFormatPriority,
+  };
+}
+
+export function toGenerationSavePayload(
+  value: z.infer<typeof saveGenerationRequestSchema>,
+): SignalGenerationSavePayload {
+  return {
+    xDraft: value.xDraft.trim(),
+    linkedInDraft: value.linkedInDraft.trim(),
+    redditDraft: value.redditDraft.trim(),
+    imagePrompt: value.imagePrompt.trim(),
+    videoScript: value.videoScript.trim(),
+    ctaOrClosingLine: value.ctaOrClosingLine.trim(),
+    hashtagsOrKeywords: value.hashtagsOrKeywords.trim(),
+    generationSource: value.generationSource,
+    generationModelVersion: value.generationModelVersion.trim(),
+    promptVersion: value.promptVersion.trim(),
+    generatedAt: value.generatedAt,
+    status: value.status,
+  };
+}
+
 export const DEFAULT_INTERPRETATION = {
   signalCategory: "Stress" as SignalCategory,
   severityScore: 2 as SeverityScore,
   relevanceToZazaDraft: "High" as RelevanceToZazaDraft,
-  hookTemplateUsed: "Name the hidden friction",
+  hookTemplateUsed: "This sounds fine… but it isn’t",
   platformPriority: "LinkedIn First" as PlatformPriority,
   suggestedFormatPriority: "Text" as SuggestedFormatPriority,
 };

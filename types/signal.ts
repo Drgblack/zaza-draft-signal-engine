@@ -65,6 +65,7 @@ export const HOOK_TEMPLATES = [
 
 export const INTERPRETATION_CONFIDENCE_LEVELS = ["Low", "Medium", "High"] as const;
 export const INTERPRETATION_SOURCES = ["rules", "manual", "ai"] as const;
+export const GENERATION_SOURCES = ["anthropic", "openai", "mock", "manual"] as const;
 
 export type SignalStatus = (typeof SIGNAL_STATUSES)[number];
 export type SignalCategory = (typeof SIGNAL_CATEGORIES)[number];
@@ -77,6 +78,7 @@ export type TeacherVoiceSource = (typeof TEACHER_VOICE_SOURCES)[number];
 export type HookTemplate = (typeof HOOK_TEMPLATES)[number];
 export type InterpretationConfidence = (typeof INTERPRETATION_CONFIDENCE_LEVELS)[number];
 export type InterpretationSource = (typeof INTERPRETATION_SOURCES)[number];
+export type GenerationSource = (typeof GENERATION_SOURCES)[number];
 
 export interface SignalCreatePayload {
   sourceUrl: string | null;
@@ -122,6 +124,39 @@ export interface SignalInterpretationResult {
 }
 
 export interface SignalInterpretationSavePayload extends SignalInterpretationResult {
+  status?: SignalStatus;
+}
+
+export interface SignalGenerationInput extends SignalInterpretationInput {
+  signalCategory: SignalCategory;
+  severityScore: SeverityScore;
+  signalSubtype: string;
+  emotionalPattern: string;
+  teacherPainPoint: string;
+  relevanceToZazaDraft: RelevanceToZazaDraft;
+  riskToTeacher: string;
+  interpretationNotes: string;
+  hookTemplateUsed: HookTemplate;
+  contentAngle: string;
+  platformPriority: PlatformPriority;
+  suggestedFormatPriority: SuggestedFormatPriority;
+}
+
+export interface SignalGenerationResult {
+  xDraft: string;
+  linkedInDraft: string;
+  redditDraft: string;
+  imagePrompt: string;
+  videoScript: string;
+  ctaOrClosingLine: string;
+  hashtagsOrKeywords: string;
+  generationSource: GenerationSource;
+  generationModelVersion: string;
+  promptVersion: string;
+  generatedAt: string;
+}
+
+export interface SignalGenerationSavePayload extends SignalGenerationResult {
   status?: SignalStatus;
 }
 

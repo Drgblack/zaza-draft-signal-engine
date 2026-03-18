@@ -5,6 +5,8 @@
 - `AIRTABLE_BASE_ID=appC3IsXkfpADw9uB`
 - `AIRTABLE_TABLE_NAME=Signals`
 - `NEXT_PUBLIC_APP_NAME=Zaza Draft Signal Engine`
+- `ANTHROPIC_API_KEY=<optional, preferred for generation>`
+- `OPENAI_API_KEY=<optional fallback for generation>`
 
 ## Integration Approach
 - Secrets are read from environment variables only.
@@ -88,3 +90,4 @@ These are the live field labels the app now maps against:
 - `PATCH` updates still omit `undefined` values and do not implement explicit field clearing semantics yet.
 - The internal `recordId` continues to use Airtable’s actual record ID, not the editable `Record ID` column.
 - Engagement score fallback is computed in code for display only when Airtable does not provide `Engagement Score`.
+- Generation metadata persists `Generation Model Version` and `Prompt Version`, but `generatedAt` and `generationSource` currently stay in app-layer metadata only.

@@ -34,7 +34,7 @@ export default async function InterpretSignalPage({
           </div>
           <CardTitle className="text-3xl">Interpret Signal</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
-            This is the V1 editorial judgement layer: classify the signal, surface the professional risk, and choose the right hook and packaging direction before any draft generation exists.
+            This is the V1 editorial judgement layer: classify the signal, surface the professional risk, and choose the right hook and packaging direction before moving into draft generation.
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0 text-sm text-slate-600">

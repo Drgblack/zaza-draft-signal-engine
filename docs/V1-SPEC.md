@@ -14,8 +14,11 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Rules-based interpretation layer
 - `POST /api/interpret`
 - `PATCH /api/signals/[id]/interpret`
-- `POST /api/generate` placeholder
+- LLM-backed or mock-fixed generation layer
+- `POST /api/generate`
+- `PATCH /api/signals/[id]/generate`
 - Dashboard, signals index, new signal, review, and interpretation pages
+- Generation workbench page
 
 ## Explicitly Excluded
 - Scraping
@@ -33,7 +36,8 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 2. Signal receives a first-pass category, severity, hook, and status.
 3. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
 4. Operator edits and saves the interpretation back to the signal record.
-5. Content generation remains a later step.
+5. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
+6. Operator edits and saves the drafts back to the record before any posting workflow exists.
 
 ## Next Planned Runs
 - Add deeper review workflow states and edits
