@@ -7,11 +7,15 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { STATUS_DISPLAY_ORDER } from "@/lib/constants";
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { formatDateTime } from "@/lib/utils";
+import { getScheduledSoonSignals, getWorkflowBuckets } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const { signals, source, error } = await listSignalsWithFallback();
+  const workflowBuckets = getWorkflowBuckets(signals);
+  const scheduledSoon = getScheduledSoonSignals(signals);
   const statusCounts = STATUS_DISPLAY_ORDER.map((status) => ({
     status,
     count: signals.filter((signal) => signal.status === status).length,
@@ -64,8 +68,8 @@ export default async function DashboardPage() {
 
       <OverviewCards
         totalSignals={signals.length}
-        needsInterpretation={signals.filter((signal) => signal.status === "New" || signal.status === "Interpreted").length}
-        inReview={signals.filter((signal) => ["Reviewed", "Approved"].includes(signal.status)).length}
+        needsInterpretation={workflowBuckets.needsInterpretation.length}
+        inReview={workflowBuckets.readyForReview.length + workflowBuckets.readyToSchedule.length}
         scheduledOrPosted={signals.filter((signal) => ["Scheduled", "Posted"].includes(signal.status)).length}
       />
 
@@ -78,27 +82,27 @@ export default async function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Operator Actions</CardTitle>
-            <CardDescription>Deliberately simple pathways for this scaffold run.</CardDescription>
+            <CardTitle>Pipeline Watch</CardTitle>
+            <CardDescription>What needs operator attention next and what is scheduled soon.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             {[
               {
-                href: "/signals/new",
-                title: "Manual intake",
-                copy: "Capture a signal with a clean submission form and basic classification.",
+                href: "/review#needs-interpretation",
+                title: "Needs interpretation",
+                copy: `${workflowBuckets.needsInterpretation.length} records still need structured editorial judgement.`,
                 icon: Inbox,
               },
               {
-                href: "/signals",
-                title: "Signal library",
-                copy: "Scan current records with status, category, severity, hook, and timing.",
+                href: "/review#ready-for-generation",
+                title: "Ready for generation",
+                copy: `${workflowBuckets.readyForGeneration.length} records are interpreted and ready for draft creation.`,
                 icon: ArrowRight,
               },
               {
-                href: "/review",
-                title: "Review shell",
-                copy: "See what is already reviewed, approved, or scheduled for later work.",
+                href: "/review#ready-for-review",
+                title: "Ready for review",
+                copy: `${workflowBuckets.readyForReview.length} drafted records are waiting for review or approval.`,
                 icon: Clock3,
               },
             ].map((item) => {
@@ -122,6 +126,22 @@ export default async function DashboardPage() {
                 </Link>
               );
             })}
+
+            <div className="rounded-3xl border border-black/6 bg-white/82 p-5">
+              <p className="text-sm font-medium text-slate-950">Scheduled soon</p>
+              <div className="mt-4 space-y-3">
+                {scheduledSoon.length === 0 ? (
+                  <p className="text-sm text-slate-500">Nothing is scheduled in the next seven days.</p>
+                ) : (
+                  scheduledSoon.slice(0, 3).map((signal) => (
+                    <Link key={signal.recordId} href={`/signals/${signal.recordId}`} className="block rounded-2xl bg-slate-50/80 p-4 hover:bg-slate-50">
+                      <p className="font-medium text-slate-900">{signal.sourceTitle}</p>
+                      <p className="mt-1 text-sm text-slate-500">{formatDateTime(signal.scheduledDate)}</p>
+                    </Link>
+                  ))
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
       </section>

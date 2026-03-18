@@ -287,6 +287,12 @@ export function GenerationWorkbench({
                 <Button onClick={handleSave} disabled={isSaving}>
                   {isSaving ? "Saving..." : "Save drafts"}
                 </Button>
+                <Link
+                  href={`/signals/${signal.recordId}`}
+                  className={buttonVariants({ variant: "ghost", size: "md" })}
+                >
+                  View record
+                </Link>
                 <p className="text-sm text-slate-500">Saving sets the record status to `Draft Generated`.</p>
               </div>
             </>

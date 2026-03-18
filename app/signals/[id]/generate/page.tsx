@@ -40,6 +40,9 @@ export default async function GenerateSignalPage({
         </CardHeader>
         <CardContent className="pt-0 text-sm text-slate-600">
           <div className="flex flex-wrap items-center gap-4">
+            <Link href={`/signals/${result.signal.recordId}`} className="text-[color:var(--accent)] underline underline-offset-4">
+              Back to record
+            </Link>
             <Link href="/signals" className="text-[color:var(--accent)] underline underline-offset-4">
               Back to signals
             </Link>

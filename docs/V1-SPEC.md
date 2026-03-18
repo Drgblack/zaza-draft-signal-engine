@@ -17,7 +17,8 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - LLM-backed or mock-fixed generation layer
 - `POST /api/generate`
 - `PATCH /api/signals/[id]/generate`
-- Dashboard, signals index, new signal, review, and interpretation pages
+- `PATCH /api/signals/[id]/workflow`
+- Dashboard, signals index, signal detail, new signal, review, interpretation, and generation pages
 - Generation workbench page
 
 ## Explicitly Excluded
@@ -28,7 +29,6 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Analytics engine
 - Posting to social platforms
 - Real image or video generation
-- LLM-backed interpretation or generation
 - Airtable base creation
 
 ## V1 Working Model
@@ -37,10 +37,11 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 3. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
 4. Operator edits and saves the interpretation back to the signal record.
 5. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
-6. Operator edits and saves the drafts back to the record before any posting workflow exists.
+6. Operator edits and saves the drafts back to the record.
+7. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
 
 ## Next Planned Runs
-- Add deeper review workflow states and edits
-- Introduce richer Airtable field coverage and safer update semantics
-- Add fixed-format draft generation logic behind the placeholder route
+- Add stronger operator-side quality controls for interpretation and generation outputs
+- Introduce richer Airtable update semantics where fields need explicit clearing
 - Expand review tooling without adding automation beyond operator control
+- Keep the workflow single-operator and human-in-the-loop without auth or posting integrations

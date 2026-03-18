@@ -7,6 +7,7 @@ import { SeverityBadge } from "@/components/signals/severity-badge";
 import { StatusBadge } from "@/components/signals/status-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { compactNumber, formatDate, formatDateTime } from "@/lib/utils";
+import { hasInterpretation } from "@/lib/workflow";
 import type { SignalRecord } from "@/types/signal";
 
 export function SignalsTable({
@@ -48,7 +49,9 @@ export function SignalsTable({
                   <tr key={signal.recordId} className="bg-white/45 transition hover:bg-white/80">
                     <td className="px-6 py-4 align-top">
                       <div className="space-y-1">
-                        <p className="font-medium text-slate-950">{signal.sourceTitle}</p>
+                        <Link href={`/signals/${signal.recordId}`} className="font-medium text-slate-950 hover:text-[color:var(--accent)]">
+                          {signal.sourceTitle}
+                        </Link>
                         <p className="max-w-md text-sm text-slate-500">
                           {signal.manualSummary ?? signal.rawExcerpt ?? "No summary added yet."}
                         </p>
@@ -84,20 +87,18 @@ export function SignalsTable({
                     <td className="px-6 py-4 align-top text-right">
                       <div className="flex flex-col items-end gap-2">
                         <Link
-                          href={`/signals/${signal.recordId}/interpret`}
+                          href={`/signals/${signal.recordId}`}
                           className={buttonVariants({ variant: "secondary", size: "sm", className: "whitespace-nowrap" })}
+                        >
+                          Open
+                        </Link>
+                        <Link
+                          href={`/signals/${signal.recordId}/interpret`}
+                          className={buttonVariants({ variant: "ghost", size: "sm", className: "whitespace-nowrap" })}
                         >
                           {signal.status === "Interpreted" ? "Review" : "Interpret"}
                         </Link>
-                        {signal.signalCategory &&
-                        signal.severityScore &&
-                        signal.signalSubtype &&
-                        signal.teacherPainPoint &&
-                        signal.riskToTeacher &&
-                        signal.hookTemplateUsed &&
-                        signal.contentAngle &&
-                        signal.platformPriority &&
-                        signal.suggestedFormatPriority ? (
+                        {hasInterpretation(signal) ? (
                           <Link
                             href={`/signals/${signal.recordId}/generate`}
                             className={buttonVariants({ variant: "ghost", size: "sm", className: "whitespace-nowrap" })}

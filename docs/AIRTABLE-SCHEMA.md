@@ -72,11 +72,68 @@ These are the live field labels the app now maps against:
 - `Evergreen Potential`
 - `Repurpose Later`
 - `Repurpose Ideas`
+- `Ingestion Source`
+- `Ingestion Method`
+- `Signal Relevance Score`
+- `Signal Novelty Score`
+- `Signal Urgency Score`
+- `Brand Fit Score`
+- `Source Trust Score`
+- `Duplicate Cluster ID`
+- `Keep / Reject Recommendation`
+- `Why Selected`
+- `Why Rejected`
+- `Auto-Generated?`
+- `Needs Human Review`
+- `Quality Gate Result`
+- `Similarity To Existing Content`
+- `Review Priority`
 - `Teacher Voice Source`
 - `Anonymised User Pattern?`
 - `Related Zaza Framework Tag`
 - `Generation Model Version`
 - `Prompt Version`
+
+## Automation-Prep Fields
+These fields are now mapped in the app and ready for future ingestion, scoring, deduplication, and prioritisation work:
+
+- Text:
+  - `Ingestion Source`
+  - `Ingestion Method`
+  - `Duplicate Cluster ID`
+- Number:
+  - `Signal Relevance Score`
+  - `Signal Novelty Score`
+  - `Signal Urgency Score`
+  - `Brand Fit Score`
+  - `Source Trust Score`
+  - `Similarity To Existing Content`
+- Single select:
+  - `Keep / Reject Recommendation`
+    - `Keep`
+    - `Review`
+    - `Reject`
+  - `Quality Gate Result`
+    - `Pass`
+    - `Needs Review`
+    - `Fail`
+  - `Review Priority`
+    - `Low`
+    - `Medium`
+    - `High`
+    - `Urgent`
+- Long text:
+  - `Why Selected`
+  - `Why Rejected`
+- Checkbox:
+  - `Auto-Generated?`
+  - `Needs Human Review`
+
+These fields are display-ready and round-trip-safe, but this run does not implement:
+- ingestion jobs
+- scoring logic
+- dedupe logic
+- queue prioritisation logic
 
 ## Diagnostics
 - `GET /api/signals/health` reports:
@@ -86,8 +143,22 @@ These are the live field labels the app now maps against:
   - whether expected field labels are present
   - whether sample response mapping succeeded
 
+## Workflow Updates
+- `PATCH /api/signals/[id]/workflow` is the main server-side update route for:
+  - `Status`
+  - `Review Notes`
+  - `Scheduled Date`
+  - `Posted Date`
+  - `Platform Posted To`
+  - `Post URL`
+  - `Final Caption Used`
+- Interpretation save still uses `PATCH /api/signals/[id]/interpret`.
+- Generation save still uses `PATCH /api/signals/[id]/generate`.
+- If Airtable is unconfigured, the same workflow actions complete in mock mode with non-persistent session feedback.
+
 ## Current Caveats
 - `PATCH` updates still omit `undefined` values and do not implement explicit field clearing semantics yet.
 - The internal `recordId` continues to use Airtable’s actual record ID, not the editable `Record ID` column.
 - Engagement score fallback is computed in code for display only when Airtable does not provide `Engagement Score`.
 - Generation metadata persists `Generation Model Version` and `Prompt Version`, but `generatedAt` and `generationSource` currently stay in app-layer metadata only.
+- Automation readiness on the detail page is display-only and intentionally shallow. It is not a scoring or decision engine.

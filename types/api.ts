@@ -21,6 +21,7 @@ import {
   type SignalGenerationSavePayload,
   type SignalInterpretationInput,
   type SignalInterpretationSavePayload,
+  type SignalWorkflowUpdatePayload,
   type SeverityScore,
   type SignalCategory,
   type SignalDataSource,
@@ -160,6 +161,45 @@ export const saveGenerationRequestSchema = generationResultSchema.extend({
   status: z.enum(SIGNAL_STATUSES).optional(),
 });
 
+export const workflowUpdateRequestSchema = z
+  .object({
+    status: z.enum(SIGNAL_STATUSES),
+    scheduledDate: optionalNullableString,
+    postedDate: optionalNullableString,
+    platformPostedTo: optionalNullableString,
+    postUrl: optionalNullableString,
+    finalCaptionUsed: optionalNullableString,
+    reviewNotes: optionalNullableString,
+  })
+  .superRefine((value, context) => {
+    const scheduledDate = normalizeOptionalString(value.scheduledDate);
+    const postedDate = normalizeOptionalString(value.postedDate);
+
+    if (scheduledDate && Number.isNaN(new Date(scheduledDate).getTime())) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Scheduled date must be a valid date.",
+        path: ["scheduledDate"],
+      });
+    }
+
+    if (postedDate && Number.isNaN(new Date(postedDate).getTime())) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Posted date must be a valid date.",
+        path: ["postedDate"],
+      });
+    }
+
+    if (value.status === "Scheduled" && !scheduledDate) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Scheduled records require a scheduled date.",
+        path: ["scheduledDate"],
+      });
+    }
+  });
+
 export interface SignalsApiResponse {
   success: boolean;
   source: SignalDataSource;
@@ -233,6 +273,15 @@ export interface SaveGenerationResponse {
   persisted: boolean;
   source: SignalDataSource;
   signal: SignalRecord;
+  message: string;
+  error?: string;
+}
+
+export interface SaveWorkflowResponse {
+  success: boolean;
+  persisted: boolean;
+  source: SignalDataSource;
+  signal: SignalRecord | null;
   message: string;
   error?: string;
 }
@@ -356,6 +405,30 @@ export function toGenerationSavePayload(
     promptVersion: value.promptVersion.trim(),
     generatedAt: value.generatedAt,
     status: value.status,
+  };
+}
+
+function normalizeDateTimeString(value: unknown): string | null {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+export function toWorkflowSavePayload(
+  value: z.infer<typeof workflowUpdateRequestSchema>,
+): SignalWorkflowUpdatePayload {
+  return {
+    status: value.status,
+    scheduledDate: normalizeDateTimeString(value.scheduledDate),
+    postedDate: normalizeDateTimeString(value.postedDate),
+    platformPostedTo: normalizeOptionalString(value.platformPostedTo),
+    postUrl: normalizeOptionalString(value.postUrl),
+    finalCaptionUsed: normalizeOptionalString(value.finalCaptionUsed),
+    reviewNotes: normalizeOptionalString(value.reviewNotes),
   };
 }
 

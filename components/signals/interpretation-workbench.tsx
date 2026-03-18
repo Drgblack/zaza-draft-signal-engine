@@ -385,6 +385,12 @@ export function InterpretationWorkbench({
                   {isSaving ? "Saving..." : "Save interpretation"}
                 </Button>
                 <Link
+                  href={`/signals/${signal.recordId}`}
+                  className={buttonVariants({ variant: "ghost", size: "md" })}
+                >
+                  View record
+                </Link>
+                <Link
                   href={`/signals/${signal.recordId}/generate`}
                   className={buttonVariants({ variant: "secondary", size: "md" })}
                 >
