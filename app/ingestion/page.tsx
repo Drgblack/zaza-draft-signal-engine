@@ -21,11 +21,11 @@ export default function IngestionPage() {
           </div>
           <CardTitle className="text-3xl">Ingestion</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
-            Controlled front door for candidate signals. This run fetches enabled structured feeds, normalises items, prevents obvious re-imports, and saves new candidates for human review.
+            Controlled front door for candidate signals. This run fetches enabled structured feeds and bounded Reddit discussion sources, normalises items, prevents obvious re-imports, and saves new candidates for human review.
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0 text-sm text-slate-600">
-          Imported items enter the normal workflow as new signals. This page now supports a bounded pipeline run that can ingest, score, interpret, and selectively generate drafts while still stopping short of approval, scheduling, or posting.
+          Imported items enter the normal workflow as new signals. This page now supports bounded feed ingestion, bounded Reddit ingestion, and a controlled pipeline run that can ingest, score, interpret, and selectively generate drafts while still stopping short of approval, scheduling, or posting.
         </CardContent>
       </Card>
 

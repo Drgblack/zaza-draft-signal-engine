@@ -1,10 +1,24 @@
 import { createSignal, listSignalsWithFallback } from "@/lib/airtable";
 import { addMockSignalRecord } from "@/lib/mock-data";
+import { buildMockRedditItems, fetchRedditPosts } from "@/lib/ingestion/fetch-reddit";
 import { getEnabledIngestionSources, INGESTION_SOURCES } from "@/lib/ingestion/sources";
 import { fetchSourceItems } from "@/lib/ingestion/fetch-feeds";
 import { buildDuplicateKeyFromSignal, normalizeFeedItemToCandidate } from "@/lib/ingestion/normalize";
-import { ingestionRunSummarySchema, type IngestionRunSummary, type IngestionSourceResult } from "@/lib/ingestion/types";
+import { ingestionRunSummarySchema, type IngestionRunSummary, type IngestionSourceKind, type IngestionSourceResult } from "@/lib/ingestion/types";
 import { getAppConfig } from "@/lib/config";
+
+function createKindCounts() {
+  return {
+    rss: 0,
+    atom: 0,
+    json: 0,
+    reddit: 0,
+  };
+}
+
+function bumpKindCount(counts: ReturnType<typeof createKindCounts>, kind: IngestionSourceKind, amount = 1) {
+  counts[kind] += amount;
+}
 
 export async function runIngestion(sourceIds?: string[]): Promise<{
   mode: "airtable" | "mock";
@@ -17,11 +31,16 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
   const duplicateKeys = new Set(existing.signals.map(buildDuplicateKeyFromSignal));
 
   const sourceResults: IngestionSourceResult[] = [];
+  const sourcesCheckedByKind = createKindCounts();
+  const itemsFetchedByKind = createKindCounts();
+  const itemsImportedByKind = createKindCounts();
+  const itemsSkippedDuplicatesByKind = createKindCounts();
   let itemsFetched = 0;
   let itemsImported = 0;
   let itemsSkippedDuplicates = 0;
 
   for (const source of enabledSources) {
+    bumpKindCount(sourcesCheckedByKind, source.kind);
     const sourceResult: IngestionSourceResult = {
       sourceId: source.id,
       sourceName: source.name,
@@ -34,9 +53,23 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
     };
 
     try {
-      const items = (await fetchSourceItems(source)).slice(0, source.maxItems ?? 25);
+      let fetchedItems;
+
+      try {
+        fetchedItems = source.kind === "reddit" ? await fetchRedditPosts(source) : await fetchSourceItems(source);
+      } catch (error) {
+        if (mode === "mock" && source.kind === "reddit") {
+          fetchedItems = buildMockRedditItems(source);
+          sourceResult.errors.push("Live Reddit fetch unavailable. Using bounded mock Reddit posts.");
+        } else {
+          throw error;
+        }
+      }
+
+      const items = fetchedItems.slice(0, source.maxItems ?? 25);
       sourceResult.itemsFetched = items.length;
       itemsFetched += items.length;
+      bumpKindCount(itemsFetchedByKind, source.kind, items.length);
 
       for (const item of items) {
         const candidate = normalizeFeedItemToCandidate(source, item);
@@ -47,6 +80,7 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
         if (duplicateKeys.has(candidate.duplicateKey)) {
           sourceResult.itemsSkippedDuplicates += 1;
           itemsSkippedDuplicates += 1;
+          bumpKindCount(itemsSkippedDuplicatesByKind, source.kind);
           continue;
         }
 
@@ -81,6 +115,7 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
         duplicateKeys.add(candidate.duplicateKey);
         sourceResult.itemsImported += 1;
         itemsImported += 1;
+        bumpKindCount(itemsImportedByKind, source.kind);
       }
     } catch (error) {
       sourceResult.errors.push(error instanceof Error ? error.message : "Unable to fetch source.");
@@ -94,9 +129,13 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
     result: ingestionRunSummarySchema.parse({
       configuredSourceCount: INGESTION_SOURCES.length,
       sourcesChecked: enabledSources.length,
+      sourcesCheckedByKind,
       itemsFetched,
+      itemsFetchedByKind,
       itemsImported,
+      itemsImportedByKind,
       itemsSkippedDuplicates,
+      itemsSkippedDuplicatesByKind,
       sourceResults,
       message:
         mode === "airtable"

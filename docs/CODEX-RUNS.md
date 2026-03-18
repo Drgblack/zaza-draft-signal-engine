@@ -193,6 +193,16 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
   - RSS
   - Atom
   - JSON feeds
+- Ingestion now also supports bounded Reddit source definitions using public subreddit JSON endpoints for:
+  - recent public posts only
+  - small per-source limits
+  - operator-triggered runs only
+  - no comments, no private communities, and no background collection
+- The ingestion page now supports scoped runs for:
+  - all enabled sources
+  - feed sources only
+  - Reddit sources only
+- Ingestion summaries now show source-kind-aware counts so operators can see whether a run was driven by feeds or Reddit.
 - Pipeline automation currently reuses the existing scoring, interpretation, and generation layers rather than introducing a parallel logic path.
 - Pipeline outputs still stop in the human review queue. Approval, scheduling, posting, and archival remain manual.
 - The review queue groups records into:
@@ -285,3 +295,4 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 3. Add optional scenario-angle suggestion chaining into ingestion-to-review flows for indirect signals, but only when operator-triggered.
 4. Add explicit Airtable field-clearing semantics for update routes where needed.
 5. Improve operator control over pipeline thresholds and borderline keep/review decisions without turning the product into a tuning console.
+6. Tighten Reddit source selection and moderation heuristics so higher-signal teacher communication threads are prioritised without widening collection scope.

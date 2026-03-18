@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,9 +26,15 @@ export function IngestionRunner({
   sources: IngestionSourceDefinition[];
   mode: "airtable" | "mock";
 }) {
+  const redditSourceIds = useMemo(() => sources.filter((source) => source.kind === "reddit").map((source) => source.id), [sources]);
+  const feedSourceIds = useMemo(
+    () => sources.filter((source) => source.kind !== "reddit").map((source) => source.id),
+    [sources],
+  );
   const [isRunning, setIsRunning] = useState(false);
   const [isScoring, setIsScoring] = useState(false);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
+  const [lastRunLabel, setLastRunLabel] = useState("all enabled sources");
   const [result, setResult] = useState<IngestionRunSummary | null>(null);
   const [pipelineSummary, setPipelineSummary] = useState<PipelineRunSummary | null>(null);
   const [scoreSummary, setScoreSummary] = useState<{
@@ -49,9 +55,10 @@ export function IngestionRunner({
     body: string;
   } | null>(null);
 
-  async function handleRunIngestion() {
+  async function handleRunIngestion(sourceIds?: string[], label = "all enabled sources") {
     setFeedback(null);
     setIsRunning(true);
+    setLastRunLabel(label);
 
     try {
       const response = await fetch("/api/ingest", {
@@ -59,7 +66,7 @@ export function IngestionRunner({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify(sourceIds?.length ? { sourceIds } : {}),
       });
 
       const data = (await response.json()) as {
@@ -77,7 +84,7 @@ export function IngestionRunner({
       setFeedback({
         tone: data.mode === "airtable" ? "success" : "warning",
         title: data.mode === "airtable" ? "Ingestion completed" : "Mock ingestion completed",
-        body: data.result.message,
+        body: `${data.result.message} Scope: ${label}.`,
       });
     } catch (error) {
       setFeedback({
@@ -206,9 +213,19 @@ export function IngestionRunner({
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-4">
-          <Button onClick={handleRunIngestion} disabled={isRunning}>
-            {isRunning ? "Running..." : "Run ingestion now"}
+          <Button onClick={() => void handleRunIngestion(undefined, "all enabled sources")} disabled={isRunning}>
+            {isRunning ? "Running..." : "Run all sources"}
           </Button>
+          {feedSourceIds.length > 0 ? (
+            <Button variant="secondary" onClick={() => void handleRunIngestion(feedSourceIds, "feed sources")} disabled={isRunning}>
+              {isRunning ? "Running..." : "Run feed sources"}
+            </Button>
+          ) : null}
+          {redditSourceIds.length > 0 ? (
+            <Button variant="secondary" onClick={() => void handleRunIngestion(redditSourceIds, "Reddit sources")} disabled={isRunning}>
+              {isRunning ? "Running..." : "Run Reddit sources"}
+            </Button>
+          ) : null}
           <Button variant="secondary" onClick={handleBatchScoring} disabled={isRunning || isScoring}>
             {isScoring ? "Scoring..." : "Score new candidates"}
           </Button>
@@ -225,18 +242,20 @@ export function IngestionRunner({
         <Card>
           <CardHeader>
             <CardTitle>Configured Sources</CardTitle>
-            <CardDescription>{sources.length} enabled sources in the registry.</CardDescription>
+            <CardDescription>
+              {sources.length} enabled sources in the registry. {feedSourceIds.length} feed sources and {redditSourceIds.length} Reddit sources are currently available.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {sources.map((source) => (
               <div key={source.id} className="rounded-2xl bg-white/80 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="font-medium text-slate-950">{source.name}</p>
-                    <p className="mt-1 text-sm text-slate-600">{source.publisher} · {source.topic}</p>
-                  </div>
-                  <div className="rounded-full bg-slate-100 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-500">
-                    {source.kind}
+                      <p className="font-medium text-slate-950">{source.name}</p>
+                      <p className="mt-1 text-sm text-slate-600">{source.publisher} · {source.topic}</p>
+                    </div>
+                    <div className="rounded-full bg-slate-100 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-500">
+                      {source.kind}
                   </div>
                 </div>
                 <p className="mt-3 text-sm text-slate-500">{source.notes ?? source.url}</p>
@@ -264,6 +283,9 @@ export function IngestionRunner({
               </div>
             ) : (
               <>
+                <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+                  <span className="font-medium text-slate-900">Last run scope:</span> {lastRunLabel}
+                </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="rounded-2xl bg-white/80 px-4 py-4">
                     <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Sources checked</p>
@@ -282,11 +304,38 @@ export function IngestionRunner({
                     <p className="mt-2 text-2xl font-semibold text-slate-950">{result.itemsSkippedDuplicates}</p>
                   </div>
                 </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  {(["rss", "atom", "json", "reddit"] as const).map((kind) => {
+                    const checked = result.sourcesCheckedByKind[kind];
+                    const fetched = result.itemsFetchedByKind[kind];
+                    const imported = result.itemsImportedByKind[kind];
+                    const skipped = result.itemsSkippedDuplicatesByKind[kind];
+
+                    if (checked === 0 && fetched === 0 && imported === 0 && skipped === 0) {
+                      return null;
+                    }
+
+                    return (
+                      <div key={kind} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{kind}</p>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {checked} checked · {fetched} fetched
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {imported} imported · {skipped} skipped
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
                 <div className="space-y-3">
                   {result.sourceResults.map((source) => (
                     <div key={source.sourceId} className="rounded-2xl bg-white/80 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-medium text-slate-950">{source.sourceName}</p>
+                        <div>
+                          <p className="font-medium text-slate-950">{source.sourceName}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{source.kind}</p>
+                        </div>
                         <p className="text-sm text-slate-500">
                           {source.itemsImported} imported · {source.itemsSkippedDuplicates} skipped
                         </p>

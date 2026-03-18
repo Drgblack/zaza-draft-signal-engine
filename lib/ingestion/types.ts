@@ -1,14 +1,22 @@
 import { z } from "zod";
 
-export const INGESTION_SOURCE_KINDS = ["rss", "atom", "json"] as const;
+export const INGESTION_SOURCE_KINDS = ["rss", "atom", "json", "reddit"] as const;
 
 export type IngestionSourceKind = (typeof INGESTION_SOURCE_KINDS)[number];
+
+export const ingestionKindCountSchema = z.object({
+  rss: z.number().int().nonnegative(),
+  atom: z.number().int().nonnegative(),
+  json: z.number().int().nonnegative(),
+  reddit: z.number().int().nonnegative(),
+});
 
 export const ingestionSourceSchema = z.object({
   id: z.string().trim().min(1),
   name: z.string().trim().min(1),
   kind: z.enum(INGESTION_SOURCE_KINDS),
   url: z.string().trim().url(),
+  subreddit: z.string().trim().min(1).optional(),
   publisher: z.string().trim().min(1),
   topic: z.string().trim().min(1),
   enabled: z.boolean(),
@@ -25,6 +33,9 @@ export const ingestionFeedItemSchema = z.object({
   publishedAt: z.string().trim().nullable(),
   excerpt: z.string().trim().nullable(),
   contentSnippet: z.string().trim().nullable(),
+  sourceTypeOverride: z.string().trim().min(1).nullable().optional(),
+  sourcePublisherOverride: z.string().trim().min(1).nullable().optional(),
+  whySelectedOverride: z.string().trim().min(1).nullable().optional(),
 });
 
 export type IngestionFeedItem = z.infer<typeof ingestionFeedItemSchema>;
@@ -69,9 +80,13 @@ export type IngestionSourceResult = z.infer<typeof ingestionSourceResultSchema>;
 export const ingestionRunSummarySchema = z.object({
   configuredSourceCount: z.number().int().nonnegative(),
   sourcesChecked: z.number().int().nonnegative(),
+  sourcesCheckedByKind: ingestionKindCountSchema,
   itemsFetched: z.number().int().nonnegative(),
+  itemsFetchedByKind: ingestionKindCountSchema,
   itemsImported: z.number().int().nonnegative(),
+  itemsImportedByKind: ingestionKindCountSchema,
   itemsSkippedDuplicates: z.number().int().nonnegative(),
+  itemsSkippedDuplicatesByKind: ingestionKindCountSchema,
   sourceResults: z.array(ingestionSourceResultSchema),
   message: z.string().trim().min(1),
 });

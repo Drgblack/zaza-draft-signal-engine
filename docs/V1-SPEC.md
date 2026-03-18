@@ -14,6 +14,7 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Operator-triggered ingestion foundation with:
   - source registry
   - RSS / Atom feed fetching
+  - bounded Reddit post fetching from configured public subreddits
   - feed normalisation
   - simple duplicate guard
   - `POST /api/ingest`
@@ -50,6 +51,7 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 
 ## Explicitly Excluded
 - Broad scraping
+- Broad social ingestion beyond bounded public subreddit posts
 - Autonomous agents
 - Scheduling automation
 - Auth and user accounts
@@ -62,26 +64,27 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 ## V1 Working Model
 1. Operator manually submits one signal.
 2. Operator can also run ingestion against enabled structured feed sources to import candidate signals.
-3. Imported candidates are saved as new records with ingestion metadata and human-review flags.
-4. Operator can score new or existing records to decide whether they should be kept, reviewed, or rejected.
-5. Operator can run a bounded pipeline pass that:
+3. Operator can also run bounded Reddit ingestion against configured public subreddits to import recent discussion posts.
+4. Imported candidates are saved as new records with ingestion metadata and human-review flags.
+5. Operator can score new or existing records to decide whether they should be kept, reviewed, or rejected.
+6. Operator can run a bounded pipeline pass that:
    - ingests
    - scores
    - gates
    - auto-interprets kept/pass records
    - auto-generates only high-priority kept/pass records
-6. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
-7. Operator can add a scenario angle when a raw source needs to be transformed into a clearer teacher communication situation before interpretation.
-8. The app evaluates whether the angle is missing, weak, usable, or strong and can suggest 2-3 bounded alternatives for indirect signals.
-9. Operator edits and saves the interpretation back to the signal record when needed.
-10. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
-11. Generation prioritises:
+7. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
+8. Operator can add a scenario angle when a raw source needs to be transformed into a clearer teacher communication situation before interpretation.
+9. The app evaluates whether the angle is missing, weak, usable, or strong and can suggest 2-3 bounded alternatives for indirect signals.
+10. Operator edits and saves the interpretation back to the signal record when needed.
+11. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
+12. Generation prioritises:
    - a usable scenario angle
    - saved interpretation fields
    - source evidence/context
-12. Operator sees whether generation is ready, cautionary, or blocked before running it.
-13. Operator edits and saves the drafts back to the record when needed.
-14. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
+13. Operator sees whether generation is ready, cautionary, or blocked before running it.
+14. Operator edits and saves the drafts back to the record when needed.
+15. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
 
 ## Next Planned Runs
 - Improve duplicate handling and better borderline-review tooling
