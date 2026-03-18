@@ -52,6 +52,20 @@ export const TEACHER_VOICE_SOURCES = [
   "Product Usage Pattern",
 ] as const;
 
+export const HOOK_TEMPLATES = [
+  "This could cost you your job",
+  "This sounds fine… but it isn’t",
+  "This is what emails look like when you’re exhausted",
+  "What this really shows",
+  "Quiet risk teachers miss",
+  "Statistic with human cost",
+  "Before / after rewrite",
+  "Other",
+] as const;
+
+export const INTERPRETATION_CONFIDENCE_LEVELS = ["Low", "Medium", "High"] as const;
+export const INTERPRETATION_SOURCES = ["rules", "manual", "ai"] as const;
+
 export type SignalStatus = (typeof SIGNAL_STATUSES)[number];
 export type SignalCategory = (typeof SIGNAL_CATEGORIES)[number];
 export type SeverityScore = (typeof SEVERITY_SCORES)[number];
@@ -60,6 +74,9 @@ export type PlatformPriority = (typeof PLATFORM_PRIORITIES)[number];
 export type SuggestedFormatPriority = (typeof SUGGESTED_FORMAT_PRIORITIES)[number];
 export type OutcomeQuality = (typeof OUTCOME_QUALITIES)[number];
 export type TeacherVoiceSource = (typeof TEACHER_VOICE_SOURCES)[number];
+export type HookTemplate = (typeof HOOK_TEMPLATES)[number];
+export type InterpretationConfidence = (typeof INTERPRETATION_CONFIDENCE_LEVELS)[number];
+export type InterpretationSource = (typeof INTERPRETATION_SOURCES)[number];
 
 export interface SignalCreatePayload {
   sourceUrl: string | null;
@@ -73,6 +90,39 @@ export interface SignalCreatePayload {
   severityScore: SeverityScore | null;
   hookTemplateUsed: string | null;
   status: SignalStatus;
+}
+
+export interface SignalInterpretationInput {
+  recordId?: string;
+  sourceTitle: string;
+  sourceType: string | null;
+  sourcePublisher: string | null;
+  sourceDate: string | null;
+  sourceUrl: string | null;
+  rawExcerpt: string | null;
+  manualSummary: string | null;
+}
+
+export interface SignalInterpretationResult {
+  signalCategory: SignalCategory;
+  severityScore: SeverityScore;
+  signalSubtype: string;
+  emotionalPattern: string;
+  teacherPainPoint: string;
+  relevanceToZazaDraft: RelevanceToZazaDraft;
+  riskToTeacher: string;
+  interpretationNotes: string;
+  hookTemplateUsed: HookTemplate;
+  contentAngle: string;
+  platformPriority: PlatformPriority;
+  suggestedFormatPriority: SuggestedFormatPriority;
+  interpretationConfidence: InterpretationConfidence;
+  interpretationSource: InterpretationSource;
+  interpretedAt: string;
+}
+
+export interface SignalInterpretationSavePayload extends SignalInterpretationResult {
+  status?: SignalStatus;
 }
 
 export interface SignalRecord {

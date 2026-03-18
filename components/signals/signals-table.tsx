@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { buttonVariants } from "@/components/ui/button";
 import { deriveDisplayEngagementScore } from "@/lib/airtable";
 import { CategoryBadge } from "@/components/signals/category-badge";
 import { SeverityBadge } from "@/components/signals/severity-badge";
@@ -39,6 +40,7 @@ export function SignalsTable({
                   <th className="px-4 py-4 font-medium">Platform</th>
                   <th className="px-4 py-4 font-medium">Engagement</th>
                   <th className="px-4 py-4 font-medium">Timing</th>
+                  <th className="px-6 py-4 font-medium text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-black/6 text-sm text-slate-700">
@@ -78,6 +80,14 @@ export function SignalsTable({
                     <td className="px-4 py-4 align-top text-slate-500">
                       <div>{signal.scheduledDate ? `Scheduled ${formatDateTime(signal.scheduledDate)}` : `Created ${formatDate(signal.createdDate)}`}</div>
                       {signal.postedDate ? <div className="mt-1">Posted {formatDateTime(signal.postedDate)}</div> : null}
+                    </td>
+                    <td className="px-6 py-4 align-top text-right">
+                      <Link
+                        href={`/signals/${signal.recordId}/interpret`}
+                        className={buttonVariants({ variant: "secondary", size: "sm", className: "whitespace-nowrap" })}
+                      >
+                        {signal.status === "Interpreted" ? "Review" : "Interpret"}
+                      </Link>
                     </td>
                   </tr>
                 ))}

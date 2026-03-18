@@ -11,9 +11,11 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Fetch-based Airtable integration foundation
 - `GET /api/signals`
 - `POST /api/signals`
-- `POST /api/interpret` placeholder
+- Rules-based interpretation layer
+- `POST /api/interpret`
+- `PATCH /api/signals/[id]/interpret`
 - `POST /api/generate` placeholder
-- Dashboard, signals index, new signal, and review pages
+- Dashboard, signals index, new signal, review, and interpretation pages
 
 ## Explicitly Excluded
 - Scraping
@@ -29,8 +31,9 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 ## V1 Working Model
 1. Operator manually submits one signal.
 2. Signal receives a first-pass category, severity, hook, and status.
-3. Placeholder interpretation and generation routes return structured mock outputs.
-4. Records are reviewed in a clean internal dashboard.
+3. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
+4. Operator edits and saves the interpretation back to the signal record.
+5. Content generation remains a later step.
 
 ## Next Planned Runs
 - Add deeper review workflow states and edits

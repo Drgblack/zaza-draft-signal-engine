@@ -82,7 +82,7 @@ export const mockSignalRecords: SignalRecord[] = [
     teacherPainPoint: "Teachers are carrying live classroom energy management alone.",
     relevanceToZazaDraft: "High",
     interpretationNotes: "Good candidate for operator-facing content about reducing prep drag.",
-    hookTemplateUsed: "Name the hidden friction",
+    hookTemplateUsed: "This sounds fine… but it isn’t",
     contentAngle: "The lesson plan is not the problem. Energy mismatch is.",
     platformPriority: "LinkedIn First",
     suggestedFormatPriority: "Text",
@@ -102,7 +102,7 @@ export const mockSignalRecords: SignalRecord[] = [
     severityScore: 3,
     riskToTeacher: "Burnout risk through persistent boundary collapse.",
     relevanceToZazaDraft: "High",
-    hookTemplateUsed: "Expose the silent cost",
+    hookTemplateUsed: "What this really shows",
     platformPriority: "X First",
     suggestedFormatPriority: "Carousel",
     status: "Draft Generated",
@@ -125,7 +125,7 @@ export const mockSignalRecords: SignalRecord[] = [
     signalCategory: "Confusion",
     severityScore: 1,
     relevanceToZazaDraft: "Medium",
-    hookTemplateUsed: "Reframe the tension",
+    hookTemplateUsed: "Quiet risk teachers miss",
     platformPriority: "Multi-platform",
     suggestedFormatPriority: "Text",
     status: "Reviewed",
@@ -142,7 +142,7 @@ export const mockSignalRecords: SignalRecord[] = [
     signalCategory: "Success",
     severityScore: 1,
     relevanceToZazaDraft: "High",
-    hookTemplateUsed: "Show the quiet win",
+    hookTemplateUsed: "Before / after rewrite",
     platformPriority: "LinkedIn First",
     suggestedFormatPriority: "Image",
     status: "Approved",
@@ -161,7 +161,7 @@ export const mockSignalRecords: SignalRecord[] = [
     signalCategory: "Risk",
     severityScore: 2,
     relevanceToZazaDraft: "Medium",
-    hookTemplateUsed: "Name the preventable cost",
+    hookTemplateUsed: "Quiet risk teachers miss",
     platformPriority: "X First",
     suggestedFormatPriority: "Text",
     status: "Scheduled",
@@ -187,4 +187,21 @@ export function buildMockCreatedSignal(input: SignalCreatePayload): SignalRecord
     status: input.status,
     createdBy: "Mock Operator",
   });
+}
+
+export function getMockSignalById(recordId: string): SignalRecord | null {
+  return mockSignalRecords.find((signal) => signal.recordId === recordId) ?? null;
+}
+
+export function buildMockUpdatedSignal(recordId: string, updates: Partial<SignalRecord>): SignalRecord | null {
+  const existing = getMockSignalById(recordId);
+  if (!existing) {
+    return null;
+  }
+
+  return {
+    ...existing,
+    ...updates,
+    recordId: existing.recordId,
+  };
 }

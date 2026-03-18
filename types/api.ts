@@ -1,11 +1,22 @@
 import { z } from "zod";
 
 import {
+  HOOK_TEMPLATES,
+  INTERPRETATION_CONFIDENCE_LEVELS,
+  INTERPRETATION_SOURCES,
+  PLATFORM_PRIORITIES,
+  RELEVANCE_LEVELS,
   SIGNAL_CATEGORIES,
   SIGNAL_STATUSES,
+  SUGGESTED_FORMAT_PRIORITIES,
+  type HookTemplate,
+  type InterpretationConfidence,
+  type InterpretationSource,
   type PlatformPriority,
   type RelevanceToZazaDraft,
   type SignalCreatePayload,
+  type SignalInterpretationInput,
+  type SignalInterpretationSavePayload,
   type SeverityScore,
   type SignalCategory,
   type SignalDataSource,
@@ -44,10 +55,49 @@ export const statusFilterSchema = z.object({
 });
 
 export const interpretRequestSchema = z.object({
-  sourceTitle: z.string().trim().min(1).optional(),
-  rawExcerpt: optionalNullableString,
-  manualSummary: optionalNullableString,
-  signalCategory: z.enum(SIGNAL_CATEGORIES).nullable().optional(),
+  signalId: z.string().trim().min(1).optional(),
+  signal: z
+    .object({
+      recordId: z.string().trim().min(1).optional(),
+      sourceTitle: z.string().trim().min(1, "Source title is required."),
+      sourceType: optionalNullableString,
+      sourcePublisher: optionalNullableString,
+      sourceDate: optionalNullableString,
+      sourceUrl: optionalNullableString,
+      rawExcerpt: optionalNullableString,
+      manualSummary: optionalNullableString,
+    })
+    .optional(),
+}).superRefine((value, context) => {
+  if (!value.signalId && !value.signal) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Provide either a signalId or a structured signal payload.",
+      path: ["signalId"],
+    });
+  }
+});
+
+export const interpretationResultSchema = z.object({
+  signalCategory: z.enum(SIGNAL_CATEGORIES),
+  severityScore: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  signalSubtype: z.string().trim().min(1),
+  emotionalPattern: z.string().trim().min(1),
+  teacherPainPoint: z.string().trim().min(1),
+  relevanceToZazaDraft: z.enum(RELEVANCE_LEVELS),
+  riskToTeacher: z.string().trim().min(1),
+  interpretationNotes: z.string().trim().min(1),
+  hookTemplateUsed: z.enum(HOOK_TEMPLATES),
+  contentAngle: z.string().trim().min(1),
+  platformPriority: z.enum(PLATFORM_PRIORITIES),
+  suggestedFormatPriority: z.enum(SUGGESTED_FORMAT_PRIORITIES),
+  interpretationConfidence: z.enum(INTERPRETATION_CONFIDENCE_LEVELS),
+  interpretationSource: z.enum(INTERPRETATION_SOURCES),
+  interpretedAt: z.string().trim().min(1),
+});
+
+export const saveInterpretationRequestSchema = interpretationResultSchema.extend({
+  status: z.enum(SIGNAL_STATUSES).optional(),
 });
 
 export const generateRequestSchema = z.object({
@@ -91,15 +141,33 @@ export interface AirtableHealthResponse {
 
 export interface InterpretationResponse {
   success: true;
+  signal: SignalInterpretationInput;
   interpretation: {
     signalCategory: SignalCategory;
     severityScore: SeverityScore;
+    signalSubtype: string;
+    emotionalPattern: string;
+    teacherPainPoint: string;
     relevanceToZazaDraft: RelevanceToZazaDraft;
-    hookTemplateUsed: string;
+    riskToTeacher: string;
+    hookTemplateUsed: HookTemplate;
+    contentAngle: string;
+    interpretationConfidence: InterpretationConfidence;
+    interpretationSource: InterpretationSource;
+    interpretedAt: string;
     interpretationNotes: string;
     platformPriority: PlatformPriority;
     suggestedFormatPriority: SuggestedFormatPriority;
   };
+}
+
+export interface SaveInterpretationResponse {
+  success: boolean;
+  persisted: boolean;
+  source: SignalDataSource;
+  signal: SignalRecord;
+  message: string;
+  error?: string;
 }
 
 export interface GenerationResponse {
@@ -149,6 +217,44 @@ export function toCreateSignalPayload(value: z.infer<typeof createSignalRequestS
     severityScore: normalizeSeverityScore(value.severityScore),
     hookTemplateUsed: normalizeOptionalString(value.hookTemplateUsed),
     status: value.status ?? "New",
+  };
+}
+
+export function toInterpretationInput(
+  value: NonNullable<z.infer<typeof interpretRequestSchema>["signal"]>,
+): SignalInterpretationInput {
+  return {
+    recordId: value.recordId,
+    sourceTitle: value.sourceTitle.trim(),
+    sourceType: normalizeOptionalString(value.sourceType),
+    sourcePublisher: normalizeOptionalString(value.sourcePublisher),
+    sourceDate: normalizeOptionalString(value.sourceDate),
+    sourceUrl: normalizeOptionalString(value.sourceUrl),
+    rawExcerpt: normalizeOptionalString(value.rawExcerpt),
+    manualSummary: normalizeOptionalString(value.manualSummary),
+  };
+}
+
+export function toInterpretationSavePayload(
+  value: z.infer<typeof saveInterpretationRequestSchema>,
+): SignalInterpretationSavePayload {
+  return {
+    signalCategory: value.signalCategory,
+    severityScore: value.severityScore,
+    signalSubtype: value.signalSubtype.trim(),
+    emotionalPattern: value.emotionalPattern.trim(),
+    teacherPainPoint: value.teacherPainPoint.trim(),
+    relevanceToZazaDraft: value.relevanceToZazaDraft,
+    riskToTeacher: value.riskToTeacher.trim(),
+    interpretationNotes: value.interpretationNotes.trim(),
+    hookTemplateUsed: value.hookTemplateUsed,
+    contentAngle: value.contentAngle.trim(),
+    platformPriority: value.platformPriority,
+    suggestedFormatPriority: value.suggestedFormatPriority,
+    interpretationConfidence: value.interpretationConfidence,
+    interpretationSource: value.interpretationSource,
+    interpretedAt: value.interpretedAt,
+    status: value.status,
   };
 }
 

@@ -1,6 +1,6 @@
 import { AIRTABLE_EXPECTED_FIELD_LABELS, AIRTABLE_SIGNAL_FIELD_DEFINITIONS, getAirtableFieldLabel } from "@/lib/airtable-schema";
 import { getAppConfig } from "@/lib/config";
-import { mockSignalRecords } from "@/lib/mock-data";
+import { buildMockUpdatedSignal, getMockSignalById, mockSignalRecords } from "@/lib/mock-data";
 import type { AirtableErrorResponse, AirtableFields, AirtableListResponse, AirtableRecord } from "@/types/airtable";
 import type { SignalCreatePayload, SignalDataSource, SignalRecord, SignalStatus, UpdateSignalInput } from "@/types/signal";
 
@@ -31,6 +31,12 @@ interface SignalCollectionResult {
   signals: SignalRecord[];
   error?: string;
   message?: string;
+}
+
+interface SignalLookupResult {
+  source: SignalDataSource;
+  signal: SignalRecord | null;
+  error?: string;
 }
 
 class AirtableClientError extends Error {
@@ -460,6 +466,65 @@ export async function updateSignal(recordId: string, input: UpdateSignalInput): 
   });
 
   return mapRecordFromAirtable(response);
+}
+
+export async function getSignalWithFallback(recordId: string): Promise<SignalLookupResult> {
+  const config = getAppConfig();
+
+  if (!config.isAirtableConfigured) {
+    return {
+      source: "mock",
+      signal: getMockSignalById(recordId),
+      error: getMockSignalById(recordId) ? undefined : "Signal not found in mock data.",
+    };
+  }
+
+  try {
+    return {
+      source: "airtable",
+      signal: await getSignal(recordId),
+    };
+  } catch (error) {
+    return {
+      source: "airtable",
+      signal: null,
+      error: getSafeAirtableErrorMessage(error),
+    };
+  }
+}
+
+export async function saveSignalWithFallback(recordId: string, input: UpdateSignalInput): Promise<{
+  source: SignalDataSource;
+  persisted: boolean;
+  signal: SignalRecord | null;
+  error?: string;
+}> {
+  const config = getAppConfig();
+
+  if (!config.isAirtableConfigured) {
+    const signal = buildMockUpdatedSignal(recordId, input);
+    return {
+      source: "mock",
+      persisted: false,
+      signal,
+      error: signal ? undefined : "Signal not found in mock data.",
+    };
+  }
+
+  try {
+    return {
+      source: "airtable",
+      persisted: true,
+      signal: await updateSignal(recordId, input),
+    };
+  } catch (error) {
+    return {
+      source: "airtable",
+      persisted: false,
+      signal: null,
+      error: getSafeAirtableErrorMessage(error),
+    };
+  }
 }
 
 export async function listSignalsWithFallback({
