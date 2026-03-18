@@ -28,6 +28,7 @@ import {
   type SignalRecord,
   type SuggestedFormatPriority,
 } from "@/types/signal";
+import type { IngestionRunSummary } from "@/lib/ingestion/types";
 
 const optionalNullableString = z.union([z.string(), z.null()]).optional();
 
@@ -200,6 +201,10 @@ export const workflowUpdateRequestSchema = z
     }
   });
 
+export const ingestRequestSchema = z.object({
+  sourceIds: z.array(z.string().trim().min(1)).optional(),
+});
+
 export interface SignalsApiResponse {
   success: boolean;
   source: SignalDataSource;
@@ -283,6 +288,13 @@ export interface SaveWorkflowResponse {
   source: SignalDataSource;
   signal: SignalRecord | null;
   message: string;
+  error?: string;
+}
+
+export interface IngestApiResponse {
+  success: boolean;
+  mode: SignalDataSource;
+  result?: IngestionRunSummary;
   error?: string;
 }
 

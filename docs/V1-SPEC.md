@@ -11,6 +11,13 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Fetch-based Airtable integration foundation
 - `GET /api/signals`
 - `POST /api/signals`
+- Operator-triggered ingestion foundation with:
+  - source registry
+  - RSS / Atom feed fetching
+  - feed normalisation
+  - simple duplicate guard
+  - `POST /api/ingest`
+  - `/ingestion`
 - Rules-based interpretation layer
 - `POST /api/interpret`
 - `PATCH /api/signals/[id]/interpret`
@@ -22,7 +29,7 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Generation workbench page
 
 ## Explicitly Excluded
-- Scraping
+- Broad scraping
 - Autonomous agents
 - Scheduling automation
 - Auth and user accounts
@@ -33,15 +40,17 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 
 ## V1 Working Model
 1. Operator manually submits one signal.
-2. Signal receives a first-pass category, severity, hook, and status.
-3. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
-4. Operator edits and saves the interpretation back to the signal record.
-5. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
-6. Operator edits and saves the drafts back to the record.
-7. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
+2. Operator can also run ingestion against enabled structured feed sources to import candidate signals.
+3. Imported candidates are saved as new records with ingestion metadata and human-review flags.
+4. Signal receives a first-pass category, severity, hook, and status.
+5. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
+6. Operator edits and saves the interpretation back to the signal record.
+7. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
+8. Operator edits and saves the drafts back to the record.
+9. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
 
 ## Next Planned Runs
+- Add scoring and better duplicate handling on top of the ingestion foundation
 - Add stronger operator-side quality controls for interpretation and generation outputs
 - Introduce richer Airtable update semantics where fields need explicit clearing
-- Expand review tooling without adding automation beyond operator control
 - Keep the workflow single-operator and human-in-the-loop without auth or posting integrations

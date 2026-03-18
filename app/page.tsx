@@ -43,6 +43,9 @@ export default async function DashboardPage() {
             <Link href="/review" className={buttonVariants({ variant: "secondary" })}>
               Open review queue
             </Link>
+            <Link href="/ingestion" className={buttonVariants({ variant: "secondary" })}>
+              Run ingestion
+            </Link>
             <p className="text-sm text-slate-500">
               Data source: <span className="font-medium text-slate-700">{source === "airtable" ? "Airtable" : "Mock fallback"}</span>
             </p>
@@ -104,6 +107,12 @@ export default async function DashboardPage() {
                 title: "Ready for review",
                 copy: `${workflowBuckets.readyForReview.length} drafted records are waiting for review or approval.`,
                 icon: Clock3,
+              },
+              {
+                href: "/ingestion",
+                title: "Run ingestion",
+                copy: "Fetch configured feeds, normalise candidate signals, and import new records for review.",
+                icon: Inbox,
               },
             ].map((item) => {
               const Icon = item.icon;
