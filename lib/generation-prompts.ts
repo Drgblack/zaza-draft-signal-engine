@@ -60,6 +60,7 @@ export function buildGenerationUserPrompt(input: SignalGenerationInput): string 
         sourceUrl: input.sourceUrl,
         rawExcerpt: input.rawExcerpt,
         manualSummary: input.manualSummary,
+        scenarioAngle: input.scenarioAngle,
       },
       interpretation: {
         signalCategory: input.signalCategory,

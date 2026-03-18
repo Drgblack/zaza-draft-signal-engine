@@ -15,21 +15,34 @@ function normalizeText(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? "";
 }
 
+function normalizeDisplayText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function trimTerminalPunctuation(value: string): string {
+  return value.replace(/[?.!]+$/g, "").trim();
+}
+
 function collectSignalTextParts(input: SignalInterpretationInput): string[] {
-  return [input.sourceTitle, input.rawExcerpt, input.manualSummary, input.sourceType, input.sourcePublisher].filter(
+  return [input.scenarioAngle, input.manualSummary, input.rawExcerpt, input.sourceTitle, input.sourceType, input.sourcePublisher].filter(
     (value): value is string => Boolean(value && value.trim()),
   );
 }
 
 function buildSignalContext(input: SignalInterpretationInput) {
+  const scenarioAngle = normalizeText(input.scenarioAngle);
   const title = normalizeText(input.sourceTitle);
   const rawExcerpt = normalizeText(input.rawExcerpt);
   const manualSummary = normalizeText(input.manualSummary);
   const sourceType = normalizeText(input.sourceType);
   const sourcePublisher = normalizeText(input.sourcePublisher);
-  const combined = [title, rawExcerpt, manualSummary, sourceType, sourcePublisher].filter(Boolean).join(" ");
+  const scenarioDisplay = normalizeDisplayText(input.scenarioAngle);
+  const combined = [scenarioAngle, manualSummary, rawExcerpt, title, sourceType, sourcePublisher].filter(Boolean).join(" ");
 
   return {
+    scenarioAngle,
+    scenarioDisplay,
     title,
     rawExcerpt,
     manualSummary,
@@ -43,16 +56,31 @@ function includesPattern(text: string, patterns: string[]): boolean {
   return patterns.some((pattern) => text.includes(pattern));
 }
 
+function scorePatternPriority(context: ReturnType<typeof buildSignalContext>, patterns: string[]): number {
+  let score = 0;
+
+  if (includesPattern(context.scenarioAngle, patterns)) {
+    score += 3;
+  }
+  if (includesPattern(context.manualSummary, patterns)) {
+    score += 2;
+  }
+  if (includesPattern(context.rawExcerpt, patterns)) {
+    score += 1.5;
+  }
+  if (includesPattern(context.title, patterns)) {
+    score += 1;
+  }
+  if (includesPattern(context.sourceType, patterns) || includesPattern(context.sourcePublisher, patterns)) {
+    score += 0.5;
+  }
+
+  return score;
+}
+
 function scoreCategory(category: SignalCategory, context: ReturnType<typeof buildSignalContext>): number {
   return CATEGORY_RULES[category].reduce((score, rule) => {
-    let nextScore = score;
-    if (includesPattern(context.combined, rule.patterns)) {
-      nextScore += rule.weight;
-    }
-    if (includesPattern(context.title, rule.patterns)) {
-      nextScore += 1;
-    }
-    return nextScore;
+    return score + scorePatternPriority(context, rule.patterns) * rule.weight;
   }, 0);
 }
 
@@ -93,11 +121,11 @@ function determineCategory(context: ReturnType<typeof buildSignalContext>): {
 }
 
 function determineSeverity(category: SignalCategory, context: ReturnType<typeof buildSignalContext>): 1 | 2 | 3 {
-  if (includesPattern(context.combined, SEVERITY_THREE_PATTERNS)) {
+  if (includesPattern(context.scenarioAngle, SEVERITY_THREE_PATTERNS) || includesPattern(context.combined, SEVERITY_THREE_PATTERNS)) {
     return 3;
   }
 
-  if (includesPattern(context.combined, SEVERITY_TWO_PATTERNS)) {
+  if (includesPattern(context.scenarioAngle, SEVERITY_TWO_PATTERNS) || includesPattern(context.combined, SEVERITY_TWO_PATTERNS)) {
     return category === "Risk" ? 3 : 2;
   }
 
@@ -120,6 +148,28 @@ function determineSubtype(category: SignalCategory, context: ReturnType<typeof b
 }
 
 function determineTeacherPainPoint(category: SignalCategory, subtype: string, context: ReturnType<typeof buildSignalContext>): string {
+  if (context.scenarioDisplay) {
+    const scenario = trimTerminalPunctuation(context.scenarioDisplay);
+
+    if (category === "Risk") {
+      return `Teachers need a safer way to handle scenarios like "${scenario}" without creating avoidable professional exposure.`;
+    }
+
+    if (category === "Stress") {
+      return `Teachers are carrying the emotional labour of scenarios like "${scenario}" without enough structure or recovery time.`;
+    }
+
+    if (category === "Conflict") {
+      return `Teachers need to navigate scenarios like "${scenario}" without sounding accusatory, defensive, or escalatory.`;
+    }
+
+    if (category === "Confusion") {
+      return `Teachers need clearer language and structure for scenarios like "${scenario}" so uncertainty does not become avoidable friction.`;
+    }
+
+    return `Teachers want reusable communication patterns for scenarios like "${scenario}" rather than having to improvise every time.`;
+  }
+
   if (category === "Risk") {
     return `Teachers are exposed to ${subtype.toLowerCase()} without much room to recover once the issue escalates.`;
   }
@@ -155,13 +205,7 @@ function determineRelevance(category: SignalCategory, context: ReturnType<typeof
   return CATEGORY_DEFAULTS[category].relevance;
 }
 
-function determineRiskToTeacher(category: SignalCategory, severity: 1 | 2 | 3, subtype: string): string {
-  if (category === "Risk") {
-    return severity === 3
-      ? `This points to direct reputational, disciplinary, or career risk through ${subtype.toLowerCase()}.`
-      : `This can escalate into formal professional risk if ${subtype.toLowerCase()} is left untreated.`;
-  }
-
+function determineGenericRisk(category: SignalCategory, severity: 1 | 2 | 3): string {
   if (category === "Stress") {
     return severity === 2
       ? "Sustained strain here raises burnout risk, decision fatigue, and weaker communication under pressure."
@@ -181,13 +225,50 @@ function determineRiskToTeacher(category: SignalCategory, severity: 1 | 2 | 3, s
   return "Low direct risk. The value here is editorial proof of what better systems make possible.";
 }
 
+function determineRiskToTeacher(category: SignalCategory, severity: 1 | 2 | 3, subtype: string, context: ReturnType<typeof buildSignalContext>): string {
+  if (context.scenarioDisplay) {
+    const scenarioLead = trimTerminalPunctuation(context.scenarioDisplay);
+
+    if (category === "Risk") {
+      return `Handled badly, scenarios like "${scenarioLead}" can create complaints, escalation, or a damaging paper trail for the teacher.`;
+    }
+
+    if (category === "Stress") {
+      return `Without a repeatable response pattern, scenarios like "${scenarioLead}" become another source of after-hours drafting pressure and decision fatigue.`;
+    }
+
+    if (category === "Conflict") {
+      return `Scenarios like "${scenarioLead}" can harden parent or leadership conflict if the tone feels defensive, vague, or accusatory.`;
+    }
+
+    if (category === "Confusion") {
+      return `Scenarios like "${scenarioLead}" create avoidable misunderstanding when the teacher has to respond without clear wording or structure.`;
+    }
+
+    return `Scenarios like "${scenarioLead}" are lower risk but useful for showing what calmer, clearer communication can look like.`;
+  }
+
+  return determineGenericRisk(category, severity);
+}
+
 function determineHookTemplate(category: SignalCategory, severity: 1 | 2 | 3, context: ReturnType<typeof buildSignalContext>): HookTemplate {
   if (category === "Risk" && severity === 3) {
     return "This could cost you your job";
   }
 
-  if (context.combined.includes("email") || context.combined.includes("after-hours") || context.combined.includes("messages")) {
+  if (
+    context.scenarioAngle.includes("email") ||
+    context.scenarioAngle.includes("reply") ||
+    context.scenarioAngle.includes("respond") ||
+    context.combined.includes("email") ||
+    context.combined.includes("after-hours") ||
+    context.combined.includes("messages")
+  ) {
     return "This is what emails look like when you’re exhausted";
+  }
+
+  if (context.scenarioAngle.includes("without") || context.scenarioAngle.includes("how should")) {
+    return category === "Conflict" ? "What this really shows" : "Quiet risk teachers miss";
   }
 
   if (context.combined.match(/\d/)) {
@@ -214,11 +295,19 @@ function determinePlatformPriority(
   severity: 1 | 2 | 3,
   context: ReturnType<typeof buildSignalContext>,
 ): PlatformPriority {
-  if (category === "Risk" && severity === 3) {
-    return "LinkedIn First";
+  if (context.scenarioAngle.includes("parent") || context.scenarioAngle.includes("email") || context.scenarioAngle.includes("leadership")) {
+    return category === "Conflict" ? "LinkedIn First" : "LinkedIn First";
   }
 
-  if (category === "Conflict" || context.sourceType.includes("community")) {
+  if (category === "Risk") {
+    return severity === 3 ? "LinkedIn First" : "LinkedIn First";
+  }
+
+  if (category === "Conflict") {
+    return "Reddit First";
+  }
+
+  if (context.sourceType.includes("community")) {
     return "Reddit First";
   }
 
@@ -239,6 +328,10 @@ function determineFormatPriority(
   hookTemplateUsed: HookTemplate,
   context: ReturnType<typeof buildSignalContext>,
 ): SuggestedFormatPriority {
+  if (context.scenarioAngle.includes("how should") || context.scenarioAngle.includes("respond") || context.scenarioAngle.includes("documenting")) {
+    return category === "Risk" ? "Text" : "Carousel";
+  }
+
   if (hookTemplateUsed === "Before / after rewrite" || context.combined.includes("rewrite")) {
     return "Carousel";
   }
@@ -264,6 +357,28 @@ function determineContentAngle(
   subtype: string,
   context: ReturnType<typeof buildSignalContext>,
 ): string {
+  if (context.scenarioDisplay) {
+    const scenario = trimTerminalPunctuation(context.scenarioDisplay);
+
+    if (category === "Risk") {
+      return `Translate the source into a teacher communication scenario about "${scenario}" and show how wording choices can either protect or expose the teacher.`;
+    }
+
+    if (category === "Stress") {
+      return `Use the source to unpack the hidden strain inside "${scenario}" and show why teachers need calmer response structures, not more emotional labour.`;
+    }
+
+    if (category === "Conflict") {
+      return `Frame this as a communication-risk scenario about "${scenario}", with emphasis on tone, escalation risk, and relationship protection.`;
+    }
+
+    if (category === "Confusion") {
+      return `Turn the source into a practical scenario about "${scenario}" and expose the cost of unclear wording or expectations.`;
+    }
+
+    return `Use "${scenario}" as a practical before-and-after scenario that shows how stronger systems improve teacher communication.`;
+  }
+
   if (category === "Risk") {
     return severity === 3
       ? `Treat this as a high-stakes warning: normal-looking communication can turn into ${subtype.toLowerCase()} fast.`
@@ -316,18 +431,21 @@ function buildInterpretationNotes(
   context: ReturnType<typeof buildSignalContext>,
 ): string {
   const reason =
-    category === "Risk"
-      ? `${subtype.toLowerCase()} language suggests consequences beyond routine frustration`
-      : category === "Stress"
-        ? "the language points to invisible strain rather than a one-off annoyance"
-        : category === "Conflict"
-          ? "the signal centers on misaligned expectations and relationship tension"
-          : category === "Confusion"
-            ? "the source implies unclear expectations rather than active hostility"
-            : "the signal reflects a positive systems outcome worth codifying";
+    context.scenarioDisplay
+      ? `the operator-framed scenario points toward ${subtype.toLowerCase()} rather than just a generic news headline`
+      : category === "Risk"
+        ? `${subtype.toLowerCase()} language suggests consequences beyond routine frustration`
+        : category === "Stress"
+          ? "the language points to invisible strain rather than a one-off annoyance"
+          : category === "Conflict"
+            ? "the signal centers on misaligned expectations and relationship tension"
+            : category === "Confusion"
+              ? "the source implies unclear expectations rather than active hostility"
+              : "the signal reflects a positive systems outcome worth codifying";
 
   const sourceHint = context.sourceType ? ` Source type: ${context.sourceType}.` : "";
-  return `Classified as ${category} with severity ${severity} because ${reason}.${sourceHint}`;
+  const scenarioHint = context.scenarioDisplay ? ` Scenario angle: ${context.scenarioDisplay}.` : "";
+  return `Classified as ${category} with severity ${severity} because ${reason}.${sourceHint}${scenarioHint}`;
 }
 
 export function toInterpretationInput(signal: SignalRecord): SignalInterpretationInput {
@@ -340,6 +458,7 @@ export function toInterpretationInput(signal: SignalRecord): SignalInterpretatio
     sourceUrl: signal.sourceUrl,
     rawExcerpt: signal.rawExcerpt,
     manualSummary: signal.manualSummary,
+    scenarioAngle: signal.scenarioAngle,
   };
 }
 
@@ -392,7 +511,7 @@ export function interpretSignal(input: SignalInterpretationInput): SignalInterpr
   const emotionalPattern = EMOTIONAL_PATTERNS[category];
   const teacherPainPoint = determineTeacherPainPoint(category, signalSubtype, context);
   const relevanceToZazaDraft = determineRelevance(category, context);
-  const riskToTeacher = determineRiskToTeacher(category, severityScore, signalSubtype);
+  const riskToTeacher = determineRiskToTeacher(category, severityScore, signalSubtype, context);
   const hookTemplateUsed = determineHookTemplate(category, severityScore, context);
   const platformPriority = determinePlatformPriority(category, severityScore, context);
   const suggestedFormatPriority = determineFormatPriority(category, severityScore, hookTemplateUsed, context);

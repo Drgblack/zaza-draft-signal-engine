@@ -1,33 +1,50 @@
 # Codex Runs
 
 ## Current Run
-Run 9 adds controlled pipeline chaining:
-- explicit pipeline gate rules in `lib/pipeline-rules.ts`
-- orchestration service in `lib/pipeline.ts`
-- operator-triggered endpoint at `POST /api/pipeline/run`
-- bounded pipeline stages:
-  - ingest
-  - score
-  - gate
-  - interpret
-  - generate
-  - queue for review
-- default gate logic:
-  - `Reject` or `Fail` stops after scoring
-  - `Review` or `Needs Review` stops after scoring
-  - `Keep` + `Pass` advances to interpretation
-  - `Keep` + `Pass` + `High/Urgent` advances to interpretation and draft generation
-- auto-saved status behaviour:
-  - interpreted records move to `Interpreted`
-  - generated records move to `Draft Generated`
-  - scoring-only paths leave editorial status unchanged
-- `/ingestion` now supports:
-  - manual ingestion
-  - bounded batch scoring
-  - bounded pipeline runs with inspectable stage summaries
-- the review queue now quietly separates filtered-out signals so rejected items do not clog active interpretation work
+Run 9.1 adds human-guided scenario transformation input to interpretation:
+- new Airtable-backed field:
+  - `Scenario Angle`
+- new internal property:
+  - `scenarioAngle`
+- interpretation workbench now lets the operator:
+  - add or edit scenario framing before running interpretation
+  - rerun interpretation against the live scenario framing
+  - save the scenario angle back to Airtable together with the interpretation
+- the interpretation engine now uses framing in this order:
+  - `Scenario Angle`
+  - `Manual Summary`
+  - `Raw Excerpt`
+  - `Source Title`
+  - source metadata
+- this helps indirect signals become usable teacher communication scenarios before category, risk, hook, and platform decisions are made
+- the signal detail page now surfaces `Scenario Angle` so the transformation step is visible outside the workbench
 
 ## Previous Runs
+- Run 9 added controlled pipeline chaining:
+  - explicit pipeline gate rules in `lib/pipeline-rules.ts`
+  - orchestration service in `lib/pipeline.ts`
+  - operator-triggered endpoint at `POST /api/pipeline/run`
+  - bounded pipeline stages:
+    - ingest
+    - score
+    - gate
+    - interpret
+    - generate
+    - queue for review
+  - default gate logic:
+    - `Reject` or `Fail` stops after scoring
+    - `Review` or `Needs Review` stops after scoring
+    - `Keep` + `Pass` advances to interpretation
+    - `Keep` + `Pass` + `High/Urgent` advances to interpretation and draft generation
+  - auto-saved status behaviour:
+    - interpreted records move to `Interpreted`
+    - generated records move to `Draft Generated`
+    - scoring-only paths leave editorial status unchanged
+  - `/ingestion` now supports:
+    - manual ingestion
+    - bounded batch scoring
+    - bounded pipeline runs with inspectable stage summaries
+  - the review queue now quietly separates filtered-out signals so rejected items do not clog active interpretation work
 - Run 7 added the scoring, prioritisation, and first-pass keep/reject decision layer:
   - explicit scoring rules in `lib/scoring-rules.ts`
   - scoring engine in `lib/scoring.ts`
@@ -128,6 +145,7 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 - App runs without Airtable by using believable mock records only when `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, or `AIRTABLE_TABLE_NAME` are missing.
 - When Airtable is configured, listing and creating signals target the real base/table instead of silently falling back.
 - Interpretation is rules-based and structured.
+- Interpretation now supports human-guided scenario framing through `Scenario Angle`.
 - Generation uses one provider path at a time with fixed output templates and strict response validation.
 - Signal health can be checked with `GET /api/signals/health`.
 - Engagement score is derived in code for display only when the Airtable field is blank.
@@ -151,6 +169,7 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
   - filtered out
 - Interpretation metadata includes confidence, source, and interpreted-at timestamp for operator trust, but those metadata fields are not persisted to Airtable in this run.
 - Saved interpretation fields currently include:
+  - Scenario Angle
   - Signal Category
   - Severity Score
   - Signal Subtype
@@ -228,5 +247,5 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 ## Suggested Next Runs
 1. Add controlled operator options for choosing pipeline scope, such as “existing new records only” vs “ingest plus run”.
 2. Improve duplicate handling beyond title/url heuristics without building full clustering complexity.
-3. Add stronger operator controls for reviewing rejected and borderline signals before archival.
+3. Add lightweight scenario-angle suggestion support for indirect signals without turning the workbench into prompt-experimentation UI.
 4. Add explicit Airtable field-clearing semantics for update routes where needed.

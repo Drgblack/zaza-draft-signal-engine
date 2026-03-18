@@ -29,6 +29,7 @@ export async function PATCH(
 
   const interpretation = toInterpretationSavePayload(parsed.data);
   const result = await saveSignalWithFallback(id, {
+    scenarioAngle: interpretation.scenarioAngle,
     signalCategory: interpretation.signalCategory,
     severityScore: interpretation.severityScore,
     signalSubtype: interpretation.signalSubtype,

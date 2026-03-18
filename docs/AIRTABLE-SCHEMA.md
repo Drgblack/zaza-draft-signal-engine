@@ -34,6 +34,7 @@ These are the live field labels the app now maps against:
 - `Source Date`
 - `Raw Excerpt`
 - `Manual Summary`
+- `Scenario Angle`
 - `Signal Category`
 - `Severity Score`
 - `Signal Subtype`
@@ -155,6 +156,17 @@ These fields are display-ready and round-trip-safe, but this run does not implem
 - Interpretation save still uses `PATCH /api/signals/[id]/interpret`.
 - Generation save still uses `PATCH /api/signals/[id]/generate`.
 - If Airtable is unconfigured, the same workflow actions complete in mock mode with non-persistent session feedback.
+
+## Scenario Framing
+- `Scenario Angle` is now a first-class Airtable-backed field.
+- Purpose:
+  - bridge a raw signal into a clearer teacher communication scenario before interpretation runs
+  - improve interpretation quality for indirect news, policy, or incident signals
+- Operator usage:
+  - add or refine it on `/signals/[id]/interpret`
+  - run interpretation with the scenario framing in place
+  - save the interpretation to persist both the scenario and the structured interpretation fields
+- The interpretation layer now treats `Scenario Angle` as the highest-priority framing input when present, while still using the source headline, excerpt, and summary as evidence.
 
 ## Current Caveats
 - `PATCH` updates still omit `undefined` values and do not implement explicit field clearing semantics yet.

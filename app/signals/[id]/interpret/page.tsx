@@ -37,7 +37,10 @@ export default async function InterpretSignalPage({
             This is the V1 editorial judgement layer: classify the signal, surface the professional risk, and choose the right hook and packaging direction before moving into draft generation.
           </CardDescription>
         </CardHeader>
-        <CardContent className="pt-0 text-sm text-slate-600">
+        <CardContent className="space-y-3 pt-0 text-sm text-slate-600">
+          <p className="max-w-3xl leading-6">
+            For indirect news or policy signals, add a scenario angle to help the interpretation layer translate the source into a usable teacher communication situation.
+          </p>
           <div className="flex flex-wrap items-center gap-4">
             <Link href={`/signals/${result.signal.recordId}`} className="text-[color:var(--accent)] underline underline-offset-4">
               Back to record

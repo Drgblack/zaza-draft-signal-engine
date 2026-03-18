@@ -31,6 +31,10 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Rules-based interpretation layer
 - `POST /api/interpret`
 - `PATCH /api/signals/[id]/interpret`
+- Human-guided scenario framing with:
+  - Airtable-backed `Scenario Angle`
+  - operator input on the interpretation workbench
+  - interpretation precedence that treats scenario framing as the strongest shaping signal when present
 - LLM-backed or mock-fixed generation layer
 - `POST /api/generate`
 - `PATCH /api/signals/[id]/generate`
@@ -61,10 +65,11 @@ Build a private internal dashboard for manually submitting signals, lightly clas
    - auto-interprets kept/pass records
    - auto-generates only high-priority kept/pass records
 6. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
-7. Operator edits and saves the interpretation back to the signal record when needed.
-8. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
-9. Operator edits and saves the drafts back to the record when needed.
-10. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
+7. Operator can add a scenario angle when a raw source needs to be transformed into a clearer teacher communication situation before interpretation.
+8. Operator edits and saves the interpretation back to the signal record when needed.
+9. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
+10. Operator edits and saves the drafts back to the record when needed.
+11. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
 
 ## Next Planned Runs
 - Improve duplicate handling and better borderline-review tooling

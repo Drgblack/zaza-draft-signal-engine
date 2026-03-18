@@ -61,6 +61,7 @@ export const AIRTABLE_SIGNAL_FIELD_DEFINITIONS: Record<SignalFieldKey, AirtableS
   sourceDate: { label: "Source Date", kind: "text" },
   rawExcerpt: { label: "Raw Excerpt", kind: "text" },
   manualSummary: { label: "Manual Summary", kind: "text" },
+  scenarioAngle: { label: "Scenario Angle", kind: "text" },
   signalCategory: { label: "Signal Category", kind: "select", allowedValues: SIGNAL_CATEGORIES },
   severityScore: { label: "Severity Score", kind: "select-number", allowedValues: ["1", "2", "3"] },
   signalSubtype: { label: "Signal Subtype", kind: "text" },

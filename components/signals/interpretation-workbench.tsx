@@ -43,6 +43,7 @@ export function InterpretationWorkbench({
   source: SignalDataSource;
 }) {
   const [interpretation, setInterpretation] = useState<SignalInterpretationResult | null>(initialInterpretation);
+  const [scenarioAngle, setScenarioAngle] = useState(signal.scenarioAngle ?? "");
   const [currentStatus, setCurrentStatus] = useState(signal.status);
   const [isRunning, setIsRunning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -78,6 +79,7 @@ export function InterpretationWorkbench({
             sourceUrl: signal.sourceUrl,
             rawExcerpt: signal.rawExcerpt,
             manualSummary: signal.manualSummary,
+            scenarioAngle,
           },
         }),
       });
@@ -125,6 +127,7 @@ export function InterpretationWorkbench({
         },
         body: JSON.stringify({
           ...interpretation,
+          scenarioAngle,
           status: "Interpreted",
         }),
       });
@@ -203,6 +206,31 @@ export function InterpretationWorkbench({
             </p>
           </div>
 
+          <div className="grid gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label htmlFor="scenarioAngle">Scenario Angle</Label>
+              <span className="text-xs text-slate-400">Optional but recommended for indirect signals</span>
+            </div>
+            <Textarea
+              id="scenarioAngle"
+              value={scenarioAngle}
+              onChange={(event) => setScenarioAngle(event.target.value)}
+              placeholder="e.g. How should a teacher email parents after a serious classroom incident without sounding accusatory?"
+              className="min-h-28"
+            />
+            <p className="text-sm leading-6 text-slate-500">
+              For indirect news or policy signals, add a scenario angle to help the interpretation layer translate the signal into a teacher communication situation.
+            </p>
+            <p className="text-xs text-slate-400">
+              Example framings: “Responding to a parent complaint without escalating tension” or “Documenting student behaviour professionally for leadership or parents”.
+            </p>
+            {scenarioAngle !== (signal.scenarioAngle ?? "") ? (
+              <p className="text-xs text-amber-700">
+                Scenario angle changed. Run interpretation again before saving so the structured fields reflect the new framing.
+              </p>
+            ) : null}
+          </div>
+
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={handleRunInterpretation} disabled={isRunning}>
               {isRunning ? "Running..." : hasInterpretation ? "Refresh interpretation" : "Run interpretation"}
@@ -217,7 +245,9 @@ export function InterpretationWorkbench({
       <Card>
         <CardHeader>
           <CardTitle>Interpretation Workbench</CardTitle>
-          <CardDescription>Review, adjust, and save the editorial interpretation back to the record.</CardDescription>
+          <CardDescription>
+            Review, adjust, and save the editorial interpretation back to the record. Scenario framing helps the system move from general news to a usable Zaza-style teacher communication scenario.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {!interpretation ? (

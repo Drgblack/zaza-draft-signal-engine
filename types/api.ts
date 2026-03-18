@@ -75,6 +75,7 @@ export const interpretRequestSchema = z.object({
       sourceUrl: optionalNullableString,
       rawExcerpt: optionalNullableString,
       manualSummary: optionalNullableString,
+      scenarioAngle: optionalNullableString,
     })
     .optional(),
 }).superRefine((value, context) => {
@@ -106,6 +107,7 @@ export const interpretationResultSchema = z.object({
 });
 
 export const saveInterpretationRequestSchema = interpretationResultSchema.extend({
+  scenarioAngle: optionalNullableString,
   status: z.enum(SIGNAL_STATUSES).optional(),
 });
 
@@ -118,6 +120,7 @@ export const generationSignalSchema = z.object({
   sourceUrl: optionalNullableString,
   rawExcerpt: optionalNullableString,
   manualSummary: optionalNullableString,
+  scenarioAngle: optionalNullableString,
   signalCategory: z.enum(SIGNAL_CATEGORIES),
   severityScore: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   signalSubtype: z.string().trim().min(1),
@@ -432,6 +435,7 @@ export function toInterpretationInput(
     sourceUrl: normalizeOptionalString(value.sourceUrl),
     rawExcerpt: normalizeOptionalString(value.rawExcerpt),
     manualSummary: normalizeOptionalString(value.manualSummary),
+    scenarioAngle: normalizeOptionalString(value.scenarioAngle),
   };
 }
 
@@ -454,6 +458,7 @@ export function toInterpretationSavePayload(
     interpretationConfidence: value.interpretationConfidence,
     interpretationSource: value.interpretationSource,
     interpretedAt: value.interpretedAt,
+    scenarioAngle: normalizeOptionalString(value.scenarioAngle),
     status: value.status,
   };
 }
@@ -470,6 +475,7 @@ export function toGenerationInput(
     sourceUrl: normalizeOptionalString(value.sourceUrl),
     rawExcerpt: normalizeOptionalString(value.rawExcerpt),
     manualSummary: normalizeOptionalString(value.manualSummary),
+    scenarioAngle: normalizeOptionalString(value.scenarioAngle),
     signalCategory: value.signalCategory,
     severityScore: value.severityScore,
     signalSubtype: value.signalSubtype.trim(),

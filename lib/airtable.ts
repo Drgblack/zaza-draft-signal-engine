@@ -285,6 +285,7 @@ function mapRecordFromAirtable(record: AirtableRecord<AirtableFields>): SignalRe
     sourceDate: parseText(getFieldValue(fields, "sourceDate")),
     rawExcerpt: parseText(getFieldValue(fields, "rawExcerpt")),
     manualSummary: parseText(getFieldValue(fields, "manualSummary")),
+    scenarioAngle: parseText(getFieldValue(fields, "scenarioAngle")),
     signalCategory: parseSelect(
       getFieldValue(fields, "signalCategory"),
       AIRTABLE_SIGNAL_FIELD_DEFINITIONS.signalCategory.allowedValues ?? [],
@@ -378,6 +379,9 @@ function mapCreatePayloadToAirtableFields(input: SignalCreatePayload): AirtableF
     ...(serializeText(input.rawExcerpt) ? { [getAirtableFieldLabel("rawExcerpt")]: serializeText(input.rawExcerpt) } : {}),
     ...(serializeText(input.manualSummary)
       ? { [getAirtableFieldLabel("manualSummary")]: serializeText(input.manualSummary) }
+      : {}),
+    ...(serializeText(input.scenarioAngle)
+      ? { [getAirtableFieldLabel("scenarioAngle")]: serializeText(input.scenarioAngle) }
       : {}),
     ...(serializeSelect(input.signalCategory, AIRTABLE_SIGNAL_FIELD_DEFINITIONS.signalCategory.allowedValues)
       ? {

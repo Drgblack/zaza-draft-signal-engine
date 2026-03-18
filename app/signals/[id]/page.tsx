@@ -124,6 +124,12 @@ export default async function SignalDetailPage({
                   {signal.manualSummary ?? "No manual summary recorded."}
                 </p>
               </div>
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Scenario Angle</p>
+                <p className="rounded-2xl bg-white/75 p-4 text-sm leading-6 text-slate-700">
+                  {signal.scenarioAngle ?? "Not set"}
+                </p>
+              </div>
               {signal.sourceUrl ? (
                 <Link href={signal.sourceUrl} target="_blank" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
                   Open original source

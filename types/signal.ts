@@ -95,6 +95,7 @@ export interface SignalCreatePayload {
   sourceDate: string | null;
   rawExcerpt: string | null;
   manualSummary: string | null;
+  scenarioAngle?: string | null;
   signalCategory: SignalCategory | null;
   severityScore: SeverityScore | null;
   hookTemplateUsed: string | null;
@@ -117,6 +118,7 @@ export interface SignalInterpretationInput {
   sourceUrl: string | null;
   rawExcerpt: string | null;
   manualSummary: string | null;
+  scenarioAngle: string | null;
 }
 
 export interface SignalInterpretationResult {
@@ -138,6 +140,7 @@ export interface SignalInterpretationResult {
 }
 
 export interface SignalInterpretationSavePayload extends SignalInterpretationResult {
+  scenarioAngle?: string | null;
   status?: SignalStatus;
 }
 
@@ -239,6 +242,7 @@ export interface SignalRecord extends SignalAutomationEvaluationFields {
   sourceDate: string | null;
   rawExcerpt: string | null;
   manualSummary: string | null;
+  scenarioAngle: string | null;
   signalCategory: SignalCategory | null;
   severityScore: SeverityScore | null;
   signalSubtype: string | null;

@@ -89,6 +89,7 @@ export function toGenerationInputFromSignal(signal: SignalRecord): SignalGenerat
     sourceUrl: signal.sourceUrl,
     rawExcerpt: signal.rawExcerpt,
     manualSummary: signal.manualSummary,
+    scenarioAngle: signal.scenarioAngle,
     signalCategory: signal.signalCategory,
     severityScore: signal.severityScore,
     signalSubtype: signal.signalSubtype,
