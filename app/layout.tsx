@@ -19,6 +19,10 @@ const sourceSerif = Source_Serif_4({
 export const metadata: Metadata = {
   title: "Zaza Draft Signal Engine",
   description: "Internal editorial workflow for signal intake, interpretation, and content drafting.",
+  icons: {
+    icon: "/Z%20Logo.png",
+    apple: "/Z%20Logo.png",
+  },
 };
 
 export default function RootLayout({

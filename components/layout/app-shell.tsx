@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { PanelLeftClose, Sparkles } from "lucide-react";
+import Image from "next/image";
+import { PanelLeftClose } from "lucide-react";
 
 import { EnvStatus } from "@/components/layout/env-status";
 import { NavLink } from "@/components/layout/nav-link";
@@ -20,8 +21,15 @@ export function AppShell({
         <aside className="border-b border-black/6 bg-[color:var(--panel-strong)] px-5 py-5 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:border-b-0 lg:border-r lg:px-6 lg:py-8">
           <div className="flex items-center justify-between lg:items-start">
             <div className="space-y-2">
-              <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color:var(--accent)] text-white">
-                <Sparkles className="h-5 w-5" />
+              <div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-black/6 bg-white shadow-sm">
+                <Image
+                  src="/Z%20Logo.png"
+                  alt="Zaza Draft logo"
+                  width={56}
+                  height={56}
+                  className="h-full w-full object-cover"
+                  priority
+                />
               </div>
               <div>
                 <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Internal Tool</p>
@@ -51,9 +59,20 @@ export function AppShell({
         <div className="flex-1">
           <header className="sticky top-0 z-20 border-b border-black/6 bg-[color:var(--panel-strong)]/95 backdrop-blur">
             <div className="flex items-center justify-between px-6 py-4 lg:px-10">
-              <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Editorial Workflow</p>
-                <p className="mt-1 text-sm text-slate-600">Human-in-the-loop signal interpretation and draft prep.</p>
+              <div className="flex items-center gap-3">
+                <div className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-black/6 bg-white shadow-sm">
+                  <Image
+                    src="/Z%20Logo.png"
+                    alt="Zaza Draft logo"
+                    width={40}
+                    height={40}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Editorial Workflow</p>
+                  <p className="mt-1 text-sm text-slate-600">Human-in-the-loop signal interpretation and draft prep.</p>
+                </div>
               </div>
               <Link
                 href="/signals/new"
