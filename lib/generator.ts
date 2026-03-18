@@ -4,6 +4,13 @@ import { getScenarioPriority } from "@/lib/scenario-angle";
 import { generationResultSchema } from "@/types/api";
 import { HOOK_TEMPLATES } from "@/types/signal";
 import type { SignalGenerationInput, SignalGenerationResult, SignalRecord } from "@/types/signal";
+import { ZodError } from "zod";
+
+export interface DraftGenerationRun {
+  outputs: SignalGenerationResult;
+  message: string;
+  usedFallback: boolean;
+}
 
 function normaliseJsonEnvelope(rawJson: string): string {
   const trimmed = rawJson.trim();
@@ -45,7 +52,7 @@ export function buildMockDrafts(input: SignalGenerationInput): SignalGenerationR
   const scenarioLead = preferredScenario ?? input.sourceTitle;
 
   return {
-    xDraft: `${input.hookTemplateUsed}: ${scenarioLead} This is a ${severityPhrase} ${input.signalCategory.toLowerCase()} communication signal about ${input.teacherPainPoint.toLowerCase()}. ${close}`,
+    xDraft: `${input.hookTemplateUsed}: ${scenarioLead} This is a ${severityPhrase} teacher communication risk about ${input.teacherPainPoint.toLowerCase()}. ${close}`,
     linkedInDraft: `${input.hookTemplateUsed}\n\n${scenarioLead}\n\nWhat this really shows is ${input.contentAngle.toLowerCase()}\n\n${input.teacherPainPoint}\n\n${close}`,
     redditDraft: `Noticing a ${input.signalCategory.toLowerCase()} communication pattern here, especially around "${scenarioLead}".\n\nThe part that stands out is ${input.riskToTeacher.toLowerCase()}\n\nHow would you handle that as a teacher?`,
     imagePrompt: `Create a calm editorial visual in a soft documentary style. Show a teacher-centred scene connected to ${input.signalSubtype.toLowerCase()} and the scenario "${scenarioLead}". Keep the emotional tone ${input.emotionalPattern.toLowerCase()}, grounded in real school communication, with no clutter. Optional text overlay idea: "${input.hookTemplateUsed}".`,
@@ -141,28 +148,50 @@ export function buildInitialGenerationFromSignal(signal: SignalRecord): SignalGe
   };
 }
 
-export async function generateDrafts(input: SignalGenerationInput): Promise<SignalGenerationResult> {
+export async function generateDrafts(input: SignalGenerationInput): Promise<DraftGenerationRun> {
   const providerConfig = getGenerationProviderConfig();
 
   if (providerConfig.provider === "mock") {
-    return buildMockDrafts(input);
+    return {
+      outputs: buildMockDrafts(input),
+      message: "Mock draft set returned for review because no live generation provider is configured.",
+      usedFallback: true,
+    };
   }
 
-  const generation = await generateStructuredJson({
-    systemPrompt: buildGenerationSystemPrompt(),
-    userPrompt: buildGenerationUserPrompt(input),
-    jsonSchema: GENERATION_JSON_SCHEMA,
-  });
+  try {
+    const generation = await generateStructuredJson({
+      systemPrompt: buildGenerationSystemPrompt(),
+      userPrompt: buildGenerationUserPrompt(input),
+      jsonSchema: GENERATION_JSON_SCHEMA,
+    });
 
-  const parsed = generationResultSchema.parse({
-    ...JSON.parse(normaliseJsonEnvelope(generation.rawJson)),
-    generationSource: generation.source,
-    generationModelVersion: generation.modelVersion,
-    promptVersion: GENERATION_PROMPT_VERSION,
-    generatedAt: new Date().toISOString(),
-  });
+    const parsed = generationResultSchema.parse({
+      ...JSON.parse(normaliseJsonEnvelope(generation.rawJson)),
+      generationSource: generation.source,
+      generationModelVersion: generation.modelVersion,
+      promptVersion: GENERATION_PROMPT_VERSION,
+      generatedAt: new Date().toISOString(),
+    });
 
-  return parsed;
+    return {
+      outputs: parsed,
+      message: `Drafts generated via ${generation.source} using ${generation.modelVersion}.`,
+      usedFallback: false,
+    };
+  } catch (error) {
+    const fallbackOutputs = buildMockDrafts(input);
+    const message =
+      error instanceof SyntaxError || error instanceof ZodError
+        ? "Live generation parsing failed. Mock draft set returned for review."
+        : "Live generation was unavailable. Mock draft set returned for review.";
+
+    return {
+      outputs: fallbackOutputs,
+      message,
+      usedFallback: true,
+    };
+  }
 }
 
 export { GENERATION_PROMPT_VERSION, getSafeLlmErrorMessage };

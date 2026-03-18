@@ -5,7 +5,7 @@ import {
   SCENARIO_ANGLE_JSON_SCHEMA,
   SCENARIO_ANGLE_PROMPT_VERSION,
 } from "@/lib/scenario-angle-prompts";
-import { generateStructuredJson, getGenerationProviderConfig, getSafeLlmErrorMessage } from "@/lib/llm";
+import { generateStructuredJson, getGenerationProviderConfig } from "@/lib/llm";
 import type { SignalInterpretationInput } from "@/types/signal";
 
 function normaliseJsonEnvelope(rawJson: string): string {
@@ -48,10 +48,15 @@ export async function suggestScenarioAngles(
       promptVersion: SCENARIO_ANGLE_PROMPT_VERSION,
     };
   } catch (error) {
+    const message =
+      error instanceof SyntaxError
+        ? "Live suggestion parsing failed. Using bounded fallback suggestions."
+        : "Live suggestions were unavailable. Using bounded fallback suggestions.";
+
     return {
       ...buildMockScenarioAngleSuggestions(input),
       source: "mock",
-      message: `${getSafeLlmErrorMessage(error)} Falling back to bounded mock suggestions.`,
+      message,
       promptVersion: SCENARIO_ANGLE_PROMPT_VERSION,
     };
   }

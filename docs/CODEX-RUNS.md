@@ -167,6 +167,21 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 - Interpretation is rules-based and structured.
 - Interpretation now supports human-guided scenario framing through `Scenario Angle`, with bounded quality guidance and suggestion support.
 - Generation uses one provider path at a time with fixed output templates and strict response validation.
+- Generation now includes a readiness layer that surfaces whether:
+  - interpretation is missing
+  - scenario framing is weak
+  - interpretation may be stale after scenario reframing
+- Generation now explicitly prioritises:
+  - usable `Scenario Angle`
+  - saved interpretation fields
+  - source evidence/context
+- Generation workbench quality checks now surface lightweight post-generation signals such as:
+  - scenario alignment
+  - headline drift
+  - X draft sharpness
+  - LinkedIn specificity
+  - Reddit community fit
+- Live generation and scenario-angle suggestion fallbacks now use calm operator-facing messages instead of raw parsing or validation detail.
 - Signal health can be checked with `GET /api/signals/health`.
 - Engagement score is derived in code for display only when the Airtable field is blank.
 - Workflow updates now flow through a single route that writes status, scheduling, and posting metadata back to Airtable when configured.
@@ -269,3 +284,4 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 2. Improve duplicate handling beyond title/url heuristics without building full clustering complexity.
 3. Add optional scenario-angle suggestion chaining into ingestion-to-review flows for indirect signals, but only when operator-triggered.
 4. Add explicit Airtable field-clearing semantics for update routes where needed.
+5. Improve operator control over pipeline thresholds and borderline keep/review decisions without turning the product into a tuning console.

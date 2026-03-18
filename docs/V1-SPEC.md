@@ -42,6 +42,11 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - `PATCH /api/signals/[id]/workflow`
 - Dashboard, signals index, signal detail, new signal, review, interpretation, and generation pages
 - Generation workbench page
+- Generation readiness and quality guidance with:
+  - scenario-aware framing checks
+  - stale interpretation warnings after reframing
+  - bounded fallback messaging
+  - lightweight draft quality notes
 
 ## Explicitly Excluded
 - Broad scraping
@@ -70,8 +75,13 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 8. The app evaluates whether the angle is missing, weak, usable, or strong and can suggest 2-3 bounded alternatives for indirect signals.
 9. Operator edits and saves the interpretation back to the signal record when needed.
 10. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
-11. Operator edits and saves the drafts back to the record when needed.
-12. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
+11. Generation prioritises:
+   - a usable scenario angle
+   - saved interpretation fields
+   - source evidence/context
+12. Operator sees whether generation is ready, cautionary, or blocked before running it.
+13. Operator edits and saves the drafts back to the record when needed.
+14. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
 
 ## Next Planned Runs
 - Improve duplicate handling and better borderline-review tooling

@@ -362,6 +362,8 @@ export interface GenerationResponse {
   success: true;
   signal: SignalGenerationInput;
   outputs: SignalGenerationResult;
+  message?: string;
+  usedFallback?: boolean;
 }
 
 export interface SaveGenerationResponse {

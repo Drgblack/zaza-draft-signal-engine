@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
-import { generateDrafts, getSafeLlmErrorMessage, toGenerationInputFromSignal } from "@/lib/generator";
+import { generateDrafts, toGenerationInputFromSignal } from "@/lib/generator";
 import { runIngestion } from "@/lib/ingestion/service";
 import { interpretSignal, toInterpretationInput } from "@/lib/interpreter";
 import { getPipelineGateDecision } from "@/lib/pipeline-rules";
@@ -299,59 +299,28 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
       continue;
     }
 
-    try {
-      const draftOutputs = await generateDrafts(generationInput);
-      const savedGeneration = await saveSignalWithFallback(signal.recordId, {
-        xDraft: draftOutputs.xDraft,
-        linkedInDraft: draftOutputs.linkedInDraft,
-        redditDraft: draftOutputs.redditDraft,
-        imagePrompt: draftOutputs.imagePrompt,
-        videoScript: draftOutputs.videoScript,
-        ctaOrClosingLine: draftOutputs.ctaOrClosingLine,
-        hashtagsOrKeywords: draftOutputs.hashtagsOrKeywords,
-        generationModelVersion: draftOutputs.generationModelVersion,
-        promptVersion: draftOutputs.promptVersion,
-        needsHumanReview: true,
-        status: "Draft Generated",
-      });
+    const generationRun = await generateDrafts(generationInput);
+    const draftOutputs = generationRun.outputs;
+    const savedGeneration = await saveSignalWithFallback(signal.recordId, {
+      xDraft: draftOutputs.xDraft,
+      linkedInDraft: draftOutputs.linkedInDraft,
+      redditDraft: draftOutputs.redditDraft,
+      imagePrompt: draftOutputs.imagePrompt,
+      videoScript: draftOutputs.videoScript,
+      ctaOrClosingLine: draftOutputs.ctaOrClosingLine,
+      hashtagsOrKeywords: draftOutputs.hashtagsOrKeywords,
+      generationModelVersion: draftOutputs.generationModelVersion,
+      promptVersion: draftOutputs.promptVersion,
+      needsHumanReview: true,
+      status: "Draft Generated",
+    });
 
-      if (!savedGeneration.signal) {
-        errors.push(
-          pipelineErrorSchema.parse({
-            stage: "generate",
-            recordId: signal.recordId,
-            message: savedGeneration.error ?? "Unable to save generated draft outputs.",
-          }),
-        );
-        interpreted.push(
-          buildSummaryRecord(
-            signal,
-            interpretedSignal,
-            scoring,
-            "Interpreted",
-            `${decision.summary} Drafts were generated but could not be saved, so the record stopped after interpretation.`,
-            savedScoring.persisted && savedInterpretation.persisted,
-          ),
-        );
-        continue;
-      }
-
-      generated.push(
-        buildSummaryRecord(
-          signal,
-          savedGeneration.signal,
-          scoring,
-          "Draft Generated",
-          `${decision.summary} Drafts were generated with ${draftOutputs.generationSource}.`,
-          savedScoring.persisted && savedInterpretation.persisted && savedGeneration.persisted,
-        ),
-      );
-    } catch (error) {
+    if (!savedGeneration.signal) {
       errors.push(
         pipelineErrorSchema.parse({
           stage: "generate",
           recordId: signal.recordId,
-          message: getSafeLlmErrorMessage(error),
+          message: savedGeneration.error ?? "Unable to save generated draft outputs.",
         }),
       );
       interpreted.push(
@@ -360,11 +329,23 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
           interpretedSignal,
           scoring,
           "Interpreted",
-          `${decision.summary} Draft generation failed, so the record stopped after interpretation.`,
+          `${decision.summary} Drafts were generated but could not be saved, so the record stopped after interpretation.`,
           savedScoring.persisted && savedInterpretation.persisted,
         ),
       );
+      continue;
     }
+
+    generated.push(
+      buildSummaryRecord(
+        signal,
+        savedGeneration.signal,
+        scoring,
+        "Draft Generated",
+        `${decision.summary} ${generationRun.message}`,
+        savedScoring.persisted && savedInterpretation.persisted && savedGeneration.persisted,
+      ),
+    );
   }
 
   const draftSummary = {

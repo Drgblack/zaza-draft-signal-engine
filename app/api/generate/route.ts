@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getSignalWithFallback } from "@/lib/airtable";
-import { generateDrafts, getSafeLlmErrorMessage, toGenerationInputFromSignal } from "@/lib/generator";
+import { generateDrafts, toGenerationInputFromSignal } from "@/lib/generator";
 import { generateRequestSchema, toGenerationInput, type GenerationResponse } from "@/types/api";
 
 export async function POST(request: Request) {
@@ -42,21 +42,13 @@ export async function POST(request: Request) {
     );
   }
 
-  try {
-    const outputs = await generateDrafts(signal);
+  const generation = await generateDrafts(signal);
 
-    return NextResponse.json<GenerationResponse>({
-      success: true,
-      signal,
-      outputs,
-    });
-  } catch (error) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: getSafeLlmErrorMessage(error),
-      },
-      { status: 502 },
-    );
-  }
+  return NextResponse.json<GenerationResponse>({
+    success: true,
+    signal,
+    outputs: generation.outputs,
+    message: generation.message,
+    usedFallback: generation.usedFallback,
+  });
 }

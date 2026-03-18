@@ -35,7 +35,7 @@ export default async function GenerateSignalPage({
           </div>
           <CardTitle className="text-3xl">Generate Drafts</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
-            Turn one interpreted signal into fixed-format draft assets for X, LinkedIn, Reddit, image direction, and short-form video. Everything stays editable and human-reviewed.
+            Turn one interpreted signal into fixed-format draft assets for X, LinkedIn, Reddit, image direction, and short-form video. Drafts should follow the current scenario angle first, the saved interpretation second, and the source evidence third. Everything stays editable and human-reviewed.
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0 text-sm text-slate-600">
