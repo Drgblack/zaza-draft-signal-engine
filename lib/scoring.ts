@@ -1,7 +1,10 @@
 import { buildDuplicateKeyFromSignal, canonicalizeSourceUrl } from "@/lib/ingestion/normalize";
+import { assessScenarioAngle } from "@/lib/scenario-angle";
 import {
+  ABSTRACT_COMMENTARY_PATTERNS,
   BRAND_FIT_KEYWORDS,
   clampScore,
+  COMMUNICATION_SIGNAL_KEYWORDS,
   countKeywordMatches,
   GENERIC_TITLE_PATTERNS,
   LOW_CONTEXT_SOURCE_TYPES,
@@ -13,6 +16,7 @@ import {
   TRUSTED_PUBLISHER_KEYWORDS,
   URGENCY_KEYWORDS,
 } from "@/lib/scoring-rules";
+import { getSourceProfile } from "@/lib/source-profiles";
 import type { SignalRecord, SignalScoringResult } from "@/types/signal";
 
 function buildSignalText(signal: SignalRecord): string {
@@ -31,6 +35,12 @@ function buildSignalText(signal: SignalRecord): string {
 }
 
 function scoreRelevance(signal: SignalRecord, text: string): number {
+  const profile = getSourceProfile(signal);
+  const scenarioAssessment = assessScenarioAngle({
+    scenarioAngle: signal.scenarioAngle,
+    sourceTitle: signal.sourceTitle,
+  });
+  const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
   let score = 10;
   score += countKeywordMatches(text, RELEVANCE_KEYWORDS) * 8;
 
@@ -42,10 +52,34 @@ function scoreRelevance(signal: SignalRecord, text: string): number {
     score += 12;
   }
 
+  if (profile.teacherProximity >= 80 && communicationHits >= 1) {
+    score += 8;
+  } else if (profile.teacherProximity >= 65 && communicationHits >= 1) {
+    score += 4;
+  }
+
+  if (profile.id === "feed-policy-news" || profile.id === "formal-report") {
+    if (scenarioAssessment.quality === "strong" || scenarioAssessment.quality === "usable") {
+      score += 8;
+    } else if (communicationHits === 0) {
+      score -= 10;
+    }
+  }
+
+  if (profile.sourceKind === "reddit" && communicationHits === 0) {
+    score -= 6;
+  }
+
   return clampScore(score);
 }
 
 function scoreBrandFit(signal: SignalRecord, text: string): number {
+  const profile = getSourceProfile(signal);
+  const scenarioAssessment = assessScenarioAngle({
+    scenarioAngle: signal.scenarioAngle,
+    sourceTitle: signal.sourceTitle,
+  });
+  const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
   let score = 10;
   score += countKeywordMatches(text, BRAND_FIT_KEYWORDS) * 9;
 
@@ -59,6 +93,20 @@ function scoreBrandFit(signal: SignalRecord, text: string): number {
 
   if (text.includes("edtech") && !text.includes("teacher") && !text.includes("workload")) {
     score -= 20;
+  }
+
+  if (profile.communicationProximity >= 75 && communicationHits >= 2) {
+    score += 10;
+  } else if (profile.communicationProximity >= 55 && communicationHits >= 1) {
+    score += 5;
+  }
+
+  if ((profile.id === "feed-policy-news" || profile.id === "formal-report") && communicationHits === 0) {
+    score -= scenarioAssessment.quality === "strong" || scenarioAssessment.quality === "usable" ? 2 : 12;
+  }
+
+  if (ABSTRACT_COMMENTARY_PATTERNS.some((pattern) => text.includes(pattern))) {
+    score -= 10;
   }
 
   return clampScore(score);
@@ -88,9 +136,10 @@ function scoreUrgency(signal: SignalRecord, text: string): number {
 }
 
 function scoreSourceTrust(signal: SignalRecord, text: string): number {
+  const profile = getSourceProfile(signal);
   const publisher = signal.sourcePublisher?.toLowerCase() ?? "";
   const canonicalUrl = canonicalizeSourceUrl(signal.sourceUrl);
-  let score = 45;
+  let score = profile.trustBaseline;
 
   if (canonicalUrl) {
     try {
@@ -115,6 +164,10 @@ function scoreSourceTrust(signal: SignalRecord, text: string): number {
 
   if (signal.sourceType && SYSTEM_NOTE_SOURCE_TYPES.includes(signal.sourceType as (typeof SYSTEM_NOTE_SOURCE_TYPES)[number])) {
     score += 10;
+  }
+
+  if (profile.sourceKind === "reddit" && countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS) === 0) {
+    score -= 8;
   }
 
   if (!signal.sourcePublisher && !signal.sourceUrl) {
@@ -158,6 +211,7 @@ function getSimilarityToExistingContent(signal: SignalRecord, existingSignals: S
 }
 
 function scoreNovelty(signal: SignalRecord, similarityToExistingContent: number | null): number {
+  const profile = getSourceProfile(signal);
   let score = 60;
   const titleFingerprint = normalizeTitleFingerprint(signal.sourceTitle);
 
@@ -174,6 +228,16 @@ function scoreNovelty(signal: SignalRecord, similarityToExistingContent: number 
 
   if (signal.manualSummary && signal.manualSummary.length > 100) {
     score += 8;
+  }
+
+  if (profile.sourceKind === "reddit" || profile.sourceKind === "forum") {
+    if (signal.rawExcerpt && signal.rawExcerpt.length > 140) {
+      score += 6;
+    }
+  }
+
+  if (profile.id === "feed-policy-news" && signal.scenarioAngle === null && signal.manualSummary && signal.manualSummary.length < 120) {
+    score -= 6;
   }
 
   if (similarityToExistingContent !== null) {
@@ -243,6 +307,21 @@ function buildSelectedReason(signal: SignalRecord, result: SignalScoringResult):
   }
 
   const reasons: string[] = [];
+  const profile = getSourceProfile(signal);
+  const text = buildSignalText(signal);
+  const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
+  const scenarioAssessment = assessScenarioAngle({
+    scenarioAngle: signal.scenarioAngle,
+    sourceTitle: signal.sourceTitle,
+  });
+
+  if ((profile.sourceKind === "reddit" || profile.sourceKind === "forum") && communicationHits >= 1) {
+    reasons.push("it came from a teacher discussion source with direct communication tension");
+  }
+
+  if ((profile.id === "feed-policy-news" || profile.id === "formal-report") && (scenarioAssessment.quality === "strong" || scenarioAssessment.quality === "usable")) {
+    reasons.push("policy-style source context was made more usable by a stronger teacher-response frame");
+  }
 
   if (result.signalRelevanceScore >= 65) {
     reasons.push("strong teacher and school relevance");
@@ -270,6 +349,25 @@ function buildRejectedReason(signal: SignalRecord, result: SignalScoringResult):
   }
 
   const reasons: string[] = [];
+  const profile = getSourceProfile(signal);
+  const text = buildSignalText(signal);
+  const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
+  const scenarioAssessment = assessScenarioAngle({
+    scenarioAngle: signal.scenarioAngle,
+    sourceTitle: signal.sourceTitle,
+  });
+
+  if ((profile.sourceKind === "reddit" || profile.sourceKind === "forum") && communicationHits === 0) {
+    reasons.push("it is a public discussion source without enough direct teacher communication detail");
+  }
+
+  if ((profile.id === "feed-policy-news" || profile.id === "formal-report") && scenarioAssessment.quality !== "strong" && scenarioAssessment.quality !== "usable" && communicationHits === 0) {
+    reasons.push("it is policy or sector coverage without a strong teacher-response framing");
+  }
+
+  if (ABSTRACT_COMMENTARY_PATTERNS.some((pattern) => text.includes(pattern))) {
+    reasons.push("it reads more like abstract sector commentary than a live teacher situation");
+  }
 
   if ((result.similarityToExistingContent ?? 0) >= 92) {
     reasons.push("it looks too close to existing content already in the queue");

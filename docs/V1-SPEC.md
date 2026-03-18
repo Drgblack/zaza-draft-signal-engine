@@ -24,6 +24,7 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - one-record scoring from the signal detail page
   - bounded batch scoring from `/ingestion`
   - recommendation, quality gate, and review priority outputs
+  - source-aware prioritisation that distinguishes teacher discussion, internal/operator signals, reports, and news/policy sources
 - Controlled pipeline chaining with:
   - `POST /api/pipeline/run`
   - bounded operator-triggered runs from `/ingestion`
@@ -85,6 +86,12 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 13. Operator sees whether generation is ready, cautionary, or blocked before running it.
 14. Operator edits and saves the drafts back to the record when needed.
 15. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
+
+## Source-Aware Prioritisation Notes
+- Teacher discussion and forum-style sources can score better when they contain direct teacher communication tension.
+- Policy/news and formal-report sources are still useful, but they usually need clearer transformability or stronger scenario framing before they should advance as aggressively.
+- Public forum sources are not blindly boosted: trust remains moderate unless the content itself is strong enough.
+- Scenario Angle and source-aware scoring are designed to complement each other rather than compete.
 
 ## Next Planned Runs
 - Improve duplicate handling and better borderline-review tooling

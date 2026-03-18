@@ -3,6 +3,7 @@ import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { deriveDisplayEngagementScore } from "@/lib/airtable";
 import { CategoryBadge } from "@/components/signals/category-badge";
+import { SourceContextBadge } from "@/components/signals/source-context-badge";
 import { SeverityBadge } from "@/components/signals/severity-badge";
 import { StatusBadge } from "@/components/signals/status-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +53,7 @@ export function SignalsTable({
                         <Link href={`/signals/${signal.recordId}`} className="font-medium text-slate-950 hover:text-[color:var(--accent)]">
                           {signal.sourceTitle}
                         </Link>
+                        <SourceContextBadge signal={signal} />
                         <p className="max-w-md text-sm text-slate-500">
                           {signal.manualSummary ?? signal.rawExcerpt ?? "No summary added yet."}
                         </p>
@@ -59,6 +61,9 @@ export function SignalsTable({
                           {signal.keepRejectRecommendation ?? "Unscored"} · {signal.reviewPriority ?? "Priority not set"} ·{" "}
                           {signal.qualityGateResult ?? "Quality gate not set"}
                         </p>
+                        {signal.whySelected || signal.whyRejected ? (
+                          <p className="max-w-md text-xs text-slate-500">{signal.whySelected ?? signal.whyRejected}</p>
+                        ) : null}
                         {signal.sourceUrl ? (
                           <Link href={signal.sourceUrl} target="_blank" className="text-xs text-[color:var(--accent)]">
                             Open source

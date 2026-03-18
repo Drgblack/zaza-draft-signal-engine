@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getSourceProfile } from "@/lib/source-profiles";
 import type { SignalDataSource, SignalRecord, SignalScoringResult } from "@/types/signal";
 
 function toneClasses(tone: "success" | "warning" | "error") {
@@ -60,6 +61,7 @@ export function ScoringPanel({
   source: SignalDataSource;
   initialScoring: SignalScoringResult | null;
 }) {
+  const sourceProfile = getSourceProfile(signal);
   const [scoring, setScoring] = useState<SignalScoringResult | null>(initialScoring);
   const [isRunning, setIsRunning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -141,6 +143,9 @@ export function ScoringPanel({
           </Button>
           <p className="text-sm text-slate-500">
             Current source: <span className="font-medium text-slate-700">{source === "airtable" ? "Airtable" : "Mock mode"}</span>
+          </p>
+          <p className="text-sm text-slate-500">
+            Source profile: <span className="font-medium text-slate-700">{sourceProfile.contextLabel}</span>
           </p>
         </div>
 

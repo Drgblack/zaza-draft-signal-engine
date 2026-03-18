@@ -1,4 +1,4 @@
-export const SCORING_VERSION = "rules-v1";
+export const SCORING_VERSION = "rules-v1.1";
 
 export const RELEVANCE_KEYWORDS = [
   "teacher",
@@ -53,6 +53,13 @@ export const BRAND_FIT_KEYWORDS = [
   "wellbeing",
   "well-being",
   "after-hours",
+  "leadership",
+  "document",
+  "documentation",
+  "incident",
+  "report",
+  "respond",
+  "reply",
 ];
 
 export const URGENCY_KEYWORDS = [
@@ -70,6 +77,36 @@ export const URGENCY_KEYWORDS = [
   "warning",
   "legal",
   "lawsuit",
+];
+
+export const COMMUNICATION_SIGNAL_KEYWORDS = [
+  "email",
+  "message",
+  "respond",
+  "reply",
+  "wording",
+  "document",
+  "report",
+  "complaint",
+  "parent",
+  "leadership",
+  "incident",
+  "behaviour",
+  "follow up",
+  "follow-up",
+  "explain",
+  "escalate",
+  "de-escalate",
+  "write",
+];
+
+export const ABSTRACT_COMMENTARY_PATTERNS = [
+  "thought leadership",
+  "future of education",
+  "sector commentary",
+  "thought piece",
+  "opinion",
+  "leadership perspective",
 ];
 
 export const GENERIC_TITLE_PATTERNS = [

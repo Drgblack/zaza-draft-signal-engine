@@ -49,7 +49,7 @@ export default async function SignalsPage({
         <CardHeader>
           <CardTitle className="text-3xl">Signals</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
-            The working library for intake, interpretation, drafting, and publishing status. Filters stay intentionally light so the queue remains fast to scan.
+            The working library for intake, interpretation, drafting, and publishing status. Filters stay intentionally light so the queue remains fast to scan, while source-aware cues help distinguish teacher discussion from generic sector coverage.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3 pt-0 text-sm text-slate-600">

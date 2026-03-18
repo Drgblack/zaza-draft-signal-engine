@@ -35,7 +35,7 @@ export default async function ReviewPage() {
           </div>
           <CardTitle className="text-3xl">Review Queue</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
-            Operator queue for what needs attention next. It groups records by the actual editorial stages rather than leaving review as a placeholder page.
+            Operator queue for what needs attention next. It groups records by the actual editorial stages and now keeps subtle source-aware context visible so teacher discussion signals are easier to spot than generic sector coverage.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-0">

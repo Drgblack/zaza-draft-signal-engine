@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CategoryBadge } from "@/components/signals/category-badge";
 import { SeverityBadge } from "@/components/signals/severity-badge";
 import { StatusBadge } from "@/components/signals/status-badge";
+import { SourceContextBadge } from "@/components/signals/source-context-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/utils";
@@ -49,9 +50,15 @@ export function WorkflowQueueSection({
                       <Link href={`/signals/${signal.recordId}`} className="text-lg font-semibold text-slate-950 hover:text-[color:var(--accent)]">
                         {signal.sourceTitle}
                       </Link>
+                      <div className="mt-2">
+                        <SourceContextBadge signal={signal} />
+                      </div>
                       <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
                         {signal.reviewNotes ?? signal.manualSummary ?? signal.rawExcerpt ?? "No operator notes yet."}
                       </p>
+                      {signal.whySelected || signal.whyRejected ? (
+                        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">{signal.whySelected ?? signal.whyRejected}</p>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Link href={`/signals/${signal.recordId}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
@@ -75,6 +82,9 @@ export function WorkflowQueueSection({
                     </p>
                     <p className="mt-2">
                       {signal.postedDate ? `Posted ${formatDateTime(signal.postedDate)}` : "Not posted"}
+                    </p>
+                    <p className="mt-2">
+                      {signal.sourcePublisher ?? "Source publisher not set"}
                     </p>
                     <p className="mt-2">
                       {signal.reviewPriority ? `Priority ${signal.reviewPriority}` : "Priority not set"}

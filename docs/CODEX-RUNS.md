@@ -186,6 +186,12 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 - Engagement score is derived in code for display only when the Airtable field is blank.
 - Workflow updates now flow through a single route that writes status, scheduling, and posting metadata back to Airtable when configured.
 - Scoring is rules-based and inspectable. It does not rely on opaque model prompts.
+- Scoring is now source-aware:
+  - teacher discussion sources can receive bounded relevance / brand-fit uplift when they show direct communication tension
+  - policy/news sources face more pressure to be transformable into a teacher-response scenario
+  - public forum trust remains moderate rather than automatically high
+- Source-aware reasoning now appears in operator-facing explanations such as `Why Selected` and `Why Rejected`.
+- Queue views now surface source context so operators can distinguish teacher discussion, internal/operator signals, and news/policy sources more quickly.
 - Recommendation and quality gate decisions do not change editorial status automatically in this run.
 - Ingestion is currently operator-triggered only. There are no background jobs, cron triggers, or autonomous recurring runs.
 - Pipeline chaining is also operator-triggered only. It is a bounded run, not a background loop.
@@ -296,3 +302,4 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 4. Add explicit Airtable field-clearing semantics for update routes where needed.
 5. Improve operator control over pipeline thresholds and borderline keep/review decisions without turning the product into a tuning console.
 6. Tighten Reddit source selection and moderation heuristics so higher-signal teacher communication threads are prioritised without widening collection scope.
+7. Add tighter transformability checks for policy/news sources so scenario-angle quality can influence advancement more directly without making the scorer opaque.
