@@ -3,6 +3,9 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 
+import { assessScenarioAngle } from "@/lib/scenario-angle";
+import type { ScenarioAngleSuggestion } from "@/lib/scenario-angle";
+import { Badge } from "@/components/ui/badge";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -47,6 +50,12 @@ export function InterpretationWorkbench({
   const [currentStatus, setCurrentStatus] = useState(signal.status);
   const [isRunning, setIsRunning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState<ScenarioAngleSuggestion[]>([]);
+  const [suggestionMeta, setSuggestionMeta] = useState<{
+    source: "anthropic" | "openai" | "mock";
+    message: string;
+  } | null>(null);
   const [feedback, setFeedback] = useState<{
     tone: "success" | "warning" | "error";
     title: string;
@@ -54,9 +63,89 @@ export function InterpretationWorkbench({
   } | null>(null);
 
   const hasInterpretation = useMemo(() => interpretation !== null, [interpretation]);
+  const scenarioAssessment = useMemo(
+    () =>
+      assessScenarioAngle({
+        scenarioAngle,
+        sourceTitle: signal.sourceTitle,
+      }),
+    [scenarioAngle, signal.sourceTitle],
+  );
 
   function updateField<K extends keyof SignalInterpretationResult>(key: K, value: SignalInterpretationResult[K]) {
     setInterpretation((current) => (current ? { ...current, [key]: value } : current));
+  }
+
+  function scenarioBadgeClasses() {
+    switch (scenarioAssessment.quality) {
+      case "strong":
+        return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+      case "usable":
+        return "bg-sky-50 text-sky-700 ring-sky-200";
+      case "weak":
+        return "bg-amber-50 text-amber-700 ring-amber-200";
+      case "missing":
+      default:
+        return "bg-slate-100 text-slate-700 ring-slate-200";
+    }
+  }
+
+  async function handleSuggestAngles() {
+    setFeedback(null);
+    setIsSuggesting(true);
+
+    try {
+      const response = await fetch("/api/scenario-angle/suggest", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          signal: {
+            recordId: signal.recordId,
+            sourceTitle: signal.sourceTitle,
+            sourceType: signal.sourceType,
+            sourcePublisher: signal.sourcePublisher,
+            sourceDate: signal.sourceDate,
+            sourceUrl: signal.sourceUrl,
+            rawExcerpt: signal.rawExcerpt,
+            manualSummary: signal.manualSummary,
+            scenarioAngle,
+          },
+        }),
+      });
+
+      const data = (await response.json()) as {
+        success?: boolean;
+        suggestions?: ScenarioAngleSuggestion[];
+        source?: "anthropic" | "openai" | "mock";
+        message?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !data.success || !data.suggestions) {
+        throw new Error(data.error ?? "Unable to suggest scenario angles.");
+      }
+
+      setSuggestions(data.suggestions);
+      setSuggestionMeta({
+        source: data.source ?? "mock",
+        message: data.message ?? "Scenario-angle suggestions ready.",
+      });
+      setFeedback({
+        tone: data.source === "mock" ? "warning" : "success",
+        title: "Scenario angles suggested",
+        body: data.message ?? "Select a suggestion to insert it into the field.",
+      });
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        title: "Suggestion failed",
+        body: error instanceof Error ? error.message : "Unable to suggest scenario angles.",
+      });
+    } finally {
+      setIsSuggesting(false);
+    }
   }
 
   async function handleRunInterpretation() {
@@ -209,7 +298,10 @@ export function InterpretationWorkbench({
           <div className="grid gap-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Label htmlFor="scenarioAngle">Scenario Angle</Label>
-              <span className="text-xs text-slate-400">Optional but recommended for indirect signals</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className={scenarioBadgeClasses()}>{scenarioAssessment.quality}</Badge>
+                <span className="text-xs text-slate-400">Optional but recommended for indirect signals</span>
+              </div>
             </div>
             <Textarea
               id="scenarioAngle"
@@ -219,11 +311,53 @@ export function InterpretationWorkbench({
               className="min-h-28"
             />
             <p className="text-sm leading-6 text-slate-500">
-              For indirect news or policy signals, add a scenario angle to help the interpretation layer translate the signal into a teacher communication situation.
+              A good scenario angle describes the teacher communication situation, not just the headline.
             </p>
             <p className="text-xs text-slate-400">
               Example framings: “Responding to a parent complaint without escalating tension” or “Documenting student behaviour professionally for leadership or parents”.
             </p>
+            <div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-600">
+              <p className="font-medium text-slate-800">Angle guidance</p>
+              <p className="mt-1">{scenarioAssessment.reason}</p>
+              {scenarioAssessment.suggestions.length > 0 ? (
+                <div className="mt-2 space-y-1">
+                  {scenarioAssessment.suggestions.map((item) => (
+                    <p key={item}>- {item}</p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="secondary" onClick={handleSuggestAngles} disabled={isSuggesting}>
+                {isSuggesting ? "Suggesting..." : "Suggest angles"}
+              </Button>
+              <p className="text-sm text-slate-500">
+                For indirect news or policy signals, this helps the system move from general news to a usable Zaza-style scenario.
+              </p>
+            </div>
+            {suggestions.length > 0 ? (
+              <div className="space-y-3 rounded-2xl bg-white/70 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-slate-900">Suggested scenario angles</p>
+                  {suggestionMeta ? (
+                    <span className="text-xs text-slate-400">{suggestionMeta.source} assist</span>
+                  ) : null}
+                </div>
+                <div className="space-y-3">
+                  {suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.angle}
+                      type="button"
+                      onClick={() => setScenarioAngle(suggestion.angle)}
+                      className="w-full rounded-2xl border border-black/6 bg-white px-4 py-4 text-left transition hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      <p className="font-medium text-slate-900">{suggestion.angle}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-500">{suggestion.rationale}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {scenarioAngle !== (signal.scenarioAngle ?? "") ? (
               <p className="text-xs text-amber-700">
                 Scenario angle changed. Run interpretation again before saving so the structured fields reflect the new framing.

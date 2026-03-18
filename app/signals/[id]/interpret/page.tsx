@@ -41,6 +41,9 @@ export default async function InterpretSignalPage({
           <p className="max-w-3xl leading-6">
             For indirect news or policy signals, add a scenario angle to help the interpretation layer translate the source into a usable teacher communication situation.
           </p>
+          <p className="max-w-3xl leading-6">
+            A good angle describes what the teacher needs to say, document, explain, or respond to. If the source is indirect, you can use the bounded suggestion assist and then refine the wording manually.
+          </p>
           <div className="flex flex-wrap items-center gap-4">
             <Link href={`/signals/${result.signal.recordId}`} className="text-[color:var(--accent)] underline underline-offset-4">
               Back to record

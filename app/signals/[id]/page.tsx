@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { deriveDisplayEngagementScore, getSignalWithFallback } from "@/lib/airtable";
+import { assessScenarioAngle } from "@/lib/scenario-angle";
 import { buildInitialScoringFromSignal } from "@/lib/scoring";
 import { compactNumber, formatDate, formatDateTime } from "@/lib/utils";
 import { getAutomationReadinessSnapshot, hasGeneration, hasInterpretation } from "@/lib/workflow";
@@ -56,6 +57,10 @@ export default async function SignalDetailPage({
   const generationReady = hasGeneration(signal);
   const automationReadiness = getAutomationReadinessSnapshot(signal);
   const initialScoring = buildInitialScoringFromSignal(signal);
+  const scenarioAssessment = assessScenarioAngle({
+    scenarioAngle: signal.scenarioAngle,
+    sourceTitle: signal.sourceTitle,
+  });
   const readinessTone =
     automationReadiness.tone === "success"
       ? "bg-emerald-50 text-emerald-700"
@@ -125,10 +130,28 @@ export default async function SignalDetailPage({
                 </p>
               </div>
               <div className="space-y-2">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Scenario Angle</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Scenario Angle</p>
+                  {signal.scenarioAngle ? (
+                    <Badge
+                      className={
+                        scenarioAssessment.quality === "strong"
+                          ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                          : scenarioAssessment.quality === "usable"
+                            ? "bg-sky-50 text-sky-700 ring-sky-200"
+                            : "bg-amber-50 text-amber-700 ring-amber-200"
+                      }
+                    >
+                      {scenarioAssessment.quality}
+                    </Badge>
+                  ) : null}
+                </div>
                 <p className="rounded-2xl bg-white/75 p-4 text-sm leading-6 text-slate-700">
                   {signal.scenarioAngle ?? "Not set"}
                 </p>
+                {signal.scenarioAngle ? (
+                  <p className="text-xs text-slate-500">{scenarioAssessment.reason}</p>
+                ) : null}
               </div>
               {signal.sourceUrl ? (
                 <Link href={signal.sourceUrl} target="_blank" className="text-sm text-[color:var(--accent)] underline underline-offset-4">

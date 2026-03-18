@@ -1,4 +1,5 @@
 import { CATEGORY_DEFAULTS, CATEGORY_RULES, EMOTIONAL_PATTERNS, SEVERITY_THREE_PATTERNS, SEVERITY_TWO_PATTERNS, SUBTYPE_RULES } from "@/lib/interpreter-rules";
+import { assessScenarioAngle } from "@/lib/scenario-angle";
 import type {
   HookTemplate,
   InterpretationConfidence,
@@ -38,11 +39,18 @@ function buildSignalContext(input: SignalInterpretationInput) {
   const sourceType = normalizeText(input.sourceType);
   const sourcePublisher = normalizeText(input.sourcePublisher);
   const scenarioDisplay = normalizeDisplayText(input.scenarioAngle);
+  const scenarioAssessment = assessScenarioAngle({
+    scenarioAngle: input.scenarioAngle,
+    sourceTitle: input.sourceTitle,
+  });
+  const shouldPrioritizeScenario = scenarioAssessment.quality === "strong" || scenarioAssessment.quality === "usable";
   const combined = [scenarioAngle, manualSummary, rawExcerpt, title, sourceType, sourcePublisher].filter(Boolean).join(" ");
 
   return {
     scenarioAngle,
     scenarioDisplay,
+    scenarioAssessment,
+    shouldPrioritizeScenario,
     title,
     rawExcerpt,
     manualSummary,
@@ -59,8 +67,10 @@ function includesPattern(text: string, patterns: string[]): boolean {
 function scorePatternPriority(context: ReturnType<typeof buildSignalContext>, patterns: string[]): number {
   let score = 0;
 
-  if (includesPattern(context.scenarioAngle, patterns)) {
-    score += 3;
+  if (context.shouldPrioritizeScenario && includesPattern(context.scenarioAngle, patterns)) {
+    score += context.scenarioAssessment.quality === "strong" ? 3.5 : 2.5;
+  } else if (context.scenarioAssessment.quality === "weak" && includesPattern(context.scenarioAngle, patterns)) {
+    score += 0.5;
   }
   if (includesPattern(context.manualSummary, patterns)) {
     score += 2;
@@ -121,11 +131,11 @@ function determineCategory(context: ReturnType<typeof buildSignalContext>): {
 }
 
 function determineSeverity(category: SignalCategory, context: ReturnType<typeof buildSignalContext>): 1 | 2 | 3 {
-  if (includesPattern(context.scenarioAngle, SEVERITY_THREE_PATTERNS) || includesPattern(context.combined, SEVERITY_THREE_PATTERNS)) {
+  if ((context.shouldPrioritizeScenario && includesPattern(context.scenarioAngle, SEVERITY_THREE_PATTERNS)) || includesPattern(context.combined, SEVERITY_THREE_PATTERNS)) {
     return 3;
   }
 
-  if (includesPattern(context.scenarioAngle, SEVERITY_TWO_PATTERNS) || includesPattern(context.combined, SEVERITY_TWO_PATTERNS)) {
+  if ((context.shouldPrioritizeScenario && includesPattern(context.scenarioAngle, SEVERITY_TWO_PATTERNS)) || includesPattern(context.combined, SEVERITY_TWO_PATTERNS)) {
     return category === "Risk" ? 3 : 2;
   }
 
@@ -148,7 +158,7 @@ function determineSubtype(category: SignalCategory, context: ReturnType<typeof b
 }
 
 function determineTeacherPainPoint(category: SignalCategory, subtype: string, context: ReturnType<typeof buildSignalContext>): string {
-  if (context.scenarioDisplay) {
+  if (context.scenarioDisplay && context.shouldPrioritizeScenario) {
     const scenario = trimTerminalPunctuation(context.scenarioDisplay);
 
     if (category === "Risk") {
@@ -226,7 +236,7 @@ function determineGenericRisk(category: SignalCategory, severity: 1 | 2 | 3): st
 }
 
 function determineRiskToTeacher(category: SignalCategory, severity: 1 | 2 | 3, subtype: string, context: ReturnType<typeof buildSignalContext>): string {
-  if (context.scenarioDisplay) {
+  if (context.scenarioDisplay && context.shouldPrioritizeScenario) {
     const scenarioLead = trimTerminalPunctuation(context.scenarioDisplay);
 
     if (category === "Risk") {
@@ -257,9 +267,10 @@ function determineHookTemplate(category: SignalCategory, severity: 1 | 2 | 3, co
   }
 
   if (
-    context.scenarioAngle.includes("email") ||
-    context.scenarioAngle.includes("reply") ||
-    context.scenarioAngle.includes("respond") ||
+    (context.shouldPrioritizeScenario &&
+      (context.scenarioAngle.includes("email") ||
+        context.scenarioAngle.includes("reply") ||
+        context.scenarioAngle.includes("respond"))) ||
     context.combined.includes("email") ||
     context.combined.includes("after-hours") ||
     context.combined.includes("messages")
@@ -267,7 +278,7 @@ function determineHookTemplate(category: SignalCategory, severity: 1 | 2 | 3, co
     return "This is what emails look like when you’re exhausted";
   }
 
-  if (context.scenarioAngle.includes("without") || context.scenarioAngle.includes("how should")) {
+  if (context.shouldPrioritizeScenario && (context.scenarioAngle.includes("without") || context.scenarioAngle.includes("how should"))) {
     return category === "Conflict" ? "What this really shows" : "Quiet risk teachers miss";
   }
 
@@ -295,7 +306,7 @@ function determinePlatformPriority(
   severity: 1 | 2 | 3,
   context: ReturnType<typeof buildSignalContext>,
 ): PlatformPriority {
-  if (context.scenarioAngle.includes("parent") || context.scenarioAngle.includes("email") || context.scenarioAngle.includes("leadership")) {
+  if (context.shouldPrioritizeScenario && (context.scenarioAngle.includes("parent") || context.scenarioAngle.includes("email") || context.scenarioAngle.includes("leadership"))) {
     return category === "Conflict" ? "LinkedIn First" : "LinkedIn First";
   }
 
@@ -328,7 +339,7 @@ function determineFormatPriority(
   hookTemplateUsed: HookTemplate,
   context: ReturnType<typeof buildSignalContext>,
 ): SuggestedFormatPriority {
-  if (context.scenarioAngle.includes("how should") || context.scenarioAngle.includes("respond") || context.scenarioAngle.includes("documenting")) {
+  if (context.shouldPrioritizeScenario && (context.scenarioAngle.includes("how should") || context.scenarioAngle.includes("respond") || context.scenarioAngle.includes("documenting"))) {
     return category === "Risk" ? "Text" : "Carousel";
   }
 
@@ -357,7 +368,7 @@ function determineContentAngle(
   subtype: string,
   context: ReturnType<typeof buildSignalContext>,
 ): string {
-  if (context.scenarioDisplay) {
+  if (context.scenarioDisplay && context.shouldPrioritizeScenario) {
     const scenario = trimTerminalPunctuation(context.scenarioDisplay);
 
     if (category === "Risk") {
@@ -431,7 +442,7 @@ function buildInterpretationNotes(
   context: ReturnType<typeof buildSignalContext>,
 ): string {
   const reason =
-    context.scenarioDisplay
+    context.scenarioDisplay && context.shouldPrioritizeScenario
       ? `the operator-framed scenario points toward ${subtype.toLowerCase()} rather than just a generic news headline`
       : category === "Risk"
         ? `${subtype.toLowerCase()} language suggests consequences beyond routine frustration`
@@ -444,7 +455,11 @@ function buildInterpretationNotes(
               : "the signal reflects a positive systems outcome worth codifying";
 
   const sourceHint = context.sourceType ? ` Source type: ${context.sourceType}.` : "";
-  const scenarioHint = context.scenarioDisplay ? ` Scenario angle: ${context.scenarioDisplay}.` : "";
+  const scenarioHint = context.scenarioDisplay
+    ? context.shouldPrioritizeScenario
+      ? ` Scenario angle: ${context.scenarioDisplay}.`
+      : ` Scenario angle was present but weak, so the source context carried more weight.`
+    : "";
   return `Classified as ${category} with severity ${severity} because ${reason}.${sourceHint}${scenarioHint}`;
 }
 

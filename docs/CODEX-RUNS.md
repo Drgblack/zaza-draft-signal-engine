@@ -1,25 +1,45 @@
 # Codex Runs
 
 ## Current Run
-Run 9.1 adds human-guided scenario transformation input to interpretation:
+Run 10 improves the human-guided scenario transformation layer:
 - new Airtable-backed field:
   - `Scenario Angle`
 - new internal property:
   - `scenarioAngle`
-- interpretation workbench now lets the operator:
+- scenario-angle quality is now evaluated as:
+  - `missing`
+  - `weak`
+  - `usable`
+  - `strong`
+- the interpretation workbench now lets the operator:
   - add or edit scenario framing before running interpretation
+  - see lightweight quality feedback and improvement guidance
+  - request 2-3 bounded scenario-angle suggestions
+  - click a suggestion to insert it into the field
   - rerun interpretation against the live scenario framing
   - save the scenario angle back to Airtable together with the interpretation
+- suggestion support uses the existing provider preference order:
+  - `ANTHROPIC_API_KEY`
+  - `OPENAI_API_KEY`
+  - mock/rules fallback
 - the interpretation engine now uses framing in this order:
   - `Scenario Angle`
   - `Manual Summary`
   - `Raw Excerpt`
   - `Source Title`
   - source metadata
-- this helps indirect signals become usable teacher communication scenarios before category, risk, hook, and platform decisions are made
+- weak scenario angles no longer carry the same weight as strong ones, so the interpreter falls back more gracefully to source evidence when the framing is poor
+- generation now explicitly prioritises a usable scenario angle when drafting outputs
 - the signal detail page now surfaces `Scenario Angle` so the transformation step is visible outside the workbench
 
 ## Previous Runs
+- Run 9.1 added human-guided scenario transformation input to interpretation:
+  - new Airtable-backed field:
+    - `Scenario Angle`
+  - new internal property:
+    - `scenarioAngle`
+  - interpretation workbench lets the operator save the field with interpretation
+  - the interpreter accepts the field as a framing input
 - Run 9 added controlled pipeline chaining:
   - explicit pipeline gate rules in `lib/pipeline-rules.ts`
   - orchestration service in `lib/pipeline.ts`
@@ -145,7 +165,7 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 - App runs without Airtable by using believable mock records only when `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, or `AIRTABLE_TABLE_NAME` are missing.
 - When Airtable is configured, listing and creating signals target the real base/table instead of silently falling back.
 - Interpretation is rules-based and structured.
-- Interpretation now supports human-guided scenario framing through `Scenario Angle`.
+- Interpretation now supports human-guided scenario framing through `Scenario Angle`, with bounded quality guidance and suggestion support.
 - Generation uses one provider path at a time with fixed output templates and strict response validation.
 - Signal health can be checked with `GET /api/signals/health`.
 - Engagement score is derived in code for display only when the Airtable field is blank.
@@ -247,5 +267,5 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 ## Suggested Next Runs
 1. Add controlled operator options for choosing pipeline scope, such as “existing new records only” vs “ingest plus run”.
 2. Improve duplicate handling beyond title/url heuristics without building full clustering complexity.
-3. Add lightweight scenario-angle suggestion support for indirect signals without turning the workbench into prompt-experimentation UI.
+3. Add optional scenario-angle suggestion chaining into ingestion-to-review flows for indirect signals, but only when operator-triggered.
 4. Add explicit Airtable field-clearing semantics for update routes where needed.

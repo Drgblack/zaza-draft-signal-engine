@@ -1,5 +1,6 @@
 import { GENERATION_JSON_SCHEMA, GENERATION_PROMPT_VERSION, buildGenerationSystemPrompt, buildGenerationUserPrompt } from "@/lib/generation-prompts";
 import { generateStructuredJson, getGenerationProviderConfig, getSafeLlmErrorMessage } from "@/lib/llm";
+import { getScenarioPriority } from "@/lib/scenario-angle";
 import { generationResultSchema } from "@/types/api";
 import { HOOK_TEMPLATES } from "@/types/signal";
 import type { SignalGenerationInput, SignalGenerationResult, SignalRecord } from "@/types/signal";
@@ -37,13 +38,18 @@ function buildSoftClose(input: SignalGenerationInput): string {
 export function buildMockDrafts(input: SignalGenerationInput): SignalGenerationResult {
   const severityPhrase = input.severityScore === 3 ? "serious" : input.severityScore === 2 ? "heavy" : "quiet";
   const close = buildSoftClose(input);
+  const preferredScenario = getScenarioPriority({
+    scenarioAngle: input.scenarioAngle,
+    sourceTitle: input.sourceTitle,
+  }).preferredScenario;
+  const scenarioLead = preferredScenario ?? input.sourceTitle;
 
   return {
-    xDraft: `${input.hookTemplateUsed}: ${input.sourceTitle}. This is a ${severityPhrase} ${input.signalCategory.toLowerCase()} signal about ${input.teacherPainPoint.toLowerCase()}. ${close}`,
-    linkedInDraft: `${input.hookTemplateUsed}\n\n${input.sourceTitle}\n\nWhat this really shows is ${input.contentAngle.toLowerCase()}\n\n${input.teacherPainPoint}\n\n${close}`,
-    redditDraft: `Noticing a ${input.signalCategory.toLowerCase()} pattern here and I do not think it is just a one-off.\n\n${input.sourceTitle}\n\nThe part that stands out is ${input.riskToTeacher.toLowerCase()}\n\nHow would you read this from a teacher point of view?`,
-    imagePrompt: `Create a calm editorial visual in a soft documentary style. Show a teacher-centred scene connected to ${input.signalSubtype.toLowerCase()}, with an emotional tone of ${input.emotionalPattern.toLowerCase()}. Keep the setting grounded in real school communication and avoid clutter. Optional text overlay idea: "${input.hookTemplateUsed}".`,
-    videoScript: `Hook: ${input.hookTemplateUsed}.\nCore issue: ${input.sourceTitle}.\nTakeaway: ${input.riskToTeacher}\nSoft close: ${close}`,
+    xDraft: `${input.hookTemplateUsed}: ${scenarioLead} This is a ${severityPhrase} ${input.signalCategory.toLowerCase()} communication signal about ${input.teacherPainPoint.toLowerCase()}. ${close}`,
+    linkedInDraft: `${input.hookTemplateUsed}\n\n${scenarioLead}\n\nWhat this really shows is ${input.contentAngle.toLowerCase()}\n\n${input.teacherPainPoint}\n\n${close}`,
+    redditDraft: `Noticing a ${input.signalCategory.toLowerCase()} communication pattern here, especially around "${scenarioLead}".\n\nThe part that stands out is ${input.riskToTeacher.toLowerCase()}\n\nHow would you handle that as a teacher?`,
+    imagePrompt: `Create a calm editorial visual in a soft documentary style. Show a teacher-centred scene connected to ${input.signalSubtype.toLowerCase()} and the scenario "${scenarioLead}". Keep the emotional tone ${input.emotionalPattern.toLowerCase()}, grounded in real school communication, with no clutter. Optional text overlay idea: "${input.hookTemplateUsed}".`,
+    videoScript: `Hook: ${input.hookTemplateUsed}.\nCore issue: ${scenarioLead}.\nTakeaway: ${input.riskToTeacher}\nSoft close: ${close}`,
     ctaOrClosingLine: close,
     hashtagsOrKeywords:
       input.platformPriority === "LinkedIn First"

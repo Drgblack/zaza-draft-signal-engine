@@ -162,11 +162,22 @@ These fields are display-ready and round-trip-safe, but this run does not implem
 - Purpose:
   - bridge a raw signal into a clearer teacher communication scenario before interpretation runs
   - improve interpretation quality for indirect news, policy, or incident signals
+- Quality guidance:
+  - strong angles describe what the teacher needs to say, document, report, explain, or respond to
+  - weak angles are usually headline rewrites or generic issue labels
+- The app now evaluates the field as:
+  - `missing`
+  - `weak`
+  - `usable`
+  - `strong`
 - Operator usage:
   - add or refine it on `/signals/[id]/interpret`
+  - review the quality feedback shown under the field
+  - optionally use `Suggest angles` for 2-3 bounded scenario ideas
   - run interpretation with the scenario framing in place
   - save the interpretation to persist both the scenario and the structured interpretation fields
 - The interpretation layer now treats `Scenario Angle` as the highest-priority framing input when present, while still using the source headline, excerpt, and summary as evidence.
+- The generation layer now also prioritises a usable `Scenario Angle` when building drafts, so outputs feel like they respond to the communication situation rather than just the source headline.
 
 ## Current Caveats
 - `PATCH` updates still omit `undefined` values and do not implement explicit field clearing semantics yet.

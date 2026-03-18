@@ -32,6 +32,7 @@ import {
 } from "@/types/signal";
 import type { IngestionRunSummary } from "@/lib/ingestion/types";
 import type { PipelineRunSummary } from "@/lib/pipeline";
+import type { ScenarioAngleAssessment, ScenarioAngleSuggestion } from "@/lib/scenario-angle";
 
 const optionalNullableString = z.union([z.string(), z.null()]).optional();
 
@@ -87,6 +88,33 @@ export const interpretRequestSchema = z.object({
     });
   }
 });
+
+export const scenarioAngleSuggestRequestSchema = z
+  .object({
+    signalId: z.string().trim().min(1).optional(),
+    signal: z
+      .object({
+        recordId: z.string().trim().min(1).optional(),
+        sourceTitle: z.string().trim().min(1, "Source title is required."),
+        sourceType: optionalNullableString,
+        sourcePublisher: optionalNullableString,
+        sourceDate: optionalNullableString,
+        sourceUrl: optionalNullableString,
+        rawExcerpt: optionalNullableString,
+        manualSummary: optionalNullableString,
+        scenarioAngle: optionalNullableString,
+      })
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (!value.signalId && !value.signal) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide either a signalId or a structured signal payload.",
+        path: ["signalId"],
+      });
+    }
+  });
 
 export const interpretationResultSchema = z.object({
   signalCategory: z.enum(SIGNAL_CATEGORIES),
@@ -316,6 +344,17 @@ export interface SaveInterpretationResponse {
   source: SignalDataSource;
   signal: SignalRecord;
   message: string;
+  error?: string;
+}
+
+export interface ScenarioAngleSuggestResponse {
+  success: boolean;
+  signal?: SignalInterpretationInput;
+  assessment?: ScenarioAngleAssessment;
+  suggestions?: ScenarioAngleSuggestion[];
+  source?: "anthropic" | "openai" | "mock";
+  promptVersion?: string;
+  message?: string;
   error?: string;
 }
 

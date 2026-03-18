@@ -1,4 +1,5 @@
 import type { SignalGenerationInput } from "@/types/signal";
+import { getScenarioPriority } from "@/lib/scenario-angle";
 
 export const GENERATION_PROMPT_VERSION = "v1.0.0";
 
@@ -35,6 +36,8 @@ export function buildGenerationSystemPrompt(): string {
     "Do not invent facts beyond the provided signal and interpretation context.",
     "Avoid defamation, legal claims, and named private individuals.",
     "Treat the interpretation as the governing editorial direction. Do not drift into a different angle.",
+    "When Scenario Angle is present, treat it as the primary communication scenario for the drafts.",
+    "Use the source title and excerpt as evidence and context, not as the main framing if a usable scenario angle exists.",
     "V1 is fixed-template and human-reviewed. Keep drafts clean and editable.",
     "Platform guidance:",
     "X Draft: short, sharp, emotionally resonant, not corporate, not hashtag-heavy.",
@@ -48,6 +51,11 @@ export function buildGenerationSystemPrompt(): string {
 }
 
 export function buildGenerationUserPrompt(input: SignalGenerationInput): string {
+  const scenarioPriority = getScenarioPriority({
+    scenarioAngle: input.scenarioAngle,
+    sourceTitle: input.sourceTitle,
+  });
+
   return JSON.stringify(
     {
       task: "Generate fixed-format draft assets from this interpreted signal.",
@@ -61,6 +69,11 @@ export function buildGenerationUserPrompt(input: SignalGenerationInput): string 
         rawExcerpt: input.rawExcerpt,
         manualSummary: input.manualSummary,
         scenarioAngle: input.scenarioAngle,
+        scenarioAngleQuality: scenarioPriority.assessment.quality,
+        scenarioAnglePriority:
+          scenarioPriority.preferredScenario !== null
+            ? "Use the scenario angle as the main drafting frame."
+            : "Scenario angle is weak or missing, so use interpretation plus source context.",
       },
       interpretation: {
         signalCategory: input.signalCategory,
