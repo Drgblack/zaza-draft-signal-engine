@@ -190,6 +190,10 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
   - teacher discussion sources can receive bounded relevance / brand-fit uplift when they show direct communication tension
   - policy/news sources face more pressure to be transformable into a teacher-response scenario
   - public forum trust remains moderate rather than automatically high
+- Scoring now also uses a bounded transformability layer:
+  - strong or usable `Scenario Angle` can materially improve otherwise indirect policy/news/report sources
+  - weak or missing framing does not unlock that uplift
+  - transformability is designed to help indirect sources compete fairly without overwhelming direct teacher-discussion signals
 - Source-aware reasoning now appears in operator-facing explanations such as `Why Selected` and `Why Rejected`.
 - Queue views now surface source context so operators can distinguish teacher discussion, internal/operator signals, and news/policy sources more quickly.
 - Recommendation and quality gate decisions do not change editorial status automatically in this run.
@@ -303,3 +307,4 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 5. Improve operator control over pipeline thresholds and borderline keep/review decisions without turning the product into a tuning console.
 6. Tighten Reddit source selection and moderation heuristics so higher-signal teacher communication threads are prioritised without widening collection scope.
 7. Add tighter transformability checks for policy/news sources so scenario-angle quality can influence advancement more directly without making the scorer opaque.
+8. Decide whether transformability should remain an internal judgement aid or be partially persisted for auditability once the heuristics stabilise.

@@ -17,6 +17,7 @@ import {
   URGENCY_KEYWORDS,
 } from "@/lib/scoring-rules";
 import { getSourceProfile } from "@/lib/source-profiles";
+import { assessTransformability } from "@/lib/transformability";
 import type { SignalRecord, SignalScoringResult } from "@/types/signal";
 
 function buildSignalText(signal: SignalRecord): string {
@@ -40,6 +41,7 @@ function scoreRelevance(signal: SignalRecord, text: string): number {
     scenarioAngle: signal.scenarioAngle,
     sourceTitle: signal.sourceTitle,
   });
+  const transformability = assessTransformability(signal);
   const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
   let score = 10;
   score += countKeywordMatches(text, RELEVANCE_KEYWORDS) * 8;
@@ -66,6 +68,12 @@ function scoreRelevance(signal: SignalRecord, text: string): number {
     }
   }
 
+  if (transformability.materiallyImprovedByScenario) {
+    score += 12;
+  } else if (transformability.score >= 55 && transformability.isIndirectSource) {
+    score += 6;
+  }
+
   if (profile.sourceKind === "reddit" && communicationHits === 0) {
     score -= 6;
   }
@@ -79,6 +87,7 @@ function scoreBrandFit(signal: SignalRecord, text: string): number {
     scenarioAngle: signal.scenarioAngle,
     sourceTitle: signal.sourceTitle,
   });
+  const transformability = assessTransformability(signal);
   const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
   let score = 10;
   score += countKeywordMatches(text, BRAND_FIT_KEYWORDS) * 9;
@@ -107,6 +116,14 @@ function scoreBrandFit(signal: SignalRecord, text: string): number {
 
   if (ABSTRACT_COMMENTARY_PATTERNS.some((pattern) => text.includes(pattern))) {
     score -= 10;
+  }
+
+  if (transformability.materiallyImprovedByScenario) {
+    score += 12;
+  } else if (transformability.score >= 55 && transformability.isIndirectSource) {
+    score += 5;
+  } else if (transformability.isIndirectSource && transformability.score < 35) {
+    score -= 6;
   }
 
   return clampScore(score);
@@ -212,6 +229,7 @@ function getSimilarityToExistingContent(signal: SignalRecord, existingSignals: S
 
 function scoreNovelty(signal: SignalRecord, similarityToExistingContent: number | null): number {
   const profile = getSourceProfile(signal);
+  const transformability = assessTransformability(signal);
   let score = 60;
   const titleFingerprint = normalizeTitleFingerprint(signal.sourceTitle);
 
@@ -238,6 +256,10 @@ function scoreNovelty(signal: SignalRecord, similarityToExistingContent: number 
 
   if (profile.id === "feed-policy-news" && signal.scenarioAngle === null && signal.manualSummary && signal.manualSummary.length < 120) {
     score -= 6;
+  }
+
+  if (transformability.materiallyImprovedByScenario) {
+    score += 6;
   }
 
   if (similarityToExistingContent !== null) {
@@ -309,6 +331,7 @@ function buildSelectedReason(signal: SignalRecord, result: SignalScoringResult):
   const reasons: string[] = [];
   const profile = getSourceProfile(signal);
   const text = buildSignalText(signal);
+  const transformability = assessTransformability(signal);
   const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
   const scenarioAssessment = assessScenarioAngle({
     scenarioAngle: signal.scenarioAngle,
@@ -321,6 +344,10 @@ function buildSelectedReason(signal: SignalRecord, result: SignalScoringResult):
 
   if ((profile.id === "feed-policy-news" || profile.id === "formal-report") && (scenarioAssessment.quality === "strong" || scenarioAssessment.quality === "usable")) {
     reasons.push("policy-style source context was made more usable by a stronger teacher-response frame");
+  }
+
+  if (transformability.materiallyImprovedByScenario) {
+    reasons.push("a strong scenario angle materially improved its transformability into a teacher communication problem");
   }
 
   if (result.signalRelevanceScore >= 65) {
@@ -351,6 +378,7 @@ function buildRejectedReason(signal: SignalRecord, result: SignalScoringResult):
   const reasons: string[] = [];
   const profile = getSourceProfile(signal);
   const text = buildSignalText(signal);
+  const transformability = assessTransformability(signal);
   const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
   const scenarioAssessment = assessScenarioAngle({
     scenarioAngle: signal.scenarioAngle,
@@ -363,6 +391,10 @@ function buildRejectedReason(signal: SignalRecord, result: SignalScoringResult):
 
   if ((profile.id === "feed-policy-news" || profile.id === "formal-report") && scenarioAssessment.quality !== "strong" && scenarioAssessment.quality !== "usable" && communicationHits === 0) {
     reasons.push("it is policy or sector coverage without a strong teacher-response framing");
+  }
+
+  if (transformability.isIndirectSource && transformability.score < 40) {
+    reasons.push("transformability stayed low because the current scenario framing did not convert the source into a practical communication situation");
   }
 
   if (ABSTRACT_COMMENTARY_PATTERNS.some((pattern) => text.includes(pattern))) {

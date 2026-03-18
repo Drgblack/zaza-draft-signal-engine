@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSourceProfile } from "@/lib/source-profiles";
+import { assessTransformability } from "@/lib/transformability";
 import type { SignalDataSource, SignalRecord, SignalScoringResult } from "@/types/signal";
 
 function toneClasses(tone: "success" | "warning" | "error") {
@@ -62,6 +63,7 @@ export function ScoringPanel({
   initialScoring: SignalScoringResult | null;
 }) {
   const sourceProfile = getSourceProfile(signal);
+  const transformability = assessTransformability(signal);
   const [scoring, setScoring] = useState<SignalScoringResult | null>(initialScoring);
   const [isRunning, setIsRunning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -147,6 +149,11 @@ export function ScoringPanel({
           <p className="text-sm text-slate-500">
             Source profile: <span className="font-medium text-slate-700">{sourceProfile.contextLabel}</span>
           </p>
+        </div>
+
+        <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+          <p className="font-medium text-slate-900">{transformability.label}</p>
+          <p className="mt-2 leading-6">{transformability.reason}</p>
         </div>
 
         {!scoring ? (

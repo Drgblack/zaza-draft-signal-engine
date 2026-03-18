@@ -25,6 +25,7 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - bounded batch scoring from `/ingestion`
   - recommendation, quality gate, and review priority outputs
   - source-aware prioritisation that distinguishes teacher discussion, internal/operator signals, reports, and news/policy sources
+  - transformability heuristics so strong Scenario Angles can improve otherwise indirect sources
 - Controlled pipeline chaining with:
   - `POST /api/pipeline/run`
   - bounded operator-triggered runs from `/ingestion`
@@ -92,6 +93,12 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Policy/news and formal-report sources are still useful, but they usually need clearer transformability or stronger scenario framing before they should advance as aggressively.
 - Public forum sources are not blindly boosted: trust remains moderate unless the content itself is strong enough.
 - Scenario Angle and source-aware scoring are designed to complement each other rather than compete.
+
+## Transformability Notes
+- Transformability is a bounded internal judgement about whether an indirect source can become a usable teacher communication scenario.
+- Strong or usable `Scenario Angle` can improve transformability for policy/news/report sources.
+- Weak or missing framing keeps transformability low, so indirect sources still stay weak unless they are genuinely well-shaped.
+- Transformability helps indirect sources compete more fairly; it does not replace source-aware scoring or let generic news flood the queue.
 
 ## Next Planned Runs
 - Improve duplicate handling and better borderline-review tooling
