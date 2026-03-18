@@ -25,7 +25,7 @@ export default function IngestionPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0 text-sm text-slate-600">
-          No interpretation, generation, or scoring automation runs here yet. Imported items enter the normal workflow as new signals.
+          Imported items enter the normal workflow as new signals. This page now supports a bounded pipeline run that can ingest, score, interpret, and selectively generate drafts while still stopping short of approval, scheduling, or posting.
         </CardContent>
       </Card>
 

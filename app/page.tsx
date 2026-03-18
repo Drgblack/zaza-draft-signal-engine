@@ -44,7 +44,7 @@ export default async function DashboardPage() {
               Open review queue
             </Link>
             <Link href="/ingestion" className={buttonVariants({ variant: "secondary" })}>
-              Run ingestion
+              Run pipeline
             </Link>
             <p className="text-sm text-slate-500">
               Data source: <span className="font-medium text-slate-700">{source === "airtable" ? "Airtable" : "Mock fallback"}</span>
@@ -110,8 +110,8 @@ export default async function DashboardPage() {
               },
               {
                 href: "/ingestion",
-                title: "Run ingestion",
-                copy: "Fetch configured feeds, normalise candidate signals, and import new records for review.",
+                title: "Run pipeline",
+                copy: "Fetch configured feeds, score candidates, and auto-advance only the strongest records into interpretation and draft prep.",
                 icon: Inbox,
               },
             ].map((item) => {

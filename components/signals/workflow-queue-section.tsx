@@ -84,6 +84,9 @@ export function WorkflowQueueSection({
                         ? `Recommendation ${signal.keepRejectRecommendation}`
                         : "Recommendation not set"}
                     </p>
+                    <p className="mt-2">
+                      {signal.qualityGateResult ? `Quality gate ${signal.qualityGateResult}` : "Quality gate not set"}
+                    </p>
                   </div>
                 </div>
               </div>

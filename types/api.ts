@@ -21,6 +21,8 @@ import {
   type SignalGenerationSavePayload,
   type SignalInterpretationInput,
   type SignalInterpretationSavePayload,
+  type SignalScoringResult,
+  type SignalScoringSavePayload,
   type SignalWorkflowUpdatePayload,
   type SeverityScore,
   type SignalCategory,
@@ -29,6 +31,7 @@ import {
   type SuggestedFormatPriority,
 } from "@/types/signal";
 import type { IngestionRunSummary } from "@/lib/ingestion/types";
+import type { PipelineRunSummary } from "@/lib/pipeline";
 
 const optionalNullableString = z.union([z.string(), z.null()]).optional();
 
@@ -205,6 +208,52 @@ export const ingestRequestSchema = z.object({
   sourceIds: z.array(z.string().trim().min(1)).optional(),
 });
 
+export const scoringResultSchema = z.object({
+  signalRelevanceScore: z.number().min(0).max(100),
+  signalNoveltyScore: z.number().min(0).max(100),
+  signalUrgencyScore: z.number().min(0).max(100),
+  brandFitScore: z.number().min(0).max(100),
+  sourceTrustScore: z.number().min(0).max(100),
+  keepRejectRecommendation: z.enum(["Keep", "Review", "Reject"]),
+  whySelected: z.union([z.string().trim().min(1), z.null()]),
+  whyRejected: z.union([z.string().trim().min(1), z.null()]),
+  needsHumanReview: z.boolean(),
+  qualityGateResult: z.enum(["Pass", "Needs Review", "Fail"]),
+  reviewPriority: z.enum(["Low", "Medium", "High", "Urgent"]),
+  similarityToExistingContent: z.union([z.number().min(0).max(100), z.null()]),
+  duplicateClusterId: z.union([z.string().trim().min(1), z.null()]),
+  scoringVersion: z.string().trim().min(1),
+  scoredAt: z.string().trim().min(1),
+});
+
+export const scoreRequestSchema = z
+  .object({
+    signalId: z.string().trim().min(1).optional(),
+    save: z.boolean().optional(),
+    batch: z
+      .object({
+        limit: z.number().int().min(1).max(50).optional(),
+        status: z.enum(SIGNAL_STATUSES).optional(),
+        onlyMissingScores: z.boolean().optional(),
+      })
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (!value.signalId && !value.batch) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide either a signalId or a batch scoring payload.",
+        path: ["signalId"],
+      });
+    }
+  });
+
+export const pipelineRunRequestSchema = z.object({
+  ingestFresh: z.boolean().optional(),
+  sourceIds: z.array(z.string().trim().min(1)).optional(),
+  maxCandidates: z.number().int().min(1).max(30).optional(),
+});
+
 export interface SignalsApiResponse {
   success: boolean;
   source: SignalDataSource;
@@ -295,6 +344,41 @@ export interface IngestApiResponse {
   success: boolean;
   mode: SignalDataSource;
   result?: IngestionRunSummary;
+  error?: string;
+}
+
+export interface ScoreResponse {
+  success: boolean;
+  persisted: boolean;
+  source: SignalDataSource;
+  signal?: SignalRecord;
+  scoring?: SignalScoringResult;
+  message: string;
+  error?: string;
+}
+
+export interface ScoreBatchResponse {
+  success: boolean;
+  persisted: boolean;
+  source: SignalDataSource;
+  processed: number;
+  saved: number;
+  results: Array<{
+    recordId: string;
+    sourceTitle: string;
+    recommendation: SignalScoringResult["keepRejectRecommendation"];
+    reviewPriority: SignalScoringResult["reviewPriority"];
+    persisted: boolean;
+    error?: string;
+  }>;
+  message: string;
+  error?: string;
+}
+
+export interface PipelineRunResponse {
+  success: boolean;
+  source: SignalDataSource;
+  result?: PipelineRunSummary;
   error?: string;
 }
 
@@ -417,6 +501,29 @@ export function toGenerationSavePayload(
     promptVersion: value.promptVersion.trim(),
     generatedAt: value.generatedAt,
     status: value.status,
+  };
+}
+
+export function toScoringSavePayload(
+  value: z.infer<typeof scoringResultSchema>,
+): SignalScoringSavePayload {
+  return {
+    signalRelevanceScore: Math.round(value.signalRelevanceScore),
+    signalNoveltyScore: Math.round(value.signalNoveltyScore),
+    signalUrgencyScore: Math.round(value.signalUrgencyScore),
+    brandFitScore: Math.round(value.brandFitScore),
+    sourceTrustScore: Math.round(value.sourceTrustScore),
+    keepRejectRecommendation: value.keepRejectRecommendation,
+    whySelected: value.whySelected,
+    whyRejected: value.whyRejected,
+    needsHumanReview: value.needsHumanReview,
+    qualityGateResult: value.qualityGateResult,
+    reviewPriority: value.reviewPriority,
+    similarityToExistingContent:
+      value.similarityToExistingContent === null ? null : Math.round(value.similarityToExistingContent),
+    duplicateClusterId: value.duplicateClusterId,
+    scoringVersion: value.scoringVersion.trim(),
+    scoredAt: value.scoredAt,
   };
 }
 

@@ -21,6 +21,7 @@ export default async function ReviewPage() {
     { label: "Ready for review", count: buckets.readyForReview.length, href: "#ready-for-review" },
     { label: "Ready to schedule", count: buckets.readyToSchedule.length, href: "#ready-to-schedule" },
     { label: "Scheduled / awaiting posting", count: buckets.scheduledAwaitingPosting.length, href: "#scheduled-awaiting-posting" },
+    { label: "Filtered out", count: buckets.filteredOut.length, href: "#filtered-out" },
   ];
 
   return (
@@ -38,7 +39,7 @@ export default async function ReviewPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-0">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             {queueSummary.map((item) => (
               <Link
                 key={item.label}
@@ -116,6 +117,14 @@ export default async function ReviewPage() {
         description="Records already scheduled and waiting to be logged as posted."
         signals={buckets.scheduledAwaitingPosting}
         emptyCopy="No scheduled records are waiting to be posted."
+      />
+
+      <WorkflowQueueSection
+        id="filtered-out"
+        title="Filtered Out"
+        description="Signals the scoring layer marked as reject or quality-gate fail. These stay visible for auditability without crowding the active queue."
+        signals={buckets.filteredOut}
+        emptyCopy="No signals are currently filtered out by the scoring gate."
       />
     </div>
   );

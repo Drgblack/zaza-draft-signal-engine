@@ -184,6 +184,26 @@ export interface SignalWorkflowUpdatePayload {
   reviewNotes?: string | null;
 }
 
+export interface SignalScoringResult {
+  signalRelevanceScore: number;
+  signalNoveltyScore: number;
+  signalUrgencyScore: number;
+  brandFitScore: number;
+  sourceTrustScore: number;
+  keepRejectRecommendation: KeepRejectRecommendation;
+  whySelected: string | null;
+  whyRejected: string | null;
+  needsHumanReview: boolean;
+  qualityGateResult: QualityGateResult;
+  reviewPriority: ReviewPriority;
+  similarityToExistingContent: number | null;
+  duplicateClusterId: string | null;
+  scoringVersion: string;
+  scoredAt: string;
+}
+
+export type SignalScoringSavePayload = SignalScoringResult;
+
 export interface SignalAutomationEvaluationFields {
   ingestionSource: string | null;
   ingestionMethod: string | null;

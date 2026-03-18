@@ -55,6 +55,10 @@ export function SignalsTable({
                         <p className="max-w-md text-sm text-slate-500">
                           {signal.manualSummary ?? signal.rawExcerpt ?? "No summary added yet."}
                         </p>
+                        <p className="text-xs text-slate-400">
+                          {signal.keepRejectRecommendation ?? "Unscored"} · {signal.reviewPriority ?? "Priority not set"} ·{" "}
+                          {signal.qualityGateResult ?? "Quality gate not set"}
+                        </p>
                         {signal.sourceUrl ? (
                           <Link href={signal.sourceUrl} target="_blank" className="text-xs text-[color:var(--accent)]">
                             Open source

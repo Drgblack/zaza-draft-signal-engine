@@ -10,10 +10,32 @@ export interface SignalFilters {
 }
 
 export interface AutomationReadinessSnapshot {
-  label: "Not assessed" | "Partially assessed" | "Prepared for automation" | "Needs human review";
+  label: "Not assessed" | "Partially assessed" | "Prepared for automation" | "Needs human review" | "Filtered out";
   tone: "neutral" | "warning" | "success";
   completedChecks: number;
   totalChecks: number;
+}
+
+export function isFilteredOutSignal(signal: SignalRecord): boolean {
+  return (
+    signal.status === "Rejected" ||
+    signal.keepRejectRecommendation === "Reject" ||
+    signal.qualityGateResult === "Fail"
+  );
+}
+
+export function hasScoring(signal: SignalRecord): boolean {
+  return Boolean(
+    signal.signalRelevanceScore !== null &&
+      signal.signalNoveltyScore !== null &&
+      signal.signalUrgencyScore !== null &&
+      signal.brandFitScore !== null &&
+      signal.sourceTrustScore !== null &&
+      signal.keepRejectRecommendation &&
+      signal.qualityGateResult &&
+      signal.reviewPriority &&
+      signal.needsHumanReview !== null,
+  );
 }
 
 function parseDateValue(value: string | null | undefined): number {
@@ -90,11 +112,12 @@ export function sortSignals(signals: SignalRecord[], sort: SignalsSortKey = "cre
 
 export function getWorkflowBuckets(signals: SignalRecord[]) {
   return {
-    needsInterpretation: signals.filter((signal) => !hasInterpretation(signal) || signal.status === "New"),
-    readyForGeneration: signals.filter((signal) => hasInterpretation(signal) && !hasGeneration(signal)),
+    needsInterpretation: signals.filter((signal) => !isFilteredOutSignal(signal) && (!hasInterpretation(signal) || signal.status === "New")),
+    readyForGeneration: signals.filter((signal) => !isFilteredOutSignal(signal) && hasInterpretation(signal) && !hasGeneration(signal)),
     readyForReview: signals.filter((signal) => hasGeneration(signal) && ["Draft Generated", "Reviewed"].includes(signal.status)),
     readyToSchedule: signals.filter((signal) => signal.status === "Approved"),
     scheduledAwaitingPosting: signals.filter((signal) => signal.status === "Scheduled"),
+    filteredOut: signals.filter((signal) => isFilteredOutSignal(signal)),
   };
 }
 
@@ -127,6 +150,15 @@ export function getAutomationReadinessSnapshot(signal: SignalRecord): Automation
     return {
       label: "Needs human review",
       tone: "warning",
+      completedChecks,
+      totalChecks,
+    };
+  }
+
+  if (signal.qualityGateResult === "Fail" || signal.keepRejectRecommendation === "Reject") {
+    return {
+      label: "Filtered out",
+      tone: "neutral",
       completedChecks,
       totalChecks,
     };
