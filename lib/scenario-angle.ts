@@ -14,6 +14,15 @@ export interface ScenarioAngleAssessment {
   overlapWithTitle: number;
 }
 
+export interface SavedScenarioAngleReuseDecision {
+  hasSavedScenarioAngle: boolean;
+  reusableScenarioAngle: string | null;
+  shouldReuse: boolean;
+  wasIgnored: boolean;
+  ignoreReason: string | null;
+  assessment: ScenarioAngleAssessment;
+}
+
 export const scenarioAngleSuggestionSchema = z.object({
   angle: z.string().trim().min(1),
   rationale: z.string().trim().min(1),
@@ -236,6 +245,57 @@ export function getScenarioPriority(input: Pick<SignalInterpretationInput, "scen
       assessment.quality === "strong" || assessment.quality === "usable"
         ? input.scenarioAngle?.trim() ?? null
         : null,
+    assessment,
+  };
+}
+
+export function getSavedScenarioAngleReuseDecision(input: {
+  scenarioAngle: string | null | undefined;
+  sourceTitle: string | null | undefined;
+  reuseAllowed: boolean;
+}): SavedScenarioAngleReuseDecision {
+  const trimmedScenarioAngle = input.scenarioAngle?.trim() ?? "";
+  const hasSavedScenarioAngle = trimmedScenarioAngle.length > 0;
+  const assessment = assessScenarioAngle({
+    scenarioAngle: input.scenarioAngle,
+    sourceTitle: input.sourceTitle,
+  });
+  const eligibleQuality = assessment.quality === "usable" || assessment.quality === "strong";
+  const shouldReuse = input.reuseAllowed && hasSavedScenarioAngle && eligibleQuality;
+
+  if (!hasSavedScenarioAngle) {
+    return {
+      hasSavedScenarioAngle,
+      reusableScenarioAngle: null,
+      shouldReuse,
+      wasIgnored: false,
+      ignoreReason: null,
+      assessment,
+    };
+  }
+
+  if (shouldReuse) {
+    return {
+      hasSavedScenarioAngle,
+      reusableScenarioAngle: trimmedScenarioAngle,
+      shouldReuse,
+      wasIgnored: false,
+      ignoreReason: null,
+      assessment,
+    };
+  }
+
+  return {
+    hasSavedScenarioAngle,
+    reusableScenarioAngle: null,
+    shouldReuse: false,
+    wasIgnored: true,
+    ignoreReason:
+      !input.reuseAllowed
+        ? "Saved framing was available, but pipeline reuse was disabled for this run."
+        : assessment.quality === "weak"
+          ? "Saved framing was ignored because the current scenario angle is too weak to trust in pipeline automation."
+          : "Saved framing was not reusable for this pipeline run.",
     assessment,
   };
 }

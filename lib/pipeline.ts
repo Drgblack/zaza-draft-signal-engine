@@ -5,9 +5,11 @@ import { generateDrafts, toGenerationInputFromSignal } from "@/lib/generator";
 import { runIngestion } from "@/lib/ingestion/service";
 import { interpretSignal, toInterpretationInput } from "@/lib/interpreter";
 import { getPipelineGateDecision } from "@/lib/pipeline-rules";
+import { SCENARIO_ANGLE_QUALITY_LEVELS, getSavedScenarioAngleReuseDecision } from "@/lib/scenario-angle";
 import { scoreSignal } from "@/lib/scoring";
 import { hasScoring } from "@/lib/workflow";
 import type { IngestionRunSummary } from "@/lib/ingestion/types";
+import type { ScenarioAngleQuality } from "@/lib/scenario-angle";
 import type { SignalDataSource, SignalRecord, SignalScoringResult } from "@/types/signal";
 
 const pipelineRecordStageSchema = z.enum(["Scored", "Interpreted", "Draft Generated"]);
@@ -18,11 +20,20 @@ const pipelineRecordSummarySchema = z.object({
   recommendation: z.enum(["Keep", "Review", "Reject"]),
   qualityGateResult: z.enum(["Pass", "Needs Review", "Fail"]),
   reviewPriority: z.enum(["Low", "Medium", "High", "Urgent"]),
+  scenarioAngleQuality: z.enum(SCENARIO_ANGLE_QUALITY_LEVELS).nullable(),
+  usedSavedScenarioAngleForInterpretation: z.boolean(),
+  usedSavedScenarioAngleForGeneration: z.boolean(),
   stageReached: pipelineRecordStageSchema,
   statusBefore: z.enum(["New", "Interpreted", "Draft Generated", "Reviewed", "Approved", "Scheduled", "Posted", "Archived", "Rejected"]),
   statusAfter: z.enum(["New", "Interpreted", "Draft Generated", "Reviewed", "Approved", "Scheduled", "Posted", "Archived", "Rejected"]),
   decisionSummary: z.string().trim().min(1),
   persisted: z.boolean(),
+});
+
+const pipelineScenarioAngleReuseRecordSchema = z.object({
+  recordId: z.string().trim().min(1),
+  sourceTitle: z.string().trim().min(1),
+  quality: z.enum(SCENARIO_ANGLE_QUALITY_LEVELS),
 });
 
 const pipelineErrorSchema = z.object({
@@ -33,6 +44,7 @@ const pipelineErrorSchema = z.object({
 });
 
 export const pipelineRunSummarySchema = z.object({
+  reuseSavedScenarioAnglesEnabled: z.boolean(),
   ingestion: z
     .object({
       sourcesChecked: z.number().int().nonnegative(),
@@ -46,6 +58,10 @@ export const pipelineRunSummarySchema = z.object({
   reviewOnly: z.number().int().nonnegative(),
   interpreted: z.number().int().nonnegative(),
   generated: z.number().int().nonnegative(),
+  scenarioAnglesReused: z.number().int().nonnegative(),
+  scenarioAnglesIgnored: z.number().int().nonnegative(),
+  recordsInterpretedWithSavedAngle: z.array(pipelineScenarioAngleReuseRecordSchema),
+  recordsGeneratedWithSavedAngle: z.array(pipelineScenarioAngleReuseRecordSchema),
   records: z.object({
     rejected: z.array(pipelineRecordSummarySchema),
     reviewOnly: z.array(pipelineRecordSummarySchema),
@@ -63,6 +79,7 @@ export interface PipelineRunOptions {
   ingestFresh?: boolean;
   sourceIds?: string[];
   maxCandidates?: number;
+  reuseSavedScenarioAngles?: boolean;
 }
 
 function buildScoringUpdate(scoring: SignalScoringResult) {
@@ -114,6 +131,11 @@ function buildSummaryRecord(
   stageReached: z.infer<typeof pipelineRecordStageSchema>,
   decisionSummary: string,
   persisted: boolean,
+  options?: {
+    scenarioAngleQuality?: ScenarioAngleQuality | null;
+    usedSavedScenarioAngleForInterpretation?: boolean;
+    usedSavedScenarioAngleForGeneration?: boolean;
+  },
 ) {
   return pipelineRecordSummarySchema.parse({
     recordId: signalAfter.recordId,
@@ -121,6 +143,9 @@ function buildSummaryRecord(
     recommendation: scoring.keepRejectRecommendation,
     qualityGateResult: scoring.qualityGateResult,
     reviewPriority: scoring.reviewPriority,
+    scenarioAngleQuality: options?.scenarioAngleQuality ?? null,
+    usedSavedScenarioAngleForInterpretation: options?.usedSavedScenarioAngleForInterpretation ?? false,
+    usedSavedScenarioAngleForGeneration: options?.usedSavedScenarioAngleForGeneration ?? false,
     stageReached,
     statusBefore: signalBefore.status,
     statusAfter: signalAfter.status,
@@ -149,9 +174,19 @@ function buildPipelineMessage(summary: PipelineRunSummary, source: SignalDataSou
       : "Pipeline run completed in mock mode. No new candidates met the scoring criteria for this bounded pass.";
   }
 
-  return source === "airtable"
-    ? `Pipeline run completed. ${summary.generated} records advanced to draft generation, ${summary.interpreted} advanced to interpretation only, ${summary.reviewOnly} were held for review, and ${summary.rejected} were filtered out.`
-    : `Pipeline run completed in mock mode. ${summary.generated} records reached draft generation, ${summary.interpreted} reached interpretation, ${summary.reviewOnly} were held for review, and ${summary.rejected} were filtered out.`;
+  const sourcePrefix = source === "airtable" ? "Pipeline run completed." : "Pipeline run completed in mock mode.";
+  const scenarioSummary = summary.reuseSavedScenarioAnglesEnabled
+    ? ` Saved scenario framing was reused on ${summary.scenarioAnglesReused} records and ignored on ${summary.scenarioAnglesIgnored} records.`
+    : " Saved scenario framing reuse was disabled for this run.";
+
+  return `${sourcePrefix} ${summary.generated} records ${source === "airtable" ? "advanced to draft generation" : "reached draft generation"}, ${summary.interpreted} ${source === "airtable" ? "advanced to interpretation only" : "reached interpretation"}, ${summary.reviewOnly} were held for review, and ${summary.rejected} were filtered out.${scenarioSummary}`;
+}
+
+function applyScenarioAngleOverride(signal: SignalRecord, scenarioAngle: string | null): SignalRecord {
+  return {
+    ...signal,
+    scenarioAngle,
+  };
 }
 
 export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
@@ -160,6 +195,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
 }> {
   const shouldIngestFresh = options.ingestFresh ?? true;
   const maxCandidates = Math.min(Math.max(options.maxCandidates ?? 15, 1), 30);
+  const reuseSavedScenarioAngles = options.reuseSavedScenarioAngles ?? true;
 
   let source: SignalDataSource = "mock";
   let ingestionResult: IngestionRunSummary | null = null;
@@ -203,7 +239,11 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
   const reviewOnly: PipelineRunSummary["records"]["reviewOnly"] = [];
   const interpreted: PipelineRunSummary["records"]["interpreted"] = [];
   const generated: PipelineRunSummary["records"]["generated"] = [];
+  const recordsInterpretedWithSavedAngle: PipelineRunSummary["recordsInterpretedWithSavedAngle"] = [];
+  const recordsGeneratedWithSavedAngle: PipelineRunSummary["recordsGeneratedWithSavedAngle"] = [];
   const touchedRecordIds = new Set<string>();
+  const reusedScenarioAngleRecordIds = new Set<string>();
+  const ignoredScenarioAngleRecordIds = new Set<string>();
   let candidatesScored = 0;
 
   for (const signal of targets) {
@@ -237,7 +277,16 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
       continue;
     }
 
-    const interpretationStage = buildInterpretationUpdate(scoredSignal);
+    const savedScenarioAngleDecision = getSavedScenarioAngleReuseDecision({
+      scenarioAngle: scoredSignal.scenarioAngle,
+      sourceTitle: scoredSignal.sourceTitle,
+      reuseAllowed: reuseSavedScenarioAngles,
+    });
+    const interpretationSignal = applyScenarioAngleOverride(
+      scoredSignal,
+      savedScenarioAngleDecision.reusableScenarioAngle,
+    );
+    const interpretationStage = buildInterpretationUpdate(interpretationSignal);
     const savedInterpretation = await saveSignalWithFallback(signal.recordId, interpretationStage.update);
 
     if (!savedInterpretation.signal) {
@@ -254,14 +303,29 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
           scoredSignal,
           scoring,
           "Scored",
-          `${decision.summary} Interpretation could not be saved, so the record remains in scoring-only state.`,
+          `${decision.summary} ${savedScenarioAngleDecision.ignoreReason ?? ""} Interpretation could not be saved, so the record remains in scoring-only state.`.trim(),
           savedScoring.persisted,
+          {
+            scenarioAngleQuality: savedScenarioAngleDecision.hasSavedScenarioAngle ? savedScenarioAngleDecision.assessment.quality : null,
+          },
         ),
       );
       continue;
     }
 
     const interpretedSignal = savedInterpretation.signal;
+    if (savedScenarioAngleDecision.shouldReuse) {
+      reusedScenarioAngleRecordIds.add(signal.recordId);
+      recordsInterpretedWithSavedAngle.push(
+        pipelineScenarioAngleReuseRecordSchema.parse({
+          recordId: interpretedSignal.recordId,
+          sourceTitle: interpretedSignal.sourceTitle,
+          quality: savedScenarioAngleDecision.assessment.quality,
+        }),
+      );
+    } else if (savedScenarioAngleDecision.wasIgnored) {
+      ignoredScenarioAngleRecordIds.add(signal.recordId);
+    }
 
     if (!decision.shouldGenerate) {
       interpreted.push(
@@ -270,14 +334,22 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
           interpretedSignal,
           scoring,
           "Interpreted",
-          decision.summary,
+          `${decision.summary}${savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused during interpretation." : savedScenarioAngleDecision.ignoreReason ? ` ${savedScenarioAngleDecision.ignoreReason}` : ""}`,
           savedScoring.persisted && savedInterpretation.persisted,
+          {
+            scenarioAngleQuality: savedScenarioAngleDecision.hasSavedScenarioAngle ? savedScenarioAngleDecision.assessment.quality : null,
+            usedSavedScenarioAngleForInterpretation: savedScenarioAngleDecision.shouldReuse,
+          },
         ),
       );
       continue;
     }
 
-    const generationInput = toGenerationInputFromSignal(interpretedSignal);
+    const generationSignal = applyScenarioAngleOverride(
+      interpretedSignal,
+      savedScenarioAngleDecision.reusableScenarioAngle,
+    );
+    const generationInput = toGenerationInputFromSignal(generationSignal);
     if (!generationInput) {
       errors.push(
         pipelineErrorSchema.parse({
@@ -292,8 +364,12 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
           interpretedSignal,
           scoring,
           "Interpreted",
-          `${decision.summary} Generation input was incomplete, so the record stopped after interpretation.`,
+          `${decision.summary}${savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused during interpretation." : savedScenarioAngleDecision.ignoreReason ? ` ${savedScenarioAngleDecision.ignoreReason}` : ""} Generation input was incomplete, so the record stopped after interpretation.`,
           savedScoring.persisted && savedInterpretation.persisted,
+          {
+            scenarioAngleQuality: savedScenarioAngleDecision.hasSavedScenarioAngle ? savedScenarioAngleDecision.assessment.quality : null,
+            usedSavedScenarioAngleForInterpretation: savedScenarioAngleDecision.shouldReuse,
+          },
         ),
       );
       continue;
@@ -329,11 +405,26 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
           interpretedSignal,
           scoring,
           "Interpreted",
-          `${decision.summary} Drafts were generated but could not be saved, so the record stopped after interpretation.`,
+          `${decision.summary}${savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused for interpretation and generation." : savedScenarioAngleDecision.ignoreReason ? ` ${savedScenarioAngleDecision.ignoreReason}` : ""} Drafts were generated but could not be saved, so the record stopped after interpretation.`,
           savedScoring.persisted && savedInterpretation.persisted,
+          {
+            scenarioAngleQuality: savedScenarioAngleDecision.hasSavedScenarioAngle ? savedScenarioAngleDecision.assessment.quality : null,
+            usedSavedScenarioAngleForInterpretation: savedScenarioAngleDecision.shouldReuse,
+            usedSavedScenarioAngleForGeneration: savedScenarioAngleDecision.shouldReuse,
+          },
         ),
       );
       continue;
+    }
+
+    if (savedScenarioAngleDecision.shouldReuse) {
+      recordsGeneratedWithSavedAngle.push(
+        pipelineScenarioAngleReuseRecordSchema.parse({
+          recordId: savedGeneration.signal.recordId,
+          sourceTitle: savedGeneration.signal.sourceTitle,
+          quality: savedScenarioAngleDecision.assessment.quality,
+        }),
+      );
     }
 
     generated.push(
@@ -342,19 +433,29 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
         savedGeneration.signal,
         scoring,
         "Draft Generated",
-        `${decision.summary} ${generationRun.message}`,
+        `${decision.summary}${savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused for interpretation and generation." : savedScenarioAngleDecision.ignoreReason ? ` ${savedScenarioAngleDecision.ignoreReason}` : ""} ${generationRun.message}`,
         savedScoring.persisted && savedInterpretation.persisted && savedGeneration.persisted,
+        {
+          scenarioAngleQuality: savedScenarioAngleDecision.hasSavedScenarioAngle ? savedScenarioAngleDecision.assessment.quality : null,
+          usedSavedScenarioAngleForInterpretation: savedScenarioAngleDecision.shouldReuse,
+          usedSavedScenarioAngleForGeneration: savedScenarioAngleDecision.shouldReuse,
+        },
       ),
     );
   }
 
   const draftSummary = {
+    reuseSavedScenarioAnglesEnabled: reuseSavedScenarioAngles,
     ingestion: buildIngestionSnapshot(ingestionResult),
     candidatesScored,
     rejected: rejected.length,
     reviewOnly: reviewOnly.length,
     interpreted: interpreted.length,
     generated: generated.length,
+    scenarioAnglesReused: reusedScenarioAngleRecordIds.size,
+    scenarioAnglesIgnored: ignoredScenarioAngleRecordIds.size,
+    recordsInterpretedWithSavedAngle,
+    recordsGeneratedWithSavedAngle,
     records: {
       rejected,
       reviewOnly,
