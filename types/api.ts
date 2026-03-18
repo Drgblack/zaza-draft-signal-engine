@@ -5,6 +5,7 @@ import {
   SIGNAL_STATUSES,
   type PlatformPriority,
   type RelevanceToZazaDraft,
+  type SignalCreatePayload,
   type SeverityScore,
   type SignalCategory,
   type SignalDataSource,
@@ -14,17 +15,31 @@ import {
 
 const optionalNullableString = z.union([z.string(), z.null()]).optional();
 
-export const createSignalRequestSchema = z.object({
-  sourceUrl: optionalNullableString,
-  sourceTitle: z.string().trim().min(1, "Source title is required."),
-  sourceType: optionalNullableString,
-  sourcePublisher: optionalNullableString,
-  sourceDate: optionalNullableString,
-  rawExcerpt: optionalNullableString,
-  manualSummary: optionalNullableString,
-  signalCategory: z.enum(SIGNAL_CATEGORIES).nullable().optional(),
-  severityScore: z.union([z.enum(["1", "2", "3"]), z.number().int().min(1).max(3)]).nullable().optional(),
-  hookTemplateUsed: optionalNullableString,
+export const createSignalRequestSchema = z
+  .object({
+    sourceUrl: optionalNullableString,
+    sourceTitle: z.string().trim().min(1, "Source title is required."),
+    sourceType: optionalNullableString,
+    sourcePublisher: optionalNullableString,
+    sourceDate: optionalNullableString,
+    rawExcerpt: optionalNullableString,
+    manualSummary: optionalNullableString,
+    signalCategory: z.enum(SIGNAL_CATEGORIES).nullable().optional(),
+    severityScore: z.union([z.enum(["1", "2", "3"]), z.number().int().min(1).max(3)]).nullable().optional(),
+    hookTemplateUsed: optionalNullableString,
+    status: z.enum(SIGNAL_STATUSES).optional(),
+  })
+  .superRefine((value, context) => {
+    if (!normalizeOptionalString(value.rawExcerpt) && !normalizeOptionalString(value.manualSummary)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide at least one of raw excerpt or manual summary.",
+        path: ["rawExcerpt"],
+      });
+    }
+  });
+
+export const statusFilterSchema = z.object({
   status: z.enum(SIGNAL_STATUSES).optional(),
 });
 
@@ -47,6 +62,7 @@ export interface SignalsApiResponse {
   success: boolean;
   source: SignalDataSource;
   signals: SignalRecord[];
+  message?: string;
   error?: string;
 }
 
@@ -56,6 +72,21 @@ export interface CreateSignalApiResponse {
   persisted: boolean;
   signal: SignalRecord;
   message: string;
+  errorCode?: "validation_error" | "airtable_error" | "unknown_error";
+}
+
+export interface AirtableHealthResponse {
+  success: boolean;
+  diagnostics: {
+    configured: boolean;
+    apiReachable: boolean;
+    tableReachable: boolean;
+    schemaAligned: boolean;
+    mappingSucceeded: boolean;
+    mode: SignalDataSource;
+    missingFields: string[];
+    message: string;
+  };
 }
 
 export interface InterpretationResponse {
@@ -103,6 +134,22 @@ export function normalizeOptionalString(value: unknown): string | null {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+export function toCreateSignalPayload(value: z.infer<typeof createSignalRequestSchema>): SignalCreatePayload {
+  return {
+    sourceUrl: normalizeOptionalString(value.sourceUrl),
+    sourceTitle: value.sourceTitle.trim(),
+    sourceType: normalizeOptionalString(value.sourceType),
+    sourcePublisher: normalizeOptionalString(value.sourcePublisher),
+    sourceDate: normalizeOptionalString(value.sourceDate),
+    rawExcerpt: normalizeOptionalString(value.rawExcerpt),
+    manualSummary: normalizeOptionalString(value.manualSummary),
+    signalCategory: value.signalCategory ?? null,
+    severityScore: normalizeSeverityScore(value.severityScore),
+    hookTemplateUsed: normalizeOptionalString(value.hookTemplateUsed),
+    status: value.status ?? "New",
+  };
 }
 
 export const DEFAULT_INTERPRETATION = {

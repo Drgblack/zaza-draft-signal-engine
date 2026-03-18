@@ -1,27 +1,68 @@
 import { NextResponse } from "next/server";
 
-import { createSignal, listSignalsWithFallback } from "@/lib/airtable";
-import { buildMockCreatedSignal } from "@/lib/mock-data";
+import { createSignal, getSafeAirtableErrorMessage, listSignals } from "@/lib/airtable";
+import { buildMockCreatedSignal, mockSignalRecords } from "@/lib/mock-data";
 import { getAppConfig } from "@/lib/config";
 import {
   createSignalRequestSchema,
-  normalizeOptionalString,
-  normalizeSeverityScore,
+  statusFilterSchema,
+  toCreateSignalPayload,
   type CreateSignalApiResponse,
   type SignalsApiResponse,
 } from "@/types/api";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const data = await listSignalsWithFallback();
+export async function GET(request: Request) {
+  const status = new URL(request.url).searchParams.get("status") ?? undefined;
+  const parsedFilter = statusFilterSchema.safeParse({ status });
 
-  return NextResponse.json<SignalsApiResponse>({
-    success: true,
-    source: data.source,
-    signals: data.signals,
-    error: data.error,
-  });
+  if (!parsedFilter.success) {
+    return NextResponse.json(
+      {
+        success: false,
+        source: "airtable",
+        signals: [],
+        error: parsedFilter.error.issues[0]?.message ?? "Invalid status filter.",
+      },
+      { status: 400 },
+    );
+  }
+
+  const config = getAppConfig();
+
+  if (!config.isAirtableConfigured) {
+    const signals = parsedFilter.data.status
+      ? mockSignalRecords.filter((signal) => signal.status === parsedFilter.data.status)
+      : mockSignalRecords;
+
+    return NextResponse.json<SignalsApiResponse>({
+      success: true,
+      source: "mock",
+      signals,
+      message: "Mock mode active because Airtable environment variables are missing.",
+    });
+  }
+
+  try {
+    const signals = await listSignals({ status: parsedFilter.data.status });
+    return NextResponse.json<SignalsApiResponse>({
+      success: true,
+      source: "airtable",
+      signals,
+      message: signals.length === 0 ? "Airtable is connected. The table is currently empty." : "Airtable is connected.",
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        source: "airtable",
+        signals: [],
+        error: `${getSafeAirtableErrorMessage(error)} Check /api/signals/health for diagnostics.`,
+      },
+      { status: 502 },
+    );
+  }
 }
 
 export async function POST(request: Request) {
@@ -32,35 +73,16 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: false,
+        source: "airtable",
+        signals: [],
         error: parsed.error.issues[0]?.message ?? "Invalid payload.",
+        errorCode: "validation_error",
       },
       { status: 400 },
     );
   }
 
-  const submission = {
-    sourceUrl: normalizeOptionalString(parsed.data.sourceUrl),
-    sourceTitle: parsed.data.sourceTitle.trim(),
-    sourceType: normalizeOptionalString(parsed.data.sourceType),
-    sourcePublisher: normalizeOptionalString(parsed.data.sourcePublisher),
-    sourceDate: normalizeOptionalString(parsed.data.sourceDate),
-    rawExcerpt: normalizeOptionalString(parsed.data.rawExcerpt),
-    manualSummary: normalizeOptionalString(parsed.data.manualSummary),
-    signalCategory: parsed.data.signalCategory ?? null,
-    severityScore: normalizeSeverityScore(parsed.data.severityScore),
-    hookTemplateUsed: normalizeOptionalString(parsed.data.hookTemplateUsed),
-    status: parsed.data.status ?? "New",
-  } as const;
-
-  if (!submission.rawExcerpt && !submission.manualSummary) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Provide at least one of raw excerpt or manual summary.",
-      },
-      { status: 400 },
-    );
-  }
+  const submission = toCreateSignalPayload(parsed.data);
 
   const config = getAppConfig();
 
@@ -88,9 +110,14 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Unable to save signal.",
+        source: "airtable",
+        persisted: false,
+        signal: buildMockCreatedSignal(submission),
+        message: "Signal was not saved to Airtable.",
+        error: `${getSafeAirtableErrorMessage(error)} Check /api/signals/health for diagnostics.`,
+        errorCode: "airtable_error",
       },
-      { status: 500 },
+      { status: 502 },
     );
   }
 }

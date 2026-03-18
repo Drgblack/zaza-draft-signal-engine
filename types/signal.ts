@@ -61,6 +61,20 @@ export type SuggestedFormatPriority = (typeof SUGGESTED_FORMAT_PRIORITIES)[numbe
 export type OutcomeQuality = (typeof OUTCOME_QUALITIES)[number];
 export type TeacherVoiceSource = (typeof TEACHER_VOICE_SOURCES)[number];
 
+export interface SignalCreatePayload {
+  sourceUrl: string | null;
+  sourceTitle: string;
+  sourceType: string | null;
+  sourcePublisher: string | null;
+  sourceDate: string | null;
+  rawExcerpt: string | null;
+  manualSummary: string | null;
+  signalCategory: SignalCategory | null;
+  severityScore: SeverityScore | null;
+  hookTemplateUsed: string | null;
+  status: SignalStatus;
+}
+
 export interface SignalRecord {
   recordId: string;
   createdDate: string;
@@ -110,34 +124,17 @@ export interface SignalRecord {
   engagementScore: number | null;
   outcomeQuality: OutcomeQuality | null;
   whyItPerformedOrDidnt: string | null;
-  repeatablePattern: string | null;
+  repeatablePattern: boolean | null;
   bestHookSignalCombination: string | null;
-  evergreenPotential: boolean | null;
+  evergreenPotential: string | null;
   repurposeLater: boolean;
   repurposeIdeas: string | null;
   teacherVoiceSource: TeacherVoiceSource | null;
-  anonymisedUserPattern: string | null;
+  anonymisedUserPattern: boolean | null;
   relatedZazaFrameworkTag: string | null;
   generationModelVersion: string | null;
   promptVersion: string | null;
 }
-
-export interface SignalSubmissionInput {
-  sourceUrl?: string | null;
-  sourceTitle: string;
-  sourceType?: string | null;
-  sourcePublisher?: string | null;
-  sourceDate?: string | null;
-  rawExcerpt?: string | null;
-  manualSummary?: string | null;
-  signalCategory?: SignalCategory | null;
-  severityScore?: SeverityScore | null;
-  hookTemplateUsed?: string | null;
-  status?: SignalStatus;
-}
-
-export type CreateSignalInput = Partial<Omit<SignalRecord, "recordId">> &
-  Pick<SignalRecord, "sourceTitle">;
 
 export type UpdateSignalInput = Partial<Omit<SignalRecord, "recordId">>;
 

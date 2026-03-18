@@ -1,10 +1,11 @@
 import Link from "next/link";
 
+import { deriveDisplayEngagementScore } from "@/lib/airtable";
 import { CategoryBadge } from "@/components/signals/category-badge";
 import { SeverityBadge } from "@/components/signals/severity-badge";
 import { StatusBadge } from "@/components/signals/status-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { compactNumber, formatDate, formatDateTime } from "@/lib/utils";
 import type { SignalRecord } from "@/types/signal";
 
 export function SignalsTable({
@@ -36,6 +37,7 @@ export function SignalsTable({
                   <th className="px-4 py-4 font-medium">Severity</th>
                   <th className="px-4 py-4 font-medium">Hook</th>
                   <th className="px-4 py-4 font-medium">Platform</th>
+                  <th className="px-4 py-4 font-medium">Engagement</th>
                   <th className="px-4 py-4 font-medium">Timing</th>
                 </tr>
               </thead>
@@ -69,6 +71,9 @@ export function SignalsTable({
                     </td>
                     <td className="px-4 py-4 align-top text-slate-600">
                       {signal.platformPriority ?? "TBD"}
+                    </td>
+                    <td className="px-4 py-4 align-top text-slate-600">
+                      {compactNumber(deriveDisplayEngagementScore(signal))}
                     </td>
                     <td className="px-4 py-4 align-top text-slate-500">
                       <div>{signal.scheduledDate ? `Scheduled ${formatDateTime(signal.scheduledDate)}` : `Created ${formatDate(signal.createdDate)}`}</div>

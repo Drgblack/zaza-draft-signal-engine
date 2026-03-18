@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { SOURCE_TYPE_OPTIONS } from "@/lib/constants";
+import type { CreateSignalApiResponse } from "@/types/api";
 import { SEVERITY_SCORES, SIGNAL_CATEGORIES, SIGNAL_STATUSES } from "@/types/signal";
 
 type NewSignalFormState = {
@@ -42,8 +43,12 @@ const initialFormState: NewSignalFormState = {
 export function NewSignalForm() {
   const [formState, setFormState] = useState(initialFormState);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [submissionState, setSubmissionState] = useState<{
+    tone: "success" | "warning" | "error";
+    title: string;
+    body: string;
+    recordId?: string;
+  } | null>(null);
 
   const canSubmit = useMemo(() => {
     return formState.sourceTitle.trim().length > 0 && (formState.rawExcerpt.trim().length > 0 || formState.manualSummary.trim().length > 0);
@@ -55,11 +60,14 @@ export function NewSignalForm() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
-    setSuccess(null);
+    setSubmissionState(null);
 
     if (!canSubmit) {
-      setError("Add a source title and at least one of raw excerpt or manual summary.");
+      setSubmissionState({
+        tone: "error",
+        title: "Validation failed",
+        body: "Add a source title and at least one of raw excerpt or manual summary.",
+      });
       return;
     }
 
@@ -74,15 +82,32 @@ export function NewSignalForm() {
         body: JSON.stringify(formState),
       });
 
-      const data = (await response.json()) as { success?: boolean; message?: string; error?: string };
+      const data = (await response.json()) as CreateSignalApiResponse & {
+        error?: string;
+        errorCode?: string;
+      };
       if (!response.ok || !data.success) {
-        throw new Error(data.error ?? "Unable to submit signal.");
+        setSubmissionState({
+          tone: "error",
+          title: data.errorCode === "validation_error" ? "Validation failed" : "Airtable save failed",
+          body: data.error ?? data.message ?? "Unable to submit signal.",
+        });
+        return;
       }
 
-      setSuccess(data.message ?? "Signal submitted.");
+      setSubmissionState({
+        tone: data.source === "airtable" ? "success" : "warning",
+        title: data.source === "airtable" ? "Saved to Airtable" : "Mock success only",
+        body: data.message ?? "Signal submitted.",
+        recordId: data.signal.recordId,
+      });
       setFormState(initialFormState);
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Unable to submit signal.");
+      setSubmissionState({
+        tone: "error",
+        title: "Request failed",
+        body: submitError instanceof Error ? submitError.message : "Unable to submit signal.",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -181,11 +206,27 @@ export function NewSignalForm() {
             <Input id="hookTemplateUsed" value={formState.hookTemplateUsed} onChange={(event) => updateField("hookTemplateUsed", event.target.value)} placeholder="Name the hidden friction" />
           </div>
 
-          {error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
-          {success ? <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</p> : null}
+          {submissionState ? (
+            <div
+              className={[
+                "rounded-2xl px-4 py-3 text-sm",
+                submissionState.tone === "success"
+                  ? "bg-emerald-50 text-emerald-700"
+                  : submissionState.tone === "warning"
+                    ? "bg-amber-50 text-amber-700"
+                    : "bg-rose-50 text-rose-700",
+              ].join(" ")}
+            >
+              <p className="font-medium">{submissionState.title}</p>
+              <p className="mt-1">{submissionState.body}</p>
+              {submissionState.recordId ? <p className="mt-1 text-xs opacity-80">Record ID: {submissionState.recordId}</p> : null}
+            </div>
+          ) : null}
 
           <div className="flex items-center justify-between gap-4">
-            <p className="text-sm text-slate-500">If Airtable is not configured, submission still succeeds in mock mode for UI testing.</p>
+            <p className="text-sm text-slate-500">
+              Saved records go to Airtable when configured. Otherwise the form returns a mock success response for UI-safe testing.
+            </p>
             <Button type="submit" disabled={isSubmitting || !canSubmit}>
               {isSubmitting ? "Submitting..." : "Submit signal"}
             </Button>

@@ -1,4 +1,4 @@
-import type { SignalRecord, SignalSubmissionInput } from "@/types/signal";
+import type { SignalCreatePayload, SignalRecord } from "@/types/signal";
 
 function createSignalRecord(
   overrides: Partial<SignalRecord> & Pick<SignalRecord, "recordId" | "sourceTitle">,
@@ -170,7 +170,7 @@ export const mockSignalRecords: SignalRecord[] = [
   }),
 ];
 
-export function buildMockCreatedSignal(input: SignalSubmissionInput): SignalRecord {
+export function buildMockCreatedSignal(input: SignalCreatePayload): SignalRecord {
   return createSignalRecord({
     recordId: `mock_sig_${Date.now()}`,
     createdDate: new Date().toISOString(),
@@ -184,7 +184,7 @@ export function buildMockCreatedSignal(input: SignalSubmissionInput): SignalReco
     signalCategory: input.signalCategory ?? null,
     severityScore: input.severityScore ?? null,
     hookTemplateUsed: input.hookTemplateUsed ?? null,
-    status: input.status ?? "New",
+    status: input.status,
     createdBy: "Mock Operator",
   });
 }

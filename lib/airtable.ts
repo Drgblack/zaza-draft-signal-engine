@@ -1,134 +1,90 @@
+import { AIRTABLE_EXPECTED_FIELD_LABELS, AIRTABLE_SIGNAL_FIELD_DEFINITIONS, getAirtableFieldLabel } from "@/lib/airtable-schema";
 import { getAppConfig } from "@/lib/config";
 import { mockSignalRecords } from "@/lib/mock-data";
 import type { AirtableErrorResponse, AirtableFields, AirtableListResponse, AirtableRecord } from "@/types/airtable";
-import type { CreateSignalInput, SignalDataSource, SignalRecord, UpdateSignalInput } from "@/types/signal";
+import type { SignalCreatePayload, SignalDataSource, SignalRecord, SignalStatus, UpdateSignalInput } from "@/types/signal";
 
-type SignalFieldKey = Exclude<keyof SignalRecord, "recordId">;
-
-const AIRTABLE_SIGNAL_FIELD_MAP: Record<SignalFieldKey, string> = {
-  createdDate: "Created Date",
-  createdBy: "Created By",
-  status: "Status",
-  reviewNotes: "Review Notes",
-  reuseFlag: "Reuse Flag",
-  scheduledDate: "Scheduled Date",
-  postedDate: "Posted Date",
-  sourceUrl: "Source URL",
-  sourceTitle: "Source Title",
-  sourceType: "Source Type",
-  sourcePublisher: "Source Publisher",
-  sourceDate: "Source Date",
-  rawExcerpt: "Raw Excerpt",
-  manualSummary: "Manual Summary",
-  signalCategory: "Signal Category",
-  severityScore: "Severity Score",
-  signalSubtype: "Signal Subtype",
-  emotionalPattern: "Emotional Pattern",
-  teacherPainPoint: "Teacher Pain Point",
-  relevanceToZazaDraft: "Relevance To Zaza Draft",
-  riskToTeacher: "Risk To Teacher",
-  interpretationNotes: "Interpretation Notes",
-  hookTemplateUsed: "Hook Template Used",
-  contentAngle: "Content Angle",
-  platformPriority: "Platform Priority",
-  suggestedFormatPriority: "Suggested Format Priority",
-  xDraft: "X Draft",
-  linkedInDraft: "LinkedIn Draft",
-  redditDraft: "Reddit Draft",
-  imagePrompt: "Image Prompt",
-  videoScript: "Video Script",
-  ctaOrClosingLine: "CTA Or Closing Line",
-  hashtagsOrKeywords: "Hashtags Or Keywords",
-  posted: "Posted",
-  platformPostedTo: "Platform Posted To",
-  finalCaptionUsed: "Final Caption Used",
-  assetLink: "Asset Link",
-  postUrl: "Post URL",
-  platformPerformedBest: "Platform Performed Best",
-  likesOrReactions: "Likes Or Reactions",
-  comments: "Comments",
-  sharesOrReposts: "Shares Or Reposts",
-  saves: "Saves",
-  clicks: "Clicks",
-  engagementScore: "Engagement Score",
-  outcomeQuality: "Outcome Quality",
-  whyItPerformedOrDidnt: "Why It Performed Or Didnt",
-  repeatablePattern: "Repeatable Pattern",
-  bestHookSignalCombination: "Best Hook Signal Combination",
-  evergreenPotential: "Evergreen Potential",
-  repurposeLater: "Repurpose Later",
-  repurposeIdeas: "Repurpose Ideas",
-  teacherVoiceSource: "Teacher Voice Source",
-  anonymisedUserPattern: "Anonymised User Pattern",
-  relatedZazaFrameworkTag: "Related Zaza Framework Tag",
-  generationModelVersion: "Generation Model Version",
-  promptVersion: "Prompt Version",
+type AirtableDiagnostics = {
+  configured: boolean;
+  apiReachable: boolean;
+  tableReachable: boolean;
+  schemaAligned: boolean;
+  mappingSucceeded: boolean;
+  mode: SignalDataSource;
+  missingFields: string[];
+  message: string;
 };
 
-const signalFieldKeys = Object.keys(AIRTABLE_SIGNAL_FIELD_MAP) as SignalFieldKey[];
+interface AirtableTableMetadataResponse {
+  tables?: Array<{
+    id: string;
+    name: string;
+    fields: Array<{
+      name: string;
+      type: string;
+    }>;
+  }>;
+}
+
+interface SignalCollectionResult {
+  source: SignalDataSource;
+  signals: SignalRecord[];
+  error?: string;
+  message?: string;
+}
 
 class AirtableClientError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly code: "configuration_error" | "request_error" | "mapping_error" = "request_error",
   ) {
     super(message);
     this.name = "AirtableClientError";
   }
 }
 
-function getString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
-function getNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function getBoolean(value: unknown): boolean {
-  return value === true;
-}
-
-function ensureAirtableConfig(): {
-  airtablePat: string;
-  airtableBaseId: string;
-  airtableTableName: string;
-} {
+function getConfiguredAirtable() {
   const config = getAppConfig();
+
   if (!config.isAirtableConfigured || !config.airtablePat || !config.airtableBaseId || !config.airtableTableName) {
-    throw new AirtableClientError("Airtable is not fully configured.", 500);
+    throw new AirtableClientError("Airtable is not configured. Mock mode is active.", 500, "configuration_error");
   }
 
   return {
-    airtablePat: config.airtablePat,
-    airtableBaseId: config.airtableBaseId,
-    airtableTableName: config.airtableTableName,
+    pat: config.airtablePat,
+    baseId: config.airtableBaseId,
+    tableName: config.airtableTableName,
   };
 }
 
-function getAirtableUrl(path = "", searchParams?: URLSearchParams) {
-  const config = ensureAirtableConfig();
-  const baseUrl = new URL(
-    `https://api.airtable.com/v0/${config.airtableBaseId}/${encodeURIComponent(config.airtableTableName)}${path}`,
-  );
-
+function buildDataUrl(path = "", searchParams?: URLSearchParams) {
+  const config = getConfiguredAirtable();
+  const url = new URL(`https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(config.tableName)}${path}`);
   if (searchParams) {
-    baseUrl.search = searchParams.toString();
+    url.search = searchParams.toString();
   }
 
+  return { url: url.toString(), pat: config.pat };
+}
+
+function buildMetaUrl() {
+  const config = getConfiguredAirtable();
   return {
-    url: baseUrl.toString(),
-    token: config.airtablePat,
+    url: `https://api.airtable.com/v0/meta/bases/${config.baseId}/tables`,
+    pat: config.pat,
+    tableName: config.tableName,
   };
 }
 
-async function airtableRequest<TResponse>(path = "", init?: RequestInit, searchParams?: URLSearchParams): Promise<TResponse> {
-  const { url, token } = getAirtableUrl(path, searchParams);
-
-  const response = await fetch(url, {
+async function airtableFetch<TResponse>(
+  target: { url: string; pat: string },
+  init?: RequestInit,
+): Promise<TResponse> {
+  const response = await fetch(target.url, {
     ...init,
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${target.pat}`,
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
     },
@@ -146,108 +102,333 @@ async function airtableRequest<TResponse>(path = "", init?: RequestInit, searchP
   return (await response.json()) as TResponse;
 }
 
-function mapFromAirtable(record: AirtableRecord<AirtableFields>): SignalRecord {
+function parseText(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return null;
+}
+
+function parseNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) ? numericValue : null;
+  }
+
+  return null;
+}
+
+function parseCheckbox(value: unknown): boolean | null {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "yes", "1", "y"].includes(normalized)) {
+      return true;
+    }
+    if (["false", "no", "0", "n"].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return value === null || value === undefined ? null : null;
+}
+
+function parseSelect<T extends readonly string[]>(value: unknown, allowedValues: T): T[number] | null {
+  const parsed = parseText(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return allowedValues.includes(parsed as T[number]) ? (parsed as T[number]) : null;
+}
+
+function parseSeverityScore(value: unknown): SignalRecord["severityScore"] {
+  const parsedNumber = parseNumber(value);
+  if (parsedNumber === 1 || parsedNumber === 2 || parsedNumber === 3) {
+    return parsedNumber;
+  }
+
+  return null;
+}
+
+function serializeText(value: unknown): string | undefined {
+  return parseText(value) ?? undefined;
+}
+
+function serializeNumber(value: unknown): number | undefined {
+  const parsed = parseNumber(value);
+  return parsed ?? undefined;
+}
+
+function serializeCheckbox(value: unknown): boolean | undefined {
+  const parsed = parseCheckbox(value);
+  return parsed ?? undefined;
+}
+
+function serializeTextBoolean(value: unknown): string | undefined {
+  const parsed = parseCheckbox(value);
+  if (parsed === null) {
+    return undefined;
+  }
+
+  return parsed ? "Yes" : "No";
+}
+
+function serializeSelect(value: unknown, allowedValues?: readonly string[]): string | undefined {
+  const parsed = parseText(value);
+  if (!parsed) {
+    return undefined;
+  }
+
+  if (allowedValues && !allowedValues.includes(parsed)) {
+    throw new AirtableClientError(`Invalid select value "${parsed}" for Airtable field.`, 400, "mapping_error");
+  }
+
+  return parsed;
+}
+
+function serializeSeverityScore(value: SignalRecord["severityScore"]): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  return String(value);
+}
+
+function serializeSignalField(key: keyof Omit<SignalRecord, "recordId">, value: SignalRecord[typeof key]): AirtableFields[string] {
+  const field = AIRTABLE_SIGNAL_FIELD_DEFINITIONS[key];
+
+  switch (field.kind) {
+    case "text":
+      return serializeText(value);
+    case "number":
+      return serializeNumber(value);
+    case "checkbox":
+      return serializeCheckbox(value);
+    case "select":
+      return serializeSelect(value, field.allowedValues);
+    case "select-number":
+      return serializeSeverityScore(value as SignalRecord["severityScore"]);
+    case "text-boolean":
+      return serializeTextBoolean(value);
+    default:
+      return undefined;
+  }
+}
+
+function getFieldValue(fields: AirtableFields, key: keyof Omit<SignalRecord, "recordId">) {
+  return fields[getAirtableFieldLabel(key)];
+}
+
+function mapRecordFromAirtable(record: AirtableRecord<AirtableFields>): SignalRecord {
   const fields = record.fields;
 
   return {
     recordId: record.id,
-    createdDate: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.createdDate]) ?? record.createdTime,
-    createdBy: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.createdBy]),
-    status: (getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.status]) as SignalRecord["status"]) ?? "New",
-    reviewNotes: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.reviewNotes]),
-    reuseFlag: getBoolean(fields[AIRTABLE_SIGNAL_FIELD_MAP.reuseFlag]),
-    scheduledDate: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.scheduledDate]),
-    postedDate: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.postedDate]),
-    sourceUrl: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.sourceUrl]),
-    sourceTitle: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.sourceTitle]) ?? "Untitled Signal",
-    sourceType: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.sourceType]),
-    sourcePublisher: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.sourcePublisher]),
-    sourceDate: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.sourceDate]),
-    rawExcerpt: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.rawExcerpt]),
-    manualSummary: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.manualSummary]),
-    signalCategory: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.signalCategory]) as SignalRecord["signalCategory"],
-    severityScore: getNumber(fields[AIRTABLE_SIGNAL_FIELD_MAP.severityScore]) as SignalRecord["severityScore"],
-    signalSubtype: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.signalSubtype]),
-    emotionalPattern: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.emotionalPattern]),
-    teacherPainPoint: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.teacherPainPoint]),
-    relevanceToZazaDraft: getString(
-      fields[AIRTABLE_SIGNAL_FIELD_MAP.relevanceToZazaDraft],
+    createdDate: parseText(getFieldValue(fields, "createdDate")) ?? record.createdTime,
+    createdBy: parseText(getFieldValue(fields, "createdBy")),
+    status:
+      (parseSelect(getFieldValue(fields, "status"), AIRTABLE_SIGNAL_FIELD_DEFINITIONS.status.allowedValues ?? []) as SignalRecord["status"] | null) ??
+      "New",
+    reviewNotes: parseText(getFieldValue(fields, "reviewNotes")),
+    reuseFlag: parseCheckbox(getFieldValue(fields, "reuseFlag")) ?? false,
+    scheduledDate: parseText(getFieldValue(fields, "scheduledDate")),
+    postedDate: parseText(getFieldValue(fields, "postedDate")),
+    sourceUrl: parseText(getFieldValue(fields, "sourceUrl")),
+    sourceTitle: parseText(getFieldValue(fields, "sourceTitle")) ?? "Untitled Signal",
+    sourceType: parseText(getFieldValue(fields, "sourceType")),
+    sourcePublisher: parseText(getFieldValue(fields, "sourcePublisher")),
+    sourceDate: parseText(getFieldValue(fields, "sourceDate")),
+    rawExcerpt: parseText(getFieldValue(fields, "rawExcerpt")),
+    manualSummary: parseText(getFieldValue(fields, "manualSummary")),
+    signalCategory: parseSelect(
+      getFieldValue(fields, "signalCategory"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.signalCategory.allowedValues ?? [],
+    ) as SignalRecord["signalCategory"],
+    severityScore: parseSeverityScore(getFieldValue(fields, "severityScore")),
+    signalSubtype: parseText(getFieldValue(fields, "signalSubtype")),
+    emotionalPattern: parseText(getFieldValue(fields, "emotionalPattern")),
+    teacherPainPoint: parseText(getFieldValue(fields, "teacherPainPoint")),
+    relevanceToZazaDraft: parseSelect(
+      getFieldValue(fields, "relevanceToZazaDraft"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.relevanceToZazaDraft.allowedValues ?? [],
     ) as SignalRecord["relevanceToZazaDraft"],
-    riskToTeacher: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.riskToTeacher]),
-    interpretationNotes: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.interpretationNotes]),
-    hookTemplateUsed: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.hookTemplateUsed]),
-    contentAngle: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.contentAngle]),
-    platformPriority: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.platformPriority]) as SignalRecord["platformPriority"],
-    suggestedFormatPriority: getString(
-      fields[AIRTABLE_SIGNAL_FIELD_MAP.suggestedFormatPriority],
+    riskToTeacher: parseText(getFieldValue(fields, "riskToTeacher")),
+    interpretationNotes: parseText(getFieldValue(fields, "interpretationNotes")),
+    hookTemplateUsed: parseText(getFieldValue(fields, "hookTemplateUsed")),
+    contentAngle: parseText(getFieldValue(fields, "contentAngle")),
+    platformPriority: parseSelect(
+      getFieldValue(fields, "platformPriority"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.platformPriority.allowedValues ?? [],
+    ) as SignalRecord["platformPriority"],
+    suggestedFormatPriority: parseSelect(
+      getFieldValue(fields, "suggestedFormatPriority"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.suggestedFormatPriority.allowedValues ?? [],
     ) as SignalRecord["suggestedFormatPriority"],
-    xDraft: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.xDraft]),
-    linkedInDraft: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.linkedInDraft]),
-    redditDraft: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.redditDraft]),
-    imagePrompt: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.imagePrompt]),
-    videoScript: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.videoScript]),
-    ctaOrClosingLine: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.ctaOrClosingLine]),
-    hashtagsOrKeywords: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.hashtagsOrKeywords]),
-    posted: getBoolean(fields[AIRTABLE_SIGNAL_FIELD_MAP.posted]),
-    platformPostedTo: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.platformPostedTo]),
-    finalCaptionUsed: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.finalCaptionUsed]),
-    assetLink: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.assetLink]),
-    postUrl: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.postUrl]),
-    platformPerformedBest: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.platformPerformedBest]),
-    likesOrReactions: getNumber(fields[AIRTABLE_SIGNAL_FIELD_MAP.likesOrReactions]),
-    comments: getNumber(fields[AIRTABLE_SIGNAL_FIELD_MAP.comments]),
-    sharesOrReposts: getNumber(fields[AIRTABLE_SIGNAL_FIELD_MAP.sharesOrReposts]),
-    saves: getNumber(fields[AIRTABLE_SIGNAL_FIELD_MAP.saves]),
-    clicks: getNumber(fields[AIRTABLE_SIGNAL_FIELD_MAP.clicks]),
-    engagementScore: getNumber(fields[AIRTABLE_SIGNAL_FIELD_MAP.engagementScore]),
-    outcomeQuality: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.outcomeQuality]) as SignalRecord["outcomeQuality"],
-    whyItPerformedOrDidnt: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.whyItPerformedOrDidnt]),
-    repeatablePattern: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.repeatablePattern]),
-    bestHookSignalCombination: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.bestHookSignalCombination]),
-    evergreenPotential:
-      fields[AIRTABLE_SIGNAL_FIELD_MAP.evergreenPotential] === null
-        ? null
-        : getBoolean(fields[AIRTABLE_SIGNAL_FIELD_MAP.evergreenPotential]),
-    repurposeLater: getBoolean(fields[AIRTABLE_SIGNAL_FIELD_MAP.repurposeLater]),
-    repurposeIdeas: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.repurposeIdeas]),
-    teacherVoiceSource: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.teacherVoiceSource]) as SignalRecord["teacherVoiceSource"],
-    anonymisedUserPattern: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.anonymisedUserPattern]),
-    relatedZazaFrameworkTag: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.relatedZazaFrameworkTag]),
-    generationModelVersion: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.generationModelVersion]),
-    promptVersion: getString(fields[AIRTABLE_SIGNAL_FIELD_MAP.promptVersion]),
+    xDraft: parseText(getFieldValue(fields, "xDraft")),
+    linkedInDraft: parseText(getFieldValue(fields, "linkedInDraft")),
+    redditDraft: parseText(getFieldValue(fields, "redditDraft")),
+    imagePrompt: parseText(getFieldValue(fields, "imagePrompt")),
+    videoScript: parseText(getFieldValue(fields, "videoScript")),
+    ctaOrClosingLine: parseText(getFieldValue(fields, "ctaOrClosingLine")),
+    hashtagsOrKeywords: parseText(getFieldValue(fields, "hashtagsOrKeywords")),
+    posted: parseCheckbox(getFieldValue(fields, "posted")) ?? false,
+    platformPostedTo: parseText(getFieldValue(fields, "platformPostedTo")),
+    finalCaptionUsed: parseText(getFieldValue(fields, "finalCaptionUsed")),
+    assetLink: parseText(getFieldValue(fields, "assetLink")),
+    postUrl: parseText(getFieldValue(fields, "postUrl")),
+    platformPerformedBest: parseText(getFieldValue(fields, "platformPerformedBest")),
+    likesOrReactions: parseNumber(getFieldValue(fields, "likesOrReactions")),
+    comments: parseNumber(getFieldValue(fields, "comments")),
+    sharesOrReposts: parseNumber(getFieldValue(fields, "sharesOrReposts")),
+    saves: parseNumber(getFieldValue(fields, "saves")),
+    clicks: parseNumber(getFieldValue(fields, "clicks")),
+    engagementScore: parseNumber(getFieldValue(fields, "engagementScore")),
+    outcomeQuality: parseSelect(
+      getFieldValue(fields, "outcomeQuality"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.outcomeQuality.allowedValues ?? [],
+    ) as SignalRecord["outcomeQuality"],
+    whyItPerformedOrDidnt: parseText(getFieldValue(fields, "whyItPerformedOrDidnt")),
+    repeatablePattern: parseCheckbox(getFieldValue(fields, "repeatablePattern")),
+    bestHookSignalCombination: parseText(getFieldValue(fields, "bestHookSignalCombination")),
+    evergreenPotential: parseText(getFieldValue(fields, "evergreenPotential")),
+    repurposeLater: parseCheckbox(getFieldValue(fields, "repurposeLater")) ?? false,
+    repurposeIdeas: parseText(getFieldValue(fields, "repurposeIdeas")),
+    teacherVoiceSource: parseText(getFieldValue(fields, "teacherVoiceSource")) as SignalRecord["teacherVoiceSource"],
+    anonymisedUserPattern: parseCheckbox(getFieldValue(fields, "anonymisedUserPattern")),
+    relatedZazaFrameworkTag: parseText(getFieldValue(fields, "relatedZazaFrameworkTag")),
+    generationModelVersion: parseText(getFieldValue(fields, "generationModelVersion")),
+    promptVersion: parseText(getFieldValue(fields, "promptVersion")),
   };
 }
 
-function mapToAirtable(input: Partial<Omit<SignalRecord, "recordId">>): AirtableFields {
+function mapUpdateInputToAirtableFields(input: UpdateSignalInput): AirtableFields {
   const fields: AirtableFields = {};
 
-  for (const key of signalFieldKeys) {
-    const value = input[key];
+  for (const [key, value] of Object.entries(input) as Array<[keyof UpdateSignalInput, UpdateSignalInput[keyof UpdateSignalInput]]>) {
     if (value === undefined) {
       continue;
     }
 
-    fields[AIRTABLE_SIGNAL_FIELD_MAP[key]] = value as AirtableFields[string];
+    const serialized = serializeSignalField(key as keyof Omit<SignalRecord, "recordId">, value as never);
+    if (serialized !== undefined) {
+      fields[getAirtableFieldLabel(key as keyof Omit<SignalRecord, "recordId">)] = serialized;
+    }
   }
 
   return fields;
 }
 
-export async function listSignals(limit = 50): Promise<SignalRecord[]> {
+function mapCreatePayloadToAirtableFields(input: SignalCreatePayload): AirtableFields {
+  return {
+    [getAirtableFieldLabel("createdDate")]: new Date().toISOString(),
+    [getAirtableFieldLabel("createdBy")]: "Dashboard Intake",
+    [getAirtableFieldLabel("status")]: input.status,
+    [getAirtableFieldLabel("sourceTitle")]: input.sourceTitle,
+    ...(serializeText(input.sourceUrl) ? { [getAirtableFieldLabel("sourceUrl")]: serializeText(input.sourceUrl) } : {}),
+    ...(serializeText(input.sourceType) ? { [getAirtableFieldLabel("sourceType")]: serializeText(input.sourceType) } : {}),
+    ...(serializeText(input.sourcePublisher)
+      ? { [getAirtableFieldLabel("sourcePublisher")]: serializeText(input.sourcePublisher) }
+      : {}),
+    ...(serializeText(input.sourceDate) ? { [getAirtableFieldLabel("sourceDate")]: serializeText(input.sourceDate) } : {}),
+    ...(serializeText(input.rawExcerpt) ? { [getAirtableFieldLabel("rawExcerpt")]: serializeText(input.rawExcerpt) } : {}),
+    ...(serializeText(input.manualSummary)
+      ? { [getAirtableFieldLabel("manualSummary")]: serializeText(input.manualSummary) }
+      : {}),
+    ...(serializeSelect(input.signalCategory, AIRTABLE_SIGNAL_FIELD_DEFINITIONS.signalCategory.allowedValues)
+      ? {
+          [getAirtableFieldLabel("signalCategory")]: serializeSelect(
+            input.signalCategory,
+            AIRTABLE_SIGNAL_FIELD_DEFINITIONS.signalCategory.allowedValues,
+          ),
+        }
+      : {}),
+    ...(serializeSeverityScore(input.severityScore)
+      ? { [getAirtableFieldLabel("severityScore")]: serializeSeverityScore(input.severityScore) }
+      : {}),
+    ...(serializeText(input.hookTemplateUsed)
+      ? { [getAirtableFieldLabel("hookTemplateUsed")]: serializeText(input.hookTemplateUsed) }
+      : {}),
+    [getAirtableFieldLabel("posted")]: false,
+    [getAirtableFieldLabel("repurposeLater")]: false,
+  };
+}
+
+function escapeAirtableFormulaValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+export function deriveDisplayEngagementScore(signal: SignalRecord): number | null {
+  if (signal.engagementScore !== null && signal.engagementScore !== undefined) {
+    return signal.engagementScore;
+  }
+
+  const likes = signal.likesOrReactions ?? 0;
+  const comments = signal.comments ?? 0;
+  const shares = signal.sharesOrReposts ?? 0;
+  const saves = signal.saves ?? 0;
+
+  const score = saves * 4 + shares * 3 + comments * 2 + likes;
+  return score > 0 ? score : null;
+}
+
+export function getSafeAirtableErrorMessage(error: unknown): string {
+  if (error instanceof AirtableClientError) {
+    if (error.code === "mapping_error") {
+      return "Airtable field mapping rejected the request payload.";
+    }
+
+    if (error.status === 401 || error.status === 403) {
+      return "Airtable credentials were rejected. Check the PAT permissions.";
+    }
+
+    if (error.status === 404) {
+      return "The Airtable base or table could not be reached.";
+    }
+
+    return `Airtable request failed (${error.status}).`;
+  }
+
+  return "Airtable request failed.";
+}
+
+export async function listSignals({
+  limit = 50,
+  status,
+}: {
+  limit?: number;
+  status?: SignalStatus;
+} = {}): Promise<SignalRecord[]> {
   const signals: SignalRecord[] = [];
   let offset: string | undefined;
 
   do {
     const searchParams = new URLSearchParams();
     searchParams.set("pageSize", String(Math.min(limit, 100)));
-    searchParams.set("sort[0][field]", AIRTABLE_SIGNAL_FIELD_MAP.createdDate);
+    searchParams.set("sort[0][field]", getAirtableFieldLabel("createdDate"));
     searchParams.set("sort[0][direction]", "desc");
+    if (status) {
+      searchParams.set("filterByFormula", `{${getAirtableFieldLabel("status")}}='${escapeAirtableFormulaValue(status)}'`);
+    }
     if (offset) {
       searchParams.set("offset", offset);
     }
 
-    const response = await airtableRequest<AirtableListResponse>("", undefined, searchParams);
-    signals.push(...response.records.map(mapFromAirtable));
+    const response = await airtableFetch<AirtableListResponse>(buildDataUrl("", searchParams));
+    signals.push(...response.records.map(mapRecordFromAirtable));
     offset = response.offset;
   } while (offset && signals.length < limit);
 
@@ -255,63 +436,143 @@ export async function listSignals(limit = 50): Promise<SignalRecord[]> {
 }
 
 export async function getSignal(recordId: string): Promise<SignalRecord> {
-  const response = await airtableRequest<AirtableRecord<AirtableFields>>(`/${recordId}`);
-  return mapFromAirtable(response);
+  const response = await airtableFetch<AirtableRecord<AirtableFields>>(buildDataUrl(`/${recordId}`));
+  return mapRecordFromAirtable(response);
 }
 
-export async function createSignal(input: CreateSignalInput): Promise<SignalRecord> {
-  const response = await airtableRequest<AirtableRecord<AirtableFields>>("", {
+export async function createSignal(input: SignalCreatePayload): Promise<SignalRecord> {
+  const response = await airtableFetch<AirtableRecord<AirtableFields>>(buildDataUrl(), {
     method: "POST",
     body: JSON.stringify({
-      fields: mapToAirtable({
-        createdDate: input.createdDate ?? new Date().toISOString(),
-        status: input.status ?? "New",
-        posted: input.posted ?? false,
-        repurposeLater: input.repurposeLater ?? false,
-        reuseFlag: input.reuseFlag ?? false,
-        ...input,
-      }),
+      fields: mapCreatePayloadToAirtableFields(input),
     }),
   });
 
-  return mapFromAirtable(response);
+  return mapRecordFromAirtable(response);
 }
 
 export async function updateSignal(recordId: string, input: UpdateSignalInput): Promise<SignalRecord> {
-  const response = await airtableRequest<AirtableRecord<AirtableFields>>(`/${recordId}`, {
+  const response = await airtableFetch<AirtableRecord<AirtableFields>>(buildDataUrl(`/${recordId}`), {
     method: "PATCH",
     body: JSON.stringify({
-      fields: mapToAirtable(input),
+      fields: mapUpdateInputToAirtableFields(input),
     }),
   });
 
-  return mapFromAirtable(response);
+  return mapRecordFromAirtable(response);
 }
 
-export async function listSignalsWithFallback(): Promise<{
-  source: SignalDataSource;
-  signals: SignalRecord[];
-  error?: string;
-}> {
+export async function listSignalsWithFallback({
+  limit = 50,
+  status,
+}: {
+  limit?: number;
+  status?: SignalStatus;
+} = {}): Promise<SignalCollectionResult> {
   const config = getAppConfig();
 
   if (!config.isAirtableConfigured) {
+    const signals = status ? mockSignalRecords.filter((signal) => signal.status === status) : mockSignalRecords;
     return {
       source: "mock",
-      signals: mockSignalRecords,
+      signals: signals.slice(0, limit),
+      message: "Mock mode active because Airtable environment variables are missing.",
     };
   }
 
   try {
+    const signals = await listSignals({ limit, status });
     return {
       source: "airtable",
-      signals: await listSignals(),
+      signals,
+      message: signals.length === 0 ? "Airtable is connected. The table is currently empty." : "Airtable is connected.",
     };
   } catch (error) {
     return {
-      source: "mock",
-      signals: mockSignalRecords,
-      error: error instanceof Error ? error.message : "Falling back to mock data.",
+      source: "airtable",
+      signals: [],
+      error: `${getSafeAirtableErrorMessage(error)} Check /api/signals/health for diagnostics.`,
+    };
+  }
+}
+
+export async function getAirtableDiagnostics(): Promise<AirtableDiagnostics> {
+  const config = getAppConfig();
+
+  if (!config.isAirtableConfigured) {
+    return {
+      configured: false,
+      apiReachable: false,
+      tableReachable: false,
+      schemaAligned: false,
+      mappingSucceeded: false,
+      mode: "mock",
+      missingFields: [],
+      message: "Airtable is not configured. Mock mode is active.",
+    };
+  }
+
+  try {
+    const metaTarget = buildMetaUrl();
+    const metadata = await airtableFetch<AirtableTableMetadataResponse>({
+      url: metaTarget.url,
+      pat: metaTarget.pat,
+    });
+
+    const table = metadata.tables?.find((item) => item.name === metaTarget.tableName);
+    if (!table) {
+      return {
+        configured: true,
+        apiReachable: true,
+        tableReachable: false,
+        schemaAligned: false,
+        mappingSucceeded: false,
+        mode: "airtable",
+        missingFields: AIRTABLE_EXPECTED_FIELD_LABELS,
+        message: "Airtable API is reachable, but the configured table name was not found.",
+      };
+    }
+
+    const actualFields = new Set(table.fields.map((field) => field.name));
+    const missingFields = AIRTABLE_EXPECTED_FIELD_LABELS.filter((field) => !actualFields.has(field));
+
+    try {
+      await listSignals({ limit: 1 });
+      return {
+        configured: true,
+        apiReachable: true,
+        tableReachable: true,
+        schemaAligned: missingFields.length === 0,
+        mappingSucceeded: true,
+        mode: "airtable",
+        missingFields,
+        message:
+          missingFields.length === 0
+            ? "Airtable is configured, reachable, and field mapping succeeded."
+            : "Airtable is reachable, but the live table is missing one or more expected fields.",
+      };
+    } catch (error) {
+      return {
+        configured: true,
+        apiReachable: true,
+        tableReachable: true,
+        schemaAligned: missingFields.length === 0,
+        mappingSucceeded: false,
+        mode: "airtable",
+        missingFields,
+        message: `${getSafeAirtableErrorMessage(error)} Mapping the sample response did not complete cleanly.`,
+      };
+    }
+  } catch (error) {
+    return {
+      configured: true,
+      apiReachable: false,
+      tableReachable: false,
+      schemaAligned: false,
+      mappingSucceeded: false,
+      mode: "airtable",
+      missingFields: [],
+      message: getSafeAirtableErrorMessage(error),
     };
   }
 }

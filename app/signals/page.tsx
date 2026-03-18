@@ -1,3 +1,6 @@
+import Link from "next/link";
+
+import { Badge } from "@/components/ui/badge";
 import { SignalsTable } from "@/components/signals/signals-table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
@@ -17,9 +20,20 @@ export default async function SignalsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3 pt-0 text-sm text-slate-600">
-          <span>Source: {source === "airtable" ? "Airtable" : "Mock fallback"}</span>
+          <Badge className={source === "airtable" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-200"}>
+            {source === "airtable" ? "Airtable" : "Mock mode"}
+          </Badge>
           <span>Total records: {signals.length}</span>
-          {error ? <span className="text-amber-700">{error}</span> : null}
+          {error ? (
+            <span className="text-amber-700">
+              {error}{" "}
+              <Link href="/api/signals/health" target="_blank" className="underline underline-offset-4">
+                View diagnostics
+              </Link>
+            </span>
+          ) : (
+            <span>{source === "airtable" ? "Live records from Airtable." : "Using mock records because Airtable is not configured."}</span>
+          )}
         </CardContent>
       </Card>
 
