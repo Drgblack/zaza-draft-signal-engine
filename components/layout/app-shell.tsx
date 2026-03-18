@@ -1,0 +1,72 @@
+import Link from "next/link";
+import { PanelLeftClose, Sparkles } from "lucide-react";
+
+import { EnvStatus } from "@/components/layout/env-status";
+import { NavLink } from "@/components/layout/nav-link";
+import { NAV_ITEMS } from "@/lib/constants";
+
+export function AppShell({
+  appName,
+  isAirtableConfigured,
+  children,
+}: {
+  appName: string;
+  isAirtableConfigured: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-h-screen">
+      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col lg:flex-row">
+        <aside className="border-b border-black/6 bg-[color:var(--panel-strong)] px-5 py-5 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:border-b-0 lg:border-r lg:px-6 lg:py-8">
+          <div className="flex items-center justify-between lg:items-start">
+            <div className="space-y-2">
+              <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color:var(--accent)] text-white">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Internal Tool</p>
+                <h1 className="mt-2 text-xl font-semibold text-slate-950">{appName}</h1>
+              </div>
+            </div>
+            <PanelLeftClose className="h-5 w-5 text-slate-300 lg:hidden" />
+          </div>
+
+          <nav className="mt-8 grid gap-2">
+            {NAV_ITEMS.map((item) => (
+              <NavLink key={item.href} href={item.href} label={item.label} />
+            ))}
+          </nav>
+
+          <div className="mt-8 rounded-3xl border border-black/6 bg-white/85 p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Environment</p>
+            <div className="mt-3">
+              <EnvStatus isAirtableConfigured={isAirtableConfigured} />
+            </div>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              V1 is intentionally constrained to intake, classification, draft preparation, and clean review.
+            </p>
+          </div>
+        </aside>
+
+        <div className="flex-1">
+          <header className="sticky top-0 z-20 border-b border-black/6 bg-[color:var(--panel-strong)]/95 backdrop-blur">
+            <div className="flex items-center justify-between px-6 py-4 lg:px-10">
+              <div>
+                <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Editorial Workflow</p>
+                <p className="mt-1 text-sm text-slate-600">Human-in-the-loop signal interpretation and draft prep.</p>
+              </div>
+              <Link
+                href="/signals/new"
+                className="rounded-full border border-black/6 bg-white/85 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-white"
+              >
+                New intake
+              </Link>
+            </div>
+          </header>
+
+          <main className="px-6 py-6 lg:px-10 lg:py-10">{children}</main>
+        </div>
+      </div>
+    </div>
+  );
+}
