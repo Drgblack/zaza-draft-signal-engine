@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
 import { appendAuditEventsSafe, buildRecommendationEvent, buildScoredEvent, type AuditEventInput } from "@/lib/audit";
 import { scoreSignal } from "@/lib/scoring";
+import { getOperatorTuning } from "@/lib/tuning";
 import { hasScoring } from "@/lib/workflow";
 import {
   scoreRequestSchema,
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
 
   const save = parsed.data.save ?? false;
   const allSignalsResult = await listSignalsWithFallback({ limit: 500 });
+  const tuning = await getOperatorTuning();
 
   if (parsed.data.signalId) {
     const signalResult = await getSignalWithFallback(parsed.data.signalId);
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
     }
 
     const scoring = toScoringSavePayload(
-      scoringResultSchema.parse(scoreSignal(signalResult.signal, allSignalsResult.signals)),
+      scoringResultSchema.parse(scoreSignal(signalResult.signal, allSignalsResult.signals, tuning.settings)),
     );
 
     if (!save) {
@@ -95,7 +97,7 @@ export async function POST(request: Request) {
 
     await appendAuditEventsSafe([
       buildScoredEvent(persisted.signal, scoring),
-      buildRecommendationEvent(persisted.signal),
+      buildRecommendationEvent(persisted.signal, tuning.settings),
     ]);
 
     return NextResponse.json<ScoreResponse>({
@@ -122,7 +124,7 @@ export async function POST(request: Request) {
   let saved = 0;
 
   for (const signal of targetSignals) {
-    const scoring = toScoringSavePayload(scoringResultSchema.parse(scoreSignal(signal, allSignalsResult.signals)));
+    const scoring = toScoringSavePayload(scoringResultSchema.parse(scoreSignal(signal, allSignalsResult.signals, tuning.settings)));
 
     if (!save) {
       results.push({
@@ -153,7 +155,7 @@ export async function POST(request: Request) {
 
     if (persisted.signal) {
       saved += 1;
-      auditEvents.push(buildScoredEvent(persisted.signal, scoring), buildRecommendationEvent(persisted.signal));
+      auditEvents.push(buildScoredEvent(persisted.signal, scoring), buildRecommendationEvent(persisted.signal, tuning.settings));
     }
 
     results.push({

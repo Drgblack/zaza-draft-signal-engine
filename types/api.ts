@@ -43,6 +43,11 @@ import type { PostingLogEntry } from "@/lib/posting-memory";
 import type { PatternSummary, SignalPattern } from "@/lib/pattern-definitions";
 import type { PatternBundle } from "@/lib/pattern-bundles";
 import type { ScenarioAngleAssessment, ScenarioAngleSuggestion } from "@/lib/scenario-angle";
+import type { OperatorTuning } from "@/lib/tuning-definitions";
+import {
+  TUNING_PRESETS,
+  operatorTuningSettingsSchema,
+} from "@/lib/tuning-definitions";
 
 const optionalNullableString = z.union([z.string(), z.null()]).optional();
 
@@ -318,6 +323,17 @@ export const pipelineRunRequestSchema = z.object({
   maxCandidates: z.number().int().min(1).max(30).optional(),
 });
 
+export const tuningPresetSchema = z.enum(TUNING_PRESETS);
+
+export const tuningUpdateRequestSchema = z
+  .object({
+    preset: tuningPresetSchema.optional(),
+    settings: operatorTuningSettingsSchema.partial().optional(),
+  })
+  .refine((value) => value.preset !== undefined || value.settings !== undefined, {
+    message: "Provide either a preset or one or more setting updates.",
+  });
+
 export interface SignalsApiResponse {
   success: boolean;
   source: SignalDataSource;
@@ -571,6 +587,13 @@ export interface PipelineRunResponse {
   success: boolean;
   source: SignalDataSource;
   result?: PipelineRunSummary;
+  error?: string;
+}
+
+export interface TuningResponse {
+  success: boolean;
+  tuning: OperatorTuning | null;
+  message?: string;
   error?: string;
 }
 

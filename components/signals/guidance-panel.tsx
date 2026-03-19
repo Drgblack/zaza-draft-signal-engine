@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getEditorialConfidenceLabel } from "@/lib/editorial-confidence";
 import type { UnifiedGuidance } from "@/lib/guidance";
 
 function toneClasses(tone: UnifiedGuidance["tone"]) {
@@ -22,6 +23,18 @@ function reuseToneClasses(tone: "positive" | "caution" | "neutral") {
     case "caution":
       return "bg-amber-50 text-amber-700 ring-amber-200";
     case "neutral":
+    default:
+      return "bg-slate-100 text-slate-700 ring-slate-200";
+  }
+}
+
+function confidenceClasses(level: UnifiedGuidance["confidence"]["confidenceLevel"]) {
+  switch (level) {
+    case "high":
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+    case "low":
+      return "bg-amber-50 text-amber-700 ring-amber-200";
+    case "moderate":
     default:
       return "bg-slate-100 text-slate-700 ring-slate-200";
   }
@@ -81,6 +94,41 @@ export function GuidancePanel({
             <Link href={guidance.actionHref} className="inline-block text-sm text-[color:var(--accent)] underline underline-offset-4">
               {guidance.actionLabel}
             </Link>
+          ) : null}
+        </div>
+
+        <div className="space-y-3 rounded-2xl bg-white/80 px-4 py-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Confidence</p>
+            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${confidenceClasses(guidance.confidence.confidenceLevel)}`}>
+              {getEditorialConfidenceLabel(guidance.confidence.confidenceLevel)}
+            </span>
+          </div>
+          <p className="text-sm leading-6 text-slate-600">{guidance.confidence.summary}</p>
+          {guidance.confidence.confidenceReasons.length > 0 ? (
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-slate-900">Why</p>
+              {guidance.confidence.confidenceReasons.map((reason) => (
+                <p key={reason} className="text-sm leading-6 text-slate-600">
+                  {reason}
+                </p>
+              ))}
+            </div>
+          ) : null}
+          {guidance.confidence.uncertaintyFlags.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-900">Uncertainty</p>
+              <div className="flex flex-wrap gap-2">
+                {guidance.confidence.uncertaintyFlags.map((flag) => (
+                  <span
+                    key={flag.code}
+                    className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200"
+                  >
+                    {flag.label}
+                  </span>
+                ))}
+              </div>
+            </div>
           ) : null}
         </div>
 

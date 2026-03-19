@@ -25,6 +25,7 @@ import {
 } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { getOperatorTuning } from "@/lib/tuning";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,7 @@ export default async function InterpretSignalPage({
   const postingOutcomes = await listPostingOutcomes();
   const allAuditEvents = await listAuditEvents();
   const allPatternFeedbackEntries = await listPatternFeedbackEntries();
+  const tuning = await getOperatorTuning();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const patternEffectivenessById = indexPatternEffectivenessSummaries(
     buildPatternEffectivenessSummaries(patterns, allAuditEvents, allPatternFeedbackEntries, allSignalFeedbackEntries),
@@ -60,6 +62,7 @@ export default async function InterpretSignalPage({
     limit: 3,
     bundleSummariesByPatternId,
     effectivenessById: patternEffectivenessById,
+    tuning: tuning.settings,
   });
   const reuseMemoryCases = buildReuseMemoryCases({
     signals: allSignals,
@@ -85,6 +88,7 @@ export default async function InterpretSignalPage({
     playbookCards,
     reuseMemoryCases,
     playbookCoverageSummary,
+    tuning: tuning.settings,
   });
 
   return (

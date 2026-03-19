@@ -29,6 +29,7 @@ import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { getOperatorTuning } from "@/lib/tuning";
 import { EDITORIAL_MODES, type EditorialMode } from "@/types/signal";
 
 export const dynamic = "force-dynamic";
@@ -97,6 +98,7 @@ export default async function GenerateSignalPage({
   const auditEvents = await getAuditEvents(result.signal.recordId);
   const allAuditEvents = await listAuditEvents();
   const allPatternFeedbackEntries = await listPatternFeedbackEntries();
+  const tuning = await getOperatorTuning();
   const patternEffectivenessById = indexPatternEffectivenessSummaries(
     buildPatternEffectivenessSummaries(allPatterns, allAuditEvents, allPatternFeedbackEntries, allSignalFeedbackEntries),
   );
@@ -109,6 +111,7 @@ export default async function GenerateSignalPage({
     limit: 3,
     bundleSummariesByPatternId,
     effectivenessById: patternEffectivenessById,
+    tuning: tuning.settings,
   });
   const reuseMemoryCases = buildReuseMemoryCases({
     signals: allSignals,
@@ -160,6 +163,7 @@ export default async function GenerateSignalPage({
     playbookCards,
     reuseMemoryCases,
     playbookCoverageSummary,
+    tuning: tuning.settings,
   });
 
   return (

@@ -16,6 +16,7 @@ import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPatterns } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { getOperatorTuning } from "@/lib/tuning";
 import { formatDateTime } from "@/lib/utils";
 import { getScheduledSoonSignals, getWorkflowBuckets } from "@/lib/workflow";
 
@@ -29,6 +30,7 @@ export default async function DashboardPage() {
   const bundles = await listPatternBundles();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const tuning = await getOperatorTuning();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
     signals,
@@ -52,6 +54,7 @@ export default async function DashboardPage() {
     playbookCards,
     reuseMemoryCases,
     playbookCoverageSummary,
+    tuning.settings,
   );
   const workflowBuckets = getWorkflowBuckets(signals);
   const scheduledSoon = getScheduledSoonSignals(signals);
@@ -87,6 +90,9 @@ export default async function DashboardPage() {
             </Link>
             <Link href="/playbook" className={buttonVariants({ variant: "secondary" })}>
               Open playbook
+            </Link>
+            <Link href="/settings" className={buttonVariants({ variant: "secondary" })}>
+              Adjust tuning
             </Link>
             <p className="text-sm text-slate-500">
               Data source: <span className="font-medium text-slate-700">{source === "airtable" ? "Airtable" : "Mock fallback"}</span>

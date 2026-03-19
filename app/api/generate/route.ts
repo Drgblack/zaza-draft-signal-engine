@@ -5,6 +5,7 @@ import { getSignalWithFallback } from "@/lib/airtable";
 import { suggestEditorialMode } from "@/lib/editorial-modes";
 import { generateDrafts, toGenerationInputFromSignal } from "@/lib/generator";
 import { getPattern, getPatternAuditSubjectId, isPatternActive } from "@/lib/patterns";
+import { getOperatorTuning } from "@/lib/tuning";
 import { generateRequestSchema, toGenerationInput, type GenerationResponse } from "@/types/api";
 
 export async function POST(request: Request) {
@@ -74,6 +75,7 @@ export async function POST(request: Request) {
     editorialMode,
   });
   const currentSignalId = signal.recordId ?? parsed.data.signalId ?? null;
+  const tuning = await getOperatorTuning();
 
   if (currentSignalId) {
     const currentSignalResult = await getSignalWithFallback(currentSignalId);
@@ -124,7 +126,7 @@ export async function POST(request: Request) {
     }
 
     if (currentSignalResult.signal) {
-      const overrideEvent = buildOperatorOverrideEvent(currentSignalResult.signal, "generate");
+      const overrideEvent = buildOperatorOverrideEvent(currentSignalResult.signal, "generate", tuning.settings);
       if (overrideEvent) {
         auditEvents.push(overrideEvent);
       }

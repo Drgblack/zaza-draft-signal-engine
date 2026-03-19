@@ -14,6 +14,7 @@ import { PATTERN_TYPE_LABELS } from "@/lib/pattern-definitions";
 import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
 import { buildPatternEffectivenessSummaries, listPatterns } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
+import { getOperatorTuning } from "@/lib/tuning";
 import { buildSignalInsights, INSIGHT_WINDOWS, type InsightObservation, type InsightWindow } from "@/lib/insights";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +62,18 @@ function playbookGapClasses(kind: "uncovered" | "weak_coverage" | "opportunity")
 
   if (kind === "opportunity") {
     return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  }
+
+  return "bg-slate-100 text-slate-700 ring-slate-200";
+}
+
+function confidenceClasses(level: "high" | "moderate" | "low"): string {
+  if (level === "high") {
+    return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  }
+
+  if (level === "low") {
+    return "bg-amber-50 text-amber-700 ring-amber-200";
   }
 
   return "bg-slate-100 text-slate-700 ring-slate-200";
@@ -134,6 +147,7 @@ export default async function InsightsPage({
   const bundles = await listPatternBundles();
   const playbookCards = await listPlaybookCards({ status: "all" });
   const patternFeedbackEntries = await listPatternFeedbackEntries();
+  const tuning = await getOperatorTuning();
   const patternEffectivenessSummaries = buildPatternEffectivenessSummaries(
     allPatterns,
     auditEvents,
@@ -160,6 +174,7 @@ export default async function InsightsPage({
     patternFeedbackEntries,
     postingEntries,
     postingOutcomes,
+    tuning,
   });
   await appendAuditEventsSafe(
     insights.playbook.topCoverageGaps.map((gap) => ({
@@ -218,6 +233,29 @@ export default async function InsightsPage({
 
       <Card>
         <CardHeader>
+          <CardTitle>Current Operator Tuning</CardTitle>
+          <CardDescription>
+            Results in this view reflect the active operator mode and its bounded behavior shifts.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{insights.tuning.presetLabel}</Badge>
+            <span className="text-sm text-slate-500">{insights.tuning.summary}</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {insights.tuning.rows.map((row) => (
+              <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{row.label}</p>
+                <p className="mt-2 text-lg font-semibold text-slate-950">{row.valueLabel}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>At A Glance</CardTitle>
           <CardDescription>Core volume and progression across the current window.</CardDescription>
         </CardHeader>
@@ -244,6 +282,94 @@ export default async function InsightsPage({
           />
         </CardContent>
       </Card>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Editorial Confidence</CardTitle>
+            <CardDescription>
+              A lightweight view of how much trust the current guidance appears to deserve based on structured support, not objective correctness.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-3">
+              {insights.editorialConfidence.rows.map((row) => (
+                <div key={row.level} className="rounded-2xl bg-white/80 px-4 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{row.label} confidence</p>
+                    <Badge className={confidenceClasses(row.level)}>{row.label}</Badge>
+                  </div>
+                  <p className="mt-3 text-2xl font-semibold text-slate-950">{row.count}</p>
+                  <p className="mt-1 text-sm text-slate-500">Records in the current window.</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              {insights.editorialConfidence.lowCount > 0
+                ? `${insights.editorialConfidence.lowCount} records currently need heavier human judgement because framing, support memory, or coverage is still thin.`
+                : "No records in this window are currently surfacing as low-confidence guidance cases."}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Low-Confidence Clusters</CardTitle>
+            <CardDescription>
+              Where uncertainty is concentrating most often right now, by source kind, family, and recurring uncertainty flag.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Source kinds</p>
+              <div className="mt-3 space-y-3">
+                {insights.editorialConfidence.lowConfidenceSourceKinds.length === 0 ? (
+                  <EmptyState copy="No low-confidence source-kind cluster is stable enough to surface yet." />
+                ) : (
+                  insights.editorialConfidence.lowConfidenceSourceKinds.map((row) => (
+                    <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                      <span className="text-sm text-slate-600">{row.label}</span>
+                      <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Families</p>
+              <div className="mt-3 space-y-3">
+                {insights.editorialConfidence.lowConfidenceFamilies.length === 0 ? (
+                  <EmptyState copy="No low-confidence family cluster is stable enough to surface yet." />
+                ) : (
+                  insights.editorialConfidence.lowConfidenceFamilies.map((row) => (
+                    <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                      <span className="text-sm text-slate-600">{row.label}</span>
+                      <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top uncertainty flags</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {insights.editorialConfidence.topUncertaintyFlags.length === 0 ? (
+                  <EmptyState copy="No uncertainty flags are stable enough to summarize yet." />
+                ) : (
+                  insights.editorialConfidence.topUncertaintyFlags.map((row) => (
+                    <Badge key={row.code} className="bg-slate-100 text-slate-700 ring-slate-200">
+                      {row.label}: {row.count}
+                    </Badge>
+                  ))
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Card>

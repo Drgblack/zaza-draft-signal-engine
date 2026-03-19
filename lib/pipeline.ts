@@ -8,6 +8,7 @@ import { interpretSignal, toInterpretationInput } from "@/lib/interpreter";
 import { getPipelineGateDecision } from "@/lib/pipeline-rules";
 import { SCENARIO_ANGLE_QUALITY_LEVELS, getSavedScenarioAngleReuseDecision } from "@/lib/scenario-angle";
 import { scoreSignal } from "@/lib/scoring";
+import { getOperatorTuning } from "@/lib/tuning";
 import { hasScoring } from "@/lib/workflow";
 import type { IngestionRunSummary } from "@/lib/ingestion/types";
 import type { ScenarioAngleQuality } from "@/lib/scenario-angle";
@@ -197,6 +198,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
   const shouldIngestFresh = options.ingestFresh ?? true;
   const maxCandidates = Math.min(Math.max(options.maxCandidates ?? 15, 1), 30);
   const reuseSavedScenarioAngles = options.reuseSavedScenarioAngles ?? true;
+  const tuning = await getOperatorTuning();
 
   let source: SignalDataSource = "mock";
   let ingestionResult: IngestionRunSummary | null = null;
@@ -249,7 +251,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
   let candidatesScored = 0;
 
   for (const signal of targets) {
-    const scoring = scoreSignal(signal, signalResult.signals);
+    const scoring = scoreSignal(signal, signalResult.signals, tuning.settings);
     const savedScoring = await saveSignalWithFallback(signal.recordId, buildScoringUpdate(scoring));
 
     if (!savedScoring.signal) {
@@ -265,7 +267,10 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
 
     candidatesScored += 1;
     touchedRecordIds.add(signal.recordId);
-    auditEvents.push(buildScoredEvent(savedScoring.signal, scoring), buildRecommendationEvent(savedScoring.signal));
+    auditEvents.push(
+      buildScoredEvent(savedScoring.signal, scoring),
+      buildRecommendationEvent(savedScoring.signal, tuning.settings),
+    );
 
     const scoredSignal = savedScoring.signal;
     const decision = getPipelineGateDecision(scoring);
@@ -356,7 +361,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
           },
         ),
       );
-      auditEvents.push(buildRecommendationEvent(interpretedSignal));
+      auditEvents.push(buildRecommendationEvent(interpretedSignal, tuning.settings));
       continue;
     }
 
@@ -387,7 +392,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
           },
         ),
       );
-      auditEvents.push(buildRecommendationEvent(interpretedSignal));
+      auditEvents.push(buildRecommendationEvent(interpretedSignal, tuning.settings));
       continue;
     }
 
@@ -430,7 +435,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
           },
         ),
       );
-      auditEvents.push(buildRecommendationEvent(interpretedSignal));
+      auditEvents.push(buildRecommendationEvent(interpretedSignal, tuning.settings));
       continue;
     }
 
@@ -446,7 +451,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
         generationSource: draftOutputs.generationSource,
       },
     });
-    auditEvents.push(buildRecommendationEvent(savedGeneration.signal));
+    auditEvents.push(buildRecommendationEvent(savedGeneration.signal, tuning.settings));
 
     if (savedScenarioAngleDecision.shouldReuse) {
       recordsGeneratedWithSavedAngle.push(

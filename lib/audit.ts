@@ -4,6 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import { getCopilotGuidance, type CopilotActionKey } from "@/lib/copilot";
+import type { OperatorTuningSettings } from "@/lib/tuning";
 import { mockAuditEventsSeed } from "@/lib/mock-data";
 import type { SignalRecord, SignalScoringResult } from "@/types/signal";
 
@@ -40,6 +41,10 @@ export const AUDIT_EVENT_TYPES = [
   "PLAYBOOK_CARD_CREATED_FROM_GAP",
   "PLAYBOOK_CARD_UPDATED",
   "PLAYBOOK_CARD_RETIRED",
+  "EDITORIAL_CONFIDENCE_SNAPSHOT",
+  "TUNING_PRESET_CHANGED",
+  "TUNING_SETTING_UPDATED",
+  "TUNING_RESET_TO_DEFAULTS",
   "FINAL_REVIEW_STARTED",
   "FINAL_DRAFT_EDITED",
   "FINAL_DRAFT_MARKED_READY",
@@ -209,8 +214,11 @@ export async function listAuditEvents(options?: {
     .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
 }
 
-export function buildRecommendationEvent(signal: SignalRecord): AuditEventInput {
-  const guidance = getCopilotGuidance(signal);
+export function buildRecommendationEvent(
+  signal: SignalRecord,
+  tuning?: OperatorTuningSettings,
+): AuditEventInput {
+  const guidance = getCopilotGuidance(signal, tuning);
 
   return {
     signalId: signal.recordId,
@@ -249,8 +257,9 @@ export function buildScoredEvent(signal: SignalRecord, scoring: SignalScoringRes
 export function buildOperatorOverrideEvent(
   signal: SignalRecord,
   actualAction: CopilotActionKey,
+  tuning?: OperatorTuningSettings,
 ): AuditEventInput | null {
-  const guidance = getCopilotGuidance(signal);
+  const guidance = getCopilotGuidance(signal, tuning);
 
   if (guidance.actionKey === "none" || guidance.actionKey === actualAction) {
     return null;

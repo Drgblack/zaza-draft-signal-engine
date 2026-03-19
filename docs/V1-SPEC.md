@@ -141,6 +141,24 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - lighter reuse of the same model on interpretation, generation, and review pages
   - explicit prioritisation of blocker first, then strongest reuse or support signal, then meaningful caution or gap note
   - no autonomous decision-making or hidden ranking logic
+- Editorial confidence & uncertainty with:
+  - centralized heuristic logic in `lib/editorial-confidence.ts`
+  - qualitative confidence levels: `high`, `moderate`, `low`
+  - compact uncertainty flags such as weak framing, no playbook support, weak pattern match, uncertain source fit, novel case, and cautionary reuse memory
+  - confidence integrated into the unified guidance panel
+  - light confidence distribution and clustering visibility on `/insights`
+  - optional low-noise confidence snapshots at major save transitions only
+  - no probabilistic scoring, hard blockers, or claims of objective correctness
+- Operator tuning controls with:
+  - centralized persistent store in `lib/tuning.ts`
+  - pure shared definitions in `lib/tuning-definitions.ts`
+  - small bounded controls for source strictness, scoring strictness, confidence strictness, co-pilot conservatism, transformability rescue, and pattern suggestion strictness
+  - top-level presets: `Conservative`, `Balanced`, `Exploratory`
+  - `/settings` page with save and reset actions
+  - light visibility of active tuning on `/insights`
+  - bounded downstream effects on scoring, transformability, confidence, co-pilot posture, and pattern suggestion surfacing
+  - audit events for meaningful tuning changes only
+  - no formula editor, multi-user config, or automatic optimisation
 - Dashboard, signals index, signal detail, new signal, review, interpretation, and generation pages
 - Generation workbench page
 - Generation readiness and quality guidance with:
@@ -276,6 +294,61 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - no hidden scoring or ranking layer
   - no automatic pattern, bundle, or playbook selection
   - some guidance surfaces still stay separate when they are action-heavy, such as full pattern suggestion lists on generation and interpretation
+
+## Editorial Confidence Notes
+- Editorial confidence is confidence in the current guidance support, not confidence in truth or correctness.
+- Current levels are intentionally qualitative:
+  - `high`
+  - `moderate`
+  - `low`
+- Confidence is derived from explicit structured signals such as:
+  - Scenario Angle quality
+  - pattern support
+  - playbook support
+  - reuse-memory quality
+  - source fit and transformability
+  - whether current playbook coverage looks thin or weak
+- Uncertainty flags are intentionally narrow and operator-readable. Current examples include:
+  - `weak_framing`
+  - `no_playbook_support`
+  - `weak_pattern_match`
+  - `uncertain_source_fit`
+  - `novel_case`
+  - `cautionary_reuse_memory`
+  - `indirect_signal_requires_judgement`
+- Confidence remains advisory only:
+  - it does not block actions
+  - it does not auto-rank work
+  - it does not modify scoring or generation logic
+  - it does not claim statistical certainty
+- The UI intentionally surfaces short reasons and a few flags rather than a large diagnostics panel.
+
+## Operator Tuning Notes
+- Operator tuning is a bounded control surface, not a developer rule editor.
+- Current controls intentionally stay small and human-readable:
+  - source strictness
+  - scoring strictness
+  - confidence strictness
+  - co-pilot conservatism
+  - transformability rescue strength
+  - pattern suggestion strictness
+- Presets provide safe starting points:
+  - `Conservative`
+  - `Balanced`
+  - `Exploratory`
+- Individual controls can still be overridden without editing code.
+- Current tuning affects bounded heuristics only:
+  - weak-source penalties and thin-context filtering
+  - keep / review / reject thresholds
+  - confidence thresholds for `high`, `moderate`, `low`
+  - co-pilot posture on borderline review cases
+  - how much strong framing can rescue indirect sources
+  - how readily pattern support is surfaced
+- Tuning remains operator-facing only:
+  - no hidden optimisation loop
+  - no per-source custom rule editor
+  - no hard blocking of actions
+  - no claim that one preset is objectively best
 
 ## Audit Trail Notes
 - The audit trail is a lightweight, append-only decision memory per signal.

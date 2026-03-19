@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { appendAuditEventsSafe, buildOperatorOverrideEvent, type AuditEventInput } from "@/lib/audit";
 import { getSignalWithFallback } from "@/lib/airtable";
 import { interpretSignal, toInterpretationInput as toSignalInterpretationInput } from "@/lib/interpreter";
+import { getOperatorTuning } from "@/lib/tuning";
 import {
   interpretRequestSchema,
   interpretationResultSchema,
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
 
   const interpretation = interpretationResultSchema.parse(interpretSignal(signal));
   const currentSignalId = signal.recordId ?? parsed.data.signalId ?? null;
+  const tuning = await getOperatorTuning();
 
   if (currentSignalId) {
     const currentSignalResult = await getSignalWithFallback(currentSignalId);
@@ -75,7 +77,7 @@ export async function POST(request: Request) {
     ];
 
     if (currentSignalResult.signal) {
-      const overrideEvent = buildOperatorOverrideEvent(currentSignalResult.signal, "interpret");
+      const overrideEvent = buildOperatorOverrideEvent(currentSignalResult.signal, "interpret", tuning.settings);
       if (overrideEvent) {
         auditEvents.push(overrideEvent);
       }

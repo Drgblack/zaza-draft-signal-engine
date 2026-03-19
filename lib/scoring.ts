@@ -17,6 +17,11 @@ import {
   URGENCY_KEYWORDS,
 } from "@/lib/scoring-rules";
 import { getSourceProfile } from "@/lib/source-profiles";
+import {
+  getScoringDecisionConfig,
+  getSourceStrictnessConfig,
+  type OperatorTuningSettings,
+} from "@/lib/tuning";
 import { assessTransformability } from "@/lib/transformability";
 import type { SignalRecord, SignalScoringResult } from "@/types/signal";
 
@@ -35,13 +40,13 @@ function buildSignalText(signal: SignalRecord): string {
     .toLowerCase();
 }
 
-function scoreRelevance(signal: SignalRecord, text: string): number {
+function scoreRelevance(signal: SignalRecord, text: string, tuning?: OperatorTuningSettings): number {
   const profile = getSourceProfile(signal);
   const scenarioAssessment = assessScenarioAngle({
     scenarioAngle: signal.scenarioAngle,
     sourceTitle: signal.sourceTitle,
   });
-  const transformability = assessTransformability(signal);
+  const transformability = assessTransformability(signal, tuning);
   const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
   let score = 10;
   score += countKeywordMatches(text, RELEVANCE_KEYWORDS) * 8;
@@ -81,13 +86,13 @@ function scoreRelevance(signal: SignalRecord, text: string): number {
   return clampScore(score);
 }
 
-function scoreBrandFit(signal: SignalRecord, text: string): number {
+function scoreBrandFit(signal: SignalRecord, text: string, tuning?: OperatorTuningSettings): number {
   const profile = getSourceProfile(signal);
   const scenarioAssessment = assessScenarioAngle({
     scenarioAngle: signal.scenarioAngle,
     sourceTitle: signal.sourceTitle,
   });
-  const transformability = assessTransformability(signal);
+  const transformability = assessTransformability(signal, tuning);
   const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
   let score = 10;
   score += countKeywordMatches(text, BRAND_FIT_KEYWORDS) * 9;
@@ -152,8 +157,9 @@ function scoreUrgency(signal: SignalRecord, text: string): number {
   return clampScore(score);
 }
 
-function scoreSourceTrust(signal: SignalRecord, text: string): number {
+function scoreSourceTrust(signal: SignalRecord, text: string, tuning?: OperatorTuningSettings): number {
   const profile = getSourceProfile(signal);
+  const sourceStrictness = getSourceStrictnessConfig(tuning);
   const publisher = signal.sourcePublisher?.toLowerCase() ?? "";
   const canonicalUrl = canonicalizeSourceUrl(signal.sourceUrl);
   let score = profile.trustBaseline;
@@ -176,7 +182,7 @@ function scoreSourceTrust(signal: SignalRecord, text: string): number {
   }
 
   if (signal.sourceType && LOW_CONTEXT_SOURCE_TYPES.includes(signal.sourceType as (typeof LOW_CONTEXT_SOURCE_TYPES)[number])) {
-    score -= 18;
+    score -= sourceStrictness.lowContextPenalty;
   }
 
   if (signal.sourceType && SYSTEM_NOTE_SOURCE_TYPES.includes(signal.sourceType as (typeof SYSTEM_NOTE_SOURCE_TYPES)[number])) {
@@ -184,15 +190,15 @@ function scoreSourceTrust(signal: SignalRecord, text: string): number {
   }
 
   if (profile.sourceKind === "reddit" && countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS) === 0) {
-    score -= 8;
+    score -= sourceStrictness.redditWithoutCommunicationPenalty;
   }
 
   if (!signal.sourcePublisher && !signal.sourceUrl) {
-    score -= 15;
+    score -= sourceStrictness.missingContextPenalty;
   }
 
   if (text.includes("anonymous")) {
-    score -= 8;
+    score -= sourceStrictness.anonymousPenalty;
   }
 
   return clampScore(score);
@@ -227,9 +233,13 @@ function getSimilarityToExistingContent(signal: SignalRecord, existingSignals: S
   return maxSimilarity > 0 ? clampScore(maxSimilarity) : null;
 }
 
-function scoreNovelty(signal: SignalRecord, similarityToExistingContent: number | null): number {
+function scoreNovelty(
+  signal: SignalRecord,
+  similarityToExistingContent: number | null,
+  tuning?: OperatorTuningSettings,
+): number {
   const profile = getSourceProfile(signal);
-  const transformability = assessTransformability(signal);
+  const transformability = assessTransformability(signal, tuning);
   let score = 60;
   const titleFingerprint = normalizeTitleFingerprint(signal.sourceTitle);
 
@@ -276,10 +286,11 @@ function decideRecommendation(scores: {
   brandFit: number;
   trust: number;
   similarityToExistingContent: number | null;
-}): Pick<
+}, tuning?: OperatorTuningSettings): Pick<
   SignalScoringResult,
   "keepRejectRecommendation" | "qualityGateResult" | "reviewPriority" | "needsHumanReview"
 > {
+  const decisionConfig = getScoringDecisionConfig(tuning);
   const weighted =
     scores.relevance * 0.3 +
     scores.brandFit * 0.25 +
@@ -287,11 +298,12 @@ function decideRecommendation(scores: {
     scores.novelty * 0.15 +
     scores.urgency * 0.15;
 
-  const highlySimilar = (scores.similarityToExistingContent ?? 0) >= 92;
-  const weakFit = scores.relevance < 35 || scores.brandFit < 35;
-  const weakTrust = scores.trust < 30;
+  const highlySimilar = (scores.similarityToExistingContent ?? 0) >= decisionConfig.highSimilarityFloor;
+  const weakFit =
+    scores.relevance < decisionConfig.weakFitFloor || scores.brandFit < decisionConfig.weakFitFloor;
+  const weakTrust = scores.trust < decisionConfig.weakTrustFloor;
 
-  if (highlySimilar || weakFit || weakTrust || weighted < 38) {
+  if (highlySimilar || weakFit || weakTrust || weighted < decisionConfig.rejectWeightedFloor) {
     return {
       keepRejectRecommendation: "Reject",
       qualityGateResult: "Fail",
@@ -301,11 +313,11 @@ function decideRecommendation(scores: {
   }
 
   if (
-    weighted >= 68 &&
-    scores.relevance >= 60 &&
-    scores.brandFit >= 60 &&
-    scores.trust >= 45 &&
-    (scores.similarityToExistingContent ?? 0) < 85
+    weighted >= decisionConfig.keepWeightedFloor &&
+    scores.relevance >= decisionConfig.keepFieldFloor &&
+    scores.brandFit >= decisionConfig.keepFieldFloor &&
+    scores.trust >= decisionConfig.keepTrustFloor &&
+    (scores.similarityToExistingContent ?? 0) < decisionConfig.keepSimilarityCeiling
   ) {
     return {
       keepRejectRecommendation: "Keep",
@@ -323,7 +335,11 @@ function decideRecommendation(scores: {
   };
 }
 
-function buildSelectedReason(signal: SignalRecord, result: SignalScoringResult): string | null {
+function buildSelectedReason(
+  signal: SignalRecord,
+  result: SignalScoringResult,
+  tuning?: OperatorTuningSettings,
+): string | null {
   if (result.keepRejectRecommendation === "Reject") {
     return null;
   }
@@ -331,7 +347,7 @@ function buildSelectedReason(signal: SignalRecord, result: SignalScoringResult):
   const reasons: string[] = [];
   const profile = getSourceProfile(signal);
   const text = buildSignalText(signal);
-  const transformability = assessTransformability(signal);
+  const transformability = assessTransformability(signal, tuning);
   const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
   const scenarioAssessment = assessScenarioAngle({
     scenarioAngle: signal.scenarioAngle,
@@ -370,7 +386,11 @@ function buildSelectedReason(signal: SignalRecord, result: SignalScoringResult):
   return `Selected because it shows ${reasons.slice(0, 2).join(" and ")}.`;
 }
 
-function buildRejectedReason(signal: SignalRecord, result: SignalScoringResult): string | null {
+function buildRejectedReason(
+  signal: SignalRecord,
+  result: SignalScoringResult,
+  tuning?: OperatorTuningSettings,
+): string | null {
   if (result.keepRejectRecommendation !== "Reject") {
     return null;
   }
@@ -378,7 +398,7 @@ function buildRejectedReason(signal: SignalRecord, result: SignalScoringResult):
   const reasons: string[] = [];
   const profile = getSourceProfile(signal);
   const text = buildSignalText(signal);
-  const transformability = assessTransformability(signal);
+  const transformability = assessTransformability(signal, tuning);
   const communicationHits = countKeywordMatches(text, COMMUNICATION_SIGNAL_KEYWORDS);
   const scenarioAssessment = assessScenarioAngle({
     scenarioAngle: signal.scenarioAngle,
@@ -458,14 +478,18 @@ export function buildInitialScoringFromSignal(signal: SignalRecord): SignalScori
   };
 }
 
-export function scoreSignal(signal: SignalRecord, existingSignals: SignalRecord[]): SignalScoringResult {
+export function scoreSignal(
+  signal: SignalRecord,
+  existingSignals: SignalRecord[],
+  tuning?: OperatorTuningSettings,
+): SignalScoringResult {
   const text = buildSignalText(signal);
   const similarityToExistingContent = getSimilarityToExistingContent(signal, existingSignals);
-  const relevance = scoreRelevance(signal, text);
-  const brandFit = scoreBrandFit(signal, text);
+  const relevance = scoreRelevance(signal, text, tuning);
+  const brandFit = scoreBrandFit(signal, text, tuning);
   const urgency = scoreUrgency(signal, text);
-  const trust = scoreSourceTrust(signal, text);
-  const novelty = scoreNovelty(signal, similarityToExistingContent);
+  const trust = scoreSourceTrust(signal, text, tuning);
+  const novelty = scoreNovelty(signal, similarityToExistingContent, tuning);
   const decision = decideRecommendation({
     relevance,
     novelty,
@@ -473,7 +497,7 @@ export function scoreSignal(signal: SignalRecord, existingSignals: SignalRecord[
     brandFit,
     trust,
     similarityToExistingContent,
-  });
+  }, tuning);
 
   const scoredAt = new Date().toISOString();
   const provisional: SignalScoringResult = {
@@ -497,7 +521,7 @@ export function scoreSignal(signal: SignalRecord, existingSignals: SignalRecord[
 
   return {
     ...provisional,
-    whySelected: buildSelectedReason(signal, provisional),
-    whyRejected: buildRejectedReason(signal, provisional),
+    whySelected: buildSelectedReason(signal, provisional, tuning),
+    whyRejected: buildRejectedReason(signal, provisional, tuning),
   };
 }

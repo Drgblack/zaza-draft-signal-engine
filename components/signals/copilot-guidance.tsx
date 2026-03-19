@@ -1,7 +1,6 @@
 import Link from "next/link";
 
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
-import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { PatternSuggestionList } from "@/components/patterns/pattern-suggestion-list";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -197,31 +196,32 @@ export function CopilotHint({
 }: {
   guidance: CopilotGuidance;
 }) {
-  const unified = buildUnifiedGuidanceModel({ guidance });
-  const supportItem =
-    unified.relatedPlaybookCards[0] ?? unified.relatedPatterns[0] ?? unified.relatedBundles[0] ?? null;
-
   return (
     <div className="space-y-1">
       <div className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${toneClasses(guidance.tone)}`}>
         {guidance.shortLabel}
       </div>
       <p className="max-w-md text-xs leading-5 text-slate-500">{guidance.reason}</p>
-      {unified.supportingSignals[0] ? (
+      {guidance.feedbackContext[0] ? (
         <p className="max-w-md text-xs leading-5 text-slate-400">
-          {unified.supportingSignals[0].label}: {unified.supportingSignals[0].text}
+          Past feedback: {guidance.feedbackContext[0].text}
         </p>
       ) : null}
-      {unified.reuseMemory?.highlights[0] ? (
-        <p className="max-w-md text-xs leading-5 text-slate-400">{unified.reuseMemory.highlights[0].text}</p>
+      {guidance.reuseMemory.highlights[0] ? (
+        <p className="max-w-md text-xs leading-5 text-slate-400">{guidance.reuseMemory.highlights[0].text}</p>
       ) : null}
-      {supportItem ? (
+      {guidance.playbookCards[0] ? (
         <p className="max-w-md text-xs leading-5 text-slate-400">
-          {supportItem.title}. {supportItem.reason}
+          Playbook: {guidance.playbookCards[0].card.title}. {guidance.playbookCards[0].reason}
         </p>
       ) : null}
-      {unified.gapWarnings[0] ? (
-        <p className="max-w-md text-xs leading-5 text-slate-400">{unified.gapWarnings[0].text}</p>
+      {guidance.patternSuggestions[0] ? (
+        <p className="max-w-md text-xs leading-5 text-slate-400">
+          Pattern: {guidance.patternSuggestions[0].pattern.name}. {guidance.patternSuggestions[0].reason}
+        </p>
+      ) : null}
+      {guidance.playbookCoverageHint ? (
+        <p className="max-w-md text-xs leading-5 text-slate-400">{guidance.playbookCoverageHint.text}</p>
       ) : null}
     </div>
   );

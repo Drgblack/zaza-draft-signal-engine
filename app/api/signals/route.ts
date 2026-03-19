@@ -4,6 +4,7 @@ import { appendAuditEventsSafe, buildRecommendationEvent } from "@/lib/audit";
 import { createSignal, getSafeAirtableErrorMessage, listSignals } from "@/lib/airtable";
 import { buildMockCreatedSignal, mockSignalRecords } from "@/lib/mock-data";
 import { getAppConfig } from "@/lib/config";
+import { getOperatorTuning } from "@/lib/tuning";
 import {
   createSignalRequestSchema,
   statusFilterSchema,
@@ -84,6 +85,7 @@ export async function POST(request: Request) {
   }
 
   const submission = toCreateSignalPayload(parsed.data);
+  const tuning = await getOperatorTuning();
 
   const config = getAppConfig();
 
@@ -99,7 +101,7 @@ export async function POST(request: Request) {
           source: "mock",
         },
       },
-      buildRecommendationEvent(signal),
+      buildRecommendationEvent(signal, tuning.settings),
     ]);
     return NextResponse.json<CreateSignalApiResponse>({
       success: true,
@@ -122,7 +124,7 @@ export async function POST(request: Request) {
           source: "airtable",
         },
       },
-      buildRecommendationEvent(signal),
+      buildRecommendationEvent(signal, tuning.settings),
     ]);
 
     return NextResponse.json<CreateSignalApiResponse>({

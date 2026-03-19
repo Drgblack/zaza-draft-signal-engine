@@ -1,7 +1,78 @@
 # Codex Runs
 
 ## Current Run
-Run 39 adds Playbook + Reuse Convergence:
+Run 41 adds Operator Tuning Controls:
+- new centralized persistent tuning layer in `lib/tuning.ts`
+- pure shared tuning definitions now live in `lib/tuning-definitions.ts`
+- current operator controls are intentionally small and bounded:
+  - source strictness
+  - scoring strictness
+  - confidence strictness
+  - co-pilot conservatism
+  - transformability rescue strength
+  - pattern suggestion strictness
+- top-level presets now exist:
+  - Conservative
+  - Balanced
+  - Exploratory
+- new `/settings` page now lets the operator:
+  - choose a preset
+  - override individual controls
+  - save tuning
+  - reset to defaults
+- tuning now persists across sessions in a single local operator config
+- current tuning now shifts bounded existing heuristics in live behavior:
+  - source trust penalties for weak or thin-context sources
+  - keep / review / reject scoring thresholds
+  - guidance confidence thresholds
+  - co-pilot posture on borderline cases
+  - Scenario Angle rescue strength for indirect sources
+  - pattern suggestion minimum match strength
+- `/insights` now shows the active tuning context so interpretation and outcome reading stay traceable
+- audit logging now supports:
+  - `TUNING_PRESET_CHANGED`
+  - `TUNING_SETTING_UPDATED`
+  - `TUNING_RESET_TO_DEFAULTS`
+- this run remains bounded:
+  - no formula editor
+  - no multi-user settings
+  - no automatic tuning or optimisation
+  - no per-source custom rule editing
+
+## Previous Runs
+- Run 40 adds Editorial Confidence & Uncertainty Signals:
+- new centralized heuristic confidence model in `lib/editorial-confidence.ts`
+- confidence stays qualitative and operator-facing:
+  - `high`
+  - `moderate`
+  - `low`
+- confidence is derived from existing structured support such as:
+  - Scenario Angle quality
+  - pattern support
+  - playbook support
+  - reuse-memory quality
+  - source fit and transformability
+  - playbook coverage gaps
+- the unified guidance model now carries confidence reasons and compact uncertainty flags
+- the shared guidance panel now shows:
+  - confidence level
+  - short confidence reasons
+  - compact uncertainty flags when relevant
+- `/insights` now lightly summarizes:
+  - high / moderate / low confidence counts
+  - low-confidence source-kind clusters
+  - low-confidence family clusters
+  - top uncertainty flags
+- audit logging now supports low-noise `EDITORIAL_CONFIDENCE_SNAPSHOT` events at major transitions only:
+  - interpretation saved
+  - generation saved
+  - final review started
+- this run remains bounded:
+  - no probabilistic confidence scores
+  - no hidden ranking system
+  - no hard blockers
+  - no claims of objective correctness
+- Run 39 adds Playbook + Reuse Convergence:
 - new centralized guidance assembly in `lib/guidance.ts`
 - guidance now composes existing subsystems into one structured operator-facing model:
   - primary action
@@ -24,8 +95,6 @@ Run 39 adds Playbook + Reuse Convergence:
   - no autonomous decision engine
   - no hidden ranking system
   - no major UI redesign
-
-## Previous Runs
 - Run 38 adds Playbook Coverage Gaps:
 - new centralized playbook-coverage module in `lib/playbook-coverage.ts`
 - coverage areas are compact, deterministic combinations of existing structured signals such as:

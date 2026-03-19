@@ -13,6 +13,7 @@ import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { buildSignalPostingSummary, indexPostingEntriesBySignalId, listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { getOperatorTuning } from "@/lib/tuning";
 import { getScheduledSoonSignals, getWorkflowBuckets, sortSignals } from "@/lib/workflow";
 import { formatDateTime } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ export default async function ReviewPage() {
   const bundles = await listPatternBundles();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const tuning = await getOperatorTuning();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
     signals,
@@ -49,6 +51,7 @@ export default async function ReviewPage() {
     playbookCards,
     reuseMemoryCases,
     playbookCoverageSummary,
+    tuning.settings,
   );
   const sortedSignals = sortSignals(signals, "createdDate-desc");
   const postingEntriesBySignalId = indexPostingEntriesBySignalId(postingEntries);

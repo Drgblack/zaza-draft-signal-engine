@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, buildRecommendationEvent, type AuditEventInput } from "@/lib/audit";
-import { getSignalWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
 import { buildFinalReviewSummary } from "@/lib/final-review";
+import { listFeedbackEntries } from "@/lib/feedback";
+import { assembleGuidanceForSignal } from "@/lib/guidance";
+import { listPostingOutcomes } from "@/lib/outcomes";
+import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
+import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { listPlaybookCards } from "@/lib/playbook-cards";
+import { listPatterns } from "@/lib/patterns";
+import { listPostingLogEntries } from "@/lib/posting-log";
+import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { getOperatorTuning } from "@/lib/tuning";
 import {
   finalReviewUpdateRequestSchema,
   toFinalReviewSavePayload,
@@ -71,6 +81,7 @@ export async function PATCH(
   }
 
   const review = toFinalReviewSavePayload(parsed.data);
+  const tuning = await getOperatorTuning();
   const previousSignalResult = await getSignalWithFallback(id);
   if (!previousSignalResult.signal) {
     return NextResponse.json(
@@ -150,6 +161,54 @@ export async function PATCH(
       actor: "operator",
       summary: "Started final review workspace.",
     });
+
+    const feedbackEntries = await listFeedbackEntries();
+    const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
+    const patterns = await listPatterns();
+    const bundles = await listPatternBundles();
+    const playbookCards = await listPlaybookCards();
+    const postingEntries = await listPostingLogEntries();
+    const postingOutcomes = await listPostingOutcomes();
+    const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
+    const updatedSignals = allSignals.map((signal) => (signal.recordId === id ? nextSignal : signal));
+    const reuseMemoryCases = buildReuseMemoryCases({
+      signals: updatedSignals,
+      postingEntries,
+      postingOutcomes,
+      bundleSummariesByPatternId,
+    });
+    const playbookCoverageSummary = buildPlaybookCoverageSummary({
+      signals: updatedSignals,
+      playbookCards,
+      postingEntries,
+      postingOutcomes,
+      bundleSummariesByPatternId,
+    });
+    const confidenceSnapshot = assembleGuidanceForSignal({
+      signal: nextSignal,
+      context: "review",
+      allSignals: updatedSignals,
+      feedbackEntries,
+      patterns,
+      bundleSummariesByPatternId,
+      playbookCards,
+      reuseMemoryCases,
+      playbookCoverageSummary,
+      tuning: tuning.settings,
+    });
+
+    auditEvents.push({
+      signalId: id,
+      eventType: "EDITORIAL_CONFIDENCE_SNAPSHOT",
+      actor: "system",
+      summary: `Editorial confidence is ${confidenceSnapshot.confidence.confidenceLevel} when final review begins.`,
+      metadata: {
+        stage: "final_review_started",
+        confidenceLevel: confidenceSnapshot.confidence.confidenceLevel,
+        topReason: confidenceSnapshot.confidence.confidenceReasons[0] ?? null,
+        topUncertaintyFlag: confidenceSnapshot.confidence.uncertaintyFlags[0]?.code ?? null,
+      },
+    });
   }
 
   for (const platform of ["x", "linkedin", "reddit"] as const) {
@@ -208,7 +267,7 @@ export async function PATCH(
     });
   }
 
-  auditEvents.push(buildRecommendationEvent(nextSignal));
+  auditEvents.push(buildRecommendationEvent(nextSignal, tuning.settings));
   await appendAuditEventsSafe(auditEvents);
 
   return NextResponse.json<SaveFinalReviewResponse>({

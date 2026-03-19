@@ -15,6 +15,10 @@ import {
 import { buildReuseMemorySummary, type ReuseMemoryCase, type ReuseMemorySummary } from "@/lib/reuse-memory";
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import { getSourceProfile } from "@/lib/source-profiles";
+import {
+  getCopilotConservatismConfig,
+  type OperatorTuningSettings,
+} from "@/lib/tuning";
 import { assessTransformability } from "@/lib/transformability";
 import { hasGeneration, hasInterpretation, hasScoring, isFilteredOutSignal } from "@/lib/workflow";
 import type { EditorialMode, SignalRecord } from "@/types/signal";
@@ -104,6 +108,7 @@ function toCopilotPatternSuggestions(
   patterns: SignalPattern[] | undefined,
   bundleSummariesByPatternId?: Record<string, PatternBundleSummary[]>,
   patternEffectivenessById?: Record<string, PatternEffectivenessSummary>,
+  tuning?: OperatorTuningSettings,
 ): CopilotGuidance["patternSuggestions"] {
   if (!patterns || patterns.length === 0) {
     return emptyPatternSuggestions();
@@ -113,6 +118,7 @@ function toCopilotPatternSuggestions(
     limit: 3,
     bundleSummariesByPatternId,
     effectivenessById: patternEffectivenessById,
+    tuning,
   }).map((suggestion) => ({
     pattern: toPatternSummary(suggestion.pattern)!,
     reason: suggestion.reason,
@@ -146,12 +152,16 @@ function toCopilotPlaybookCards(input: {
   });
 }
 
-export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
+export function getCopilotGuidance(
+  signal: SignalRecord,
+  tuning?: OperatorTuningSettings,
+): CopilotGuidance {
+  const copilotTuning = getCopilotConservatismConfig(tuning);
   const scenarioAssessment = assessScenarioAngle({
     scenarioAngle: signal.scenarioAngle,
     sourceTitle: signal.sourceTitle,
   });
-  const transformability = assessTransformability(signal);
+  const transformability = assessTransformability(signal, tuning);
   const sourceProfile = getSourceProfile(signal);
   const scoringReady = hasScoring(signal);
   const interpretationReady = hasInterpretation(signal);
@@ -278,12 +288,36 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
 
   if (interpretationReady) {
     if (indirectSignal && (scenarioAssessment.quality === "missing" || scenarioAssessment.quality === "weak")) {
+      if (copilotTuning.actionOriented) {
+        return {
+          actionKey: "generate",
+          nextAction: "Borderline framing - generate cautiously",
+          shortLabel: "Generate cautiously",
+          reason:
+            "Interpretation exists and current tuning is more action-oriented, so this can move into drafting, but the framing still needs a careful operator read.",
+          blockers: ["Indirect source still has thin framing."],
+          readiness: "review",
+          tone: "warning",
+          actionHref: buildSignalHref(signal, "generate"),
+          feedbackContext: [],
+          patternSuggestions: emptyPatternSuggestions(),
+          playbookCards: emptyPlaybookCards(),
+          suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+          reuseMemory: emptyReuseMemory(),
+          playbookCoverageHint: emptyPlaybookCoverageHint(),
+        };
+      }
+
       return {
         actionKey: "shape_scenario",
-        nextAction: "Generation may be generic - improve framing first",
-        shortLabel: "Improve framing",
+        nextAction: copilotTuning.conservative
+          ? "Tighten framing before generation"
+          : "Generation may be generic - improve framing first",
+        shortLabel: copilotTuning.conservative ? "Tighten framing" : "Improve framing",
         reason:
-          "Interpretation exists, but this source is still indirect and the current scenario angle is too weak to shape strong scenario-led drafts.",
+          copilotTuning.conservative
+            ? "Interpretation exists, but current tuning is more cautious and this indirect source still needs stronger framing before draft generation."
+            : "Interpretation exists, but this source is still indirect and the current scenario angle is too weak to shape strong scenario-led drafts.",
         blockers: ["Scenario Angle is missing or weak for an indirect source."],
         readiness: "blocked",
         tone: "warning",
@@ -339,12 +373,34 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
     (scenarioAssessment.quality === "missing" || scenarioAssessment.quality === "weak") &&
     (signal.keepRejectRecommendation === "Keep" || signal.keepRejectRecommendation === "Review")
   ) {
+    if (copilotTuning.actionOriented && signal.keepRejectRecommendation === "Keep") {
+      return {
+        actionKey: "interpret",
+        nextAction: "Interpret, but strengthen the angle while you do it",
+        shortLabel: "Interpret with care",
+        reason:
+          "The source is still indirect, but current tuning is more action-oriented and scoring is strong enough to keep moving if the operator sharpens framing during interpretation.",
+        blockers: ["Indirect source still needs stronger scenario framing."],
+        readiness: "review",
+        tone: "warning",
+        actionHref: buildSignalHref(signal, "interpret"),
+        feedbackContext: [],
+        patternSuggestions: emptyPatternSuggestions(),
+        playbookCards: emptyPlaybookCards(),
+        suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+        reuseMemory: emptyReuseMemory(),
+        playbookCoverageHint: emptyPlaybookCoverageHint(),
+      };
+    }
+
     return {
       actionKey: "shape_scenario",
-      nextAction: "Needs stronger Scenario Angle",
-      shortLabel: "Needs Scenario Angle",
+      nextAction: copilotTuning.conservative ? "Add a stronger Scenario Angle before interpreting" : "Needs stronger Scenario Angle",
+      shortLabel: copilotTuning.conservative ? "Strengthen angle" : "Needs Scenario Angle",
       reason:
-        "This source is relevant but indirect. Add stronger teacher communication framing before interpretation so it becomes a usable Zaza-style scenario.",
+        copilotTuning.conservative
+          ? "This source is relevant but indirect, and current tuning is more cautious, so stronger teacher communication framing should come before interpretation."
+          : "This source is relevant but indirect. Add stronger teacher communication framing before interpretation so it becomes a usable Zaza-style scenario.",
       blockers: ["Indirect source needs stronger scenario framing."],
       readiness: "blocked",
       tone: "warning",
@@ -382,6 +438,48 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
 
   if (signal.keepRejectRecommendation === "Review" || signal.qualityGateResult === "Needs Review") {
     if (highPotential(signal) || signal.reviewPriority === "High" || signal.reviewPriority === "Urgent") {
+      if (copilotTuning.conservative) {
+        return {
+          actionKey: "none",
+          nextAction: "Borderline case - inspect before interpreting",
+          shortLabel: "Inspect first",
+          reason:
+            "Queue priority is high, but current tuning is more cautious, so this borderline case should be checked manually before it moves into interpretation.",
+          blockers: [],
+          readiness: "review",
+          tone: "warning",
+          actionHref: buildSignalHref(signal),
+          feedbackContext: [],
+          patternSuggestions: emptyPatternSuggestions(),
+          playbookCards: emptyPlaybookCards(),
+          suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+          reuseMemory: emptyReuseMemory(),
+          playbookCoverageHint: emptyPlaybookCoverageHint(),
+        };
+      }
+
+      if (copilotTuning.actionOriented) {
+        return {
+          actionKey: "interpret",
+          nextAction: "Borderline but worth interpreting now",
+          shortLabel: "Interpret now",
+          reason:
+            scenarioAssessment.quality === "strong" || scenarioAssessment.quality === "usable"
+              ? "This record is still borderline, but stronger framing and queue priority make it worth interpreting now."
+              : "This record is still borderline, but current tuning is more action-oriented and queue priority says it is worth interpreting now.",
+          blockers: [],
+          readiness: "ready",
+          tone: "warning",
+          actionHref: buildSignalHref(signal, "interpret"),
+          feedbackContext: [],
+          patternSuggestions: emptyPatternSuggestions(),
+          playbookCards: emptyPlaybookCards(),
+          suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+          reuseMemory: emptyReuseMemory(),
+          playbookCoverageHint: emptyPlaybookCoverageHint(),
+        };
+      }
+
       return {
         actionKey: "interpret",
         nextAction: "High potential - review now",
@@ -393,6 +491,26 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
         blockers: [],
         readiness: "review",
         tone: "warning",
+        actionHref: buildSignalHref(signal, "interpret"),
+        feedbackContext: [],
+        patternSuggestions: emptyPatternSuggestions(),
+        playbookCards: emptyPlaybookCards(),
+        suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+        reuseMemory: emptyReuseMemory(),
+        playbookCoverageHint: emptyPlaybookCoverageHint(),
+      };
+    }
+
+    if (copilotTuning.actionOriented && (scenarioAssessment.quality === "strong" || scenarioAssessment.quality === "usable")) {
+      return {
+        actionKey: "interpret",
+        nextAction: "Borderline, but workable if time allows",
+        shortLabel: "Workable",
+        reason:
+          "The record is still borderline, but current framing looks usable enough to justify a lighter interpretation pass when capacity allows.",
+        blockers: [],
+        readiness: "review",
+        tone: "neutral",
         actionHref: buildSignalHref(signal, "interpret"),
         feedbackContext: [],
         patternSuggestions: emptyPatternSuggestions(),
@@ -451,9 +569,10 @@ export function getFeedbackAwareCopilotGuidance(
     playbookCards?: PlaybookCard[];
     reuseMemoryCases?: ReuseMemoryCase[];
     playbookCoverageSummary?: PlaybookCoverageSummary;
+    tuning?: OperatorTuningSettings;
   },
 ): CopilotGuidance {
-  const guidance = getCopilotGuidance(signal);
+  const guidance = getCopilotGuidance(signal, options.tuning);
   const feedbackContext = buildFeedbackContextForSignal({
     signal,
     allSignals: options.allSignals,
@@ -465,6 +584,7 @@ export function getFeedbackAwareCopilotGuidance(
     options.patterns,
     options.bundleSummariesByPatternId,
     options.patternEffectivenessById,
+    options.tuning,
   );
   const reuseMemory = buildReuseMemorySummary({
     signal,
@@ -500,6 +620,7 @@ export function buildFeedbackAwareCopilotGuidanceMap(
   playbookCards?: PlaybookCard[],
   reuseMemoryCases?: ReuseMemoryCase[],
   playbookCoverageSummary?: PlaybookCoverageSummary,
+  tuning?: OperatorTuningSettings,
 ): Record<string, CopilotGuidance> {
   return Object.fromEntries(
     signals.map((signal) => [
@@ -513,6 +634,7 @@ export function buildFeedbackAwareCopilotGuidanceMap(
         playbookCards,
         reuseMemoryCases,
         playbookCoverageSummary,
+        tuning,
       }),
     ]),
   );

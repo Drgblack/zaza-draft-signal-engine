@@ -6,6 +6,7 @@ import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { buildPatternCoverageRecords, buildPatternGapDetectedEvent } from "@/lib/pattern-coverage";
 import { assessPatternCandidate, buildPatternCandidateDetectedEvent } from "@/lib/pattern-discovery";
 import { listPatterns } from "@/lib/patterns";
+import { getOperatorTuning } from "@/lib/tuning";
 import {
   toWorkflowSavePayload,
   workflowUpdateRequestSchema,
@@ -53,6 +54,7 @@ export async function PATCH(
   }
 
   const workflow = toWorkflowSavePayload(parsed.data);
+  const tuning = await getOperatorTuning();
   const previousSignalResult = await getSignalWithFallback(id);
   const result = await saveSignalWithFallback(id, {
     status: workflow.status,
@@ -84,7 +86,7 @@ export async function PATCH(
   if (previousSignalResult.signal) {
     const actualAction = workflowActionKey(workflow.status);
     if (actualAction !== "none") {
-      const overrideEvent = buildOperatorOverrideEvent(previousSignalResult.signal, actualAction);
+      const overrideEvent = buildOperatorOverrideEvent(previousSignalResult.signal, actualAction, tuning.settings);
       if (overrideEvent) {
         auditEvents.push(overrideEvent);
       }
@@ -146,7 +148,7 @@ export async function PATCH(
         nextStatus: workflow.status,
       },
     },
-    buildRecommendationEvent(nextSignal),
+    buildRecommendationEvent(nextSignal, tuning.settings),
   );
   await appendAuditEventsSafe(auditEvents);
 

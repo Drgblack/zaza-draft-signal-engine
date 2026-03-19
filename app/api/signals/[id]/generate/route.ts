@@ -4,9 +4,17 @@ import { appendAuditEventsSafe, buildOperatorOverrideEvent, buildRecommendationE
 import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
+import { assembleGuidanceForSignal } from "@/lib/guidance";
+import { listPostingOutcomes } from "@/lib/outcomes";
+import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { buildPatternCoverageRecords, buildPatternGapDetectedEvent } from "@/lib/pattern-coverage";
 import { assessPatternCandidate, buildPatternCandidateDetectedEvent } from "@/lib/pattern-discovery";
+import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPatterns } from "@/lib/patterns";
+import { listPostingLogEntries } from "@/lib/posting-log";
+import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { getOperatorTuning } from "@/lib/tuning";
 import { saveGenerationRequestSchema, toGenerationSavePayload, type SaveGenerationResponse } from "@/types/api";
 
 export async function PATCH(
@@ -34,6 +42,7 @@ export async function PATCH(
   }
 
   const generation = toGenerationSavePayload(parsed.data);
+  const tuning = await getOperatorTuning();
   const previousSignalResult = await getSignalWithFallback(id);
   const result = await saveSignalWithFallback(id, {
     xDraft: generation.xDraft,
@@ -66,7 +75,7 @@ export async function PATCH(
   const nextSignal = result.signal;
   const auditEvents = [];
   if (previousSignalResult.signal) {
-    const overrideEvent = buildOperatorOverrideEvent(previousSignalResult.signal, "generate");
+    const overrideEvent = buildOperatorOverrideEvent(previousSignalResult.signal, "generate", tuning.settings);
     if (overrideEvent) {
       auditEvents.push(overrideEvent);
     }
@@ -75,8 +84,27 @@ export async function PATCH(
   const feedbackEntries = await getFeedbackEntries(id);
   const allFeedbackEntries = await listFeedbackEntries();
   const patterns = await listPatterns();
+  const bundles = await listPatternBundles();
+  const playbookCards = await listPlaybookCards();
+  const postingEntries = await listPostingLogEntries();
+  const postingOutcomes = await listPostingOutcomes();
   const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
   const allAuditEvents = await listAuditEvents();
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
+  const updatedSignals = allSignals.map((signal) => (signal.recordId === id ? nextSignal : signal));
+  const reuseMemoryCases = buildReuseMemoryCases({
+    signals: updatedSignals,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const playbookCoverageSummary = buildPlaybookCoverageSummary({
+    signals: updatedSignals,
+    playbookCards,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
   const candidateEvent = buildPatternCandidateDetectedEvent({
     signal: nextSignal,
     current: assessPatternCandidate(nextSignal, {
@@ -128,8 +156,32 @@ export async function PATCH(
         editorialMode: generation.editorialMode,
       },
     },
-    buildRecommendationEvent(nextSignal),
+    buildRecommendationEvent(nextSignal, tuning.settings),
   );
+  const confidenceSnapshot = assembleGuidanceForSignal({
+    signal: nextSignal,
+    context: "generation",
+    allSignals: updatedSignals,
+    feedbackEntries: allFeedbackEntries,
+    patterns,
+    bundleSummariesByPatternId,
+    playbookCards,
+    reuseMemoryCases,
+    playbookCoverageSummary,
+    tuning: tuning.settings,
+  });
+  auditEvents.push({
+    signalId: id,
+    eventType: "EDITORIAL_CONFIDENCE_SNAPSHOT" as const,
+    actor: "system" as const,
+    summary: `Editorial confidence is ${confidenceSnapshot.confidence.confidenceLevel} for generation guidance.`,
+    metadata: {
+      stage: "generation_saved",
+      confidenceLevel: confidenceSnapshot.confidence.confidenceLevel,
+      topReason: confidenceSnapshot.confidence.confidenceReasons[0] ?? null,
+      topUncertaintyFlag: confidenceSnapshot.confidence.uncertaintyFlags[0]?.code ?? null,
+    },
+  });
   await appendAuditEventsSafe(auditEvents);
 
   return NextResponse.json<SaveGenerationResponse>({

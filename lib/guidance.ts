@@ -1,4 +1,5 @@
 import { getFeedbackAwareCopilotGuidance, type CopilotGuidance } from "@/lib/copilot";
+import { deriveEditorialConfidence, type EditorialConfidenceAssessment } from "@/lib/editorial-confidence";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import type { SignalFeedback } from "@/lib/feedback-definitions";
 import type { PatternEffectivenessSummary } from "@/lib/patterns";
@@ -7,6 +8,7 @@ import type { PlaybookCard } from "@/lib/playbook-card-definitions";
 import type { PatternBundleSummary } from "@/lib/pattern-bundles";
 import type { SignalPattern } from "@/lib/pattern-definitions";
 import type { ReuseMemoryCase, ReuseMemoryHighlight } from "@/lib/reuse-memory";
+import type { OperatorTuningSettings } from "@/lib/tuning";
 import type { SignalRecord } from "@/types/signal";
 
 export type GuidanceContext = "detail" | "interpretation" | "generation" | "review";
@@ -36,6 +38,7 @@ export interface UnifiedGuidance {
   primaryReason: string;
   readinessState: CopilotGuidance["readiness"];
   tone: CopilotGuidance["tone"];
+  confidence: EditorialConfidenceAssessment;
   actionHref: string | null;
   actionLabel: string | null;
   supportingSignals: UnifiedGuidanceNote[];
@@ -244,7 +247,9 @@ function buildCautionNotes(guidance: CopilotGuidance): string[] {
 
 export function buildUnifiedGuidanceModel(input: {
   context?: GuidanceContext;
+  signal: SignalRecord;
   guidance: CopilotGuidance;
+  tuning?: OperatorTuningSettings;
 }): UnifiedGuidance {
   const context = input.context ?? "detail";
   const config = GUIDANCE_CONTEXT_CONFIG[context];
@@ -255,6 +260,11 @@ export function buildUnifiedGuidanceModel(input: {
     primaryReason: input.guidance.reason,
     readinessState: input.guidance.readiness,
     tone: input.guidance.tone,
+    confidence: deriveEditorialConfidence({
+      signal: input.signal,
+      guidance: input.guidance,
+      tuning: input.tuning,
+    }),
     actionHref: input.guidance.actionHref,
     actionLabel: input.guidance.actionHref ? "Open recommended step" : null,
     supportingSignals: buildSupportingSignals(input.guidance, config.supportingSignalLimit),
@@ -283,6 +293,7 @@ export function assembleGuidanceForSignal(input: {
   playbookCards?: PlaybookCard[];
   reuseMemoryCases?: ReuseMemoryCase[];
   playbookCoverageSummary?: PlaybookCoverageSummary;
+  tuning?: OperatorTuningSettings;
 }): UnifiedGuidance {
   const guidance = getFeedbackAwareCopilotGuidance(input.signal, {
     allSignals: input.allSignals,
@@ -293,10 +304,13 @@ export function assembleGuidanceForSignal(input: {
     playbookCards: input.playbookCards,
     reuseMemoryCases: input.reuseMemoryCases,
     playbookCoverageSummary: input.playbookCoverageSummary,
+    tuning: input.tuning,
   });
 
   return buildUnifiedGuidanceModel({
     context: input.context,
+    signal: input.signal,
     guidance,
+    tuning: input.tuning,
   });
 }

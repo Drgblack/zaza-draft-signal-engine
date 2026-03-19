@@ -4,7 +4,13 @@ import {
   buildBundleCoverageSummary,
   type BundleCoverageStrength,
 } from "@/lib/bundle-coverage";
-import { getCopilotGuidance } from "@/lib/copilot";
+import { getCopilotGuidance, getFeedbackAwareCopilotGuidance } from "@/lib/copilot";
+import {
+  deriveEditorialConfidence,
+  getEditorialConfidenceLabel,
+  type EditorialConfidenceLevel,
+  type EditorialUncertaintyFlagCode,
+} from "@/lib/editorial-confidence";
 import {
   FEEDBACK_CATEGORIES,
   FEEDBACK_CATEGORY_DEFINITIONS,
@@ -40,6 +46,11 @@ import { indexBundleSummariesByPatternId, type PatternBundle } from "@/lib/patte
 import type { PatternType, SignalPattern } from "@/lib/pattern-definitions";
 import { getPostingPlatformLabel, POSTING_PLATFORMS } from "@/lib/posting-log";
 import { buildReuseMemoryCases, buildReuseMemoryInsights } from "@/lib/reuse-memory";
+import {
+  getOperatorTuningRows,
+  getOperatorTuningSummary,
+  type OperatorTuning,
+} from "@/lib/tuning";
 import type { PlaybookCard } from "@/lib/playbook-card-definitions";
 import { findRelatedPlaybookCards } from "@/lib/playbook-cards";
 import { hasGeneration, hasInterpretation, hasScoring, isFilteredOutSignal } from "@/lib/workflow";
@@ -256,11 +267,37 @@ export interface PlaybookCoverageGapInsightRow {
   signalIds: string[];
 }
 
+export interface EditorialConfidenceInsightRow {
+  level: EditorialConfidenceLevel;
+  label: string;
+  count: number;
+}
+
+export interface EditorialConfidenceClusterInsightRow {
+  label: string;
+  count: number;
+}
+
+export interface EditorialConfidenceFlagInsightRow {
+  code: EditorialUncertaintyFlagCode;
+  label: string;
+  count: number;
+}
+
 export interface SignalInsights {
   window: InsightWindow;
   windowLabel: string;
   totalSignals: number;
   dateRangeLabel: string;
+  tuning: {
+    presetLabel: string;
+    summary: string;
+    rows: Array<{
+      key: string;
+      label: string;
+      valueLabel: string;
+    }>;
+  };
   sourceKinds: SourceInsightRow[];
   topSources: SourceInsightRow[];
   watchSources: SourceInsightRow[];
@@ -385,6 +422,15 @@ export interface SignalInsights {
     weakCoverageGaps: PlaybookCoverageGapInsightRow[];
     opportunityGaps: PlaybookCoverageGapInsightRow[];
     uncoveredFamiliesWithoutCard: string[];
+  };
+  editorialConfidence: {
+    highCount: number;
+    moderateCount: number;
+    lowCount: number;
+    rows: EditorialConfidenceInsightRow[];
+    lowConfidenceSourceKinds: EditorialConfidenceClusterInsightRow[];
+    lowConfidenceFamilies: EditorialConfidenceClusterInsightRow[];
+    topUncertaintyFlags: EditorialConfidenceFlagInsightRow[];
   };
   observations: InsightObservation[];
   limitations: string[];
@@ -1345,6 +1391,106 @@ function percentage(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
+function buildEditorialConfidenceInsights(input: {
+  signals: SignalRecord[];
+  feedbackEntries: SignalFeedback[];
+  patterns: SignalPattern[];
+  bundles: PatternBundle[];
+  playbookCards: PlaybookCard[];
+  postingEntries: PostingLogEntry[];
+  postingOutcomes: PostingOutcome[];
+  tuning?: OperatorTuning;
+}): SignalInsights["editorialConfidence"] {
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(input.bundles);
+  const reuseMemoryCases = buildReuseMemoryCases({
+    signals: input.signals,
+    postingEntries: input.postingEntries,
+    postingOutcomes: input.postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const playbookCoverageSummary = buildPlaybookCoverageSummary({
+    signals: input.signals,
+    playbookCards: input.playbookCards,
+    postingEntries: input.postingEntries,
+    postingOutcomes: input.postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const counts: Record<EditorialConfidenceLevel, number> = {
+    high: 0,
+    moderate: 0,
+    low: 0,
+  };
+  const lowConfidenceSourceKinds = new Map<string, number>();
+  const lowConfidenceFamilies = new Map<string, number>();
+  const flagCounts = new Map<EditorialUncertaintyFlagCode, EditorialConfidenceFlagInsightRow>();
+
+  for (const signal of input.signals) {
+    const guidance = getFeedbackAwareCopilotGuidance(signal, {
+      allSignals: input.signals,
+      feedbackEntries: input.feedbackEntries,
+      patterns: input.patterns,
+      bundleSummariesByPatternId,
+      playbookCards: input.playbookCards,
+      reuseMemoryCases,
+      playbookCoverageSummary,
+      tuning: input.tuning?.settings,
+    });
+    const confidence = deriveEditorialConfidence({
+      signal,
+      guidance,
+      tuning: input.tuning?.settings,
+    });
+
+    counts[confidence.confidenceLevel] += 1;
+
+    if (confidence.confidenceLevel === "low") {
+      const sourceKindLabel = getSourceProfile(signal).kindLabel;
+      const familyLabel = signal.signalSubtype?.trim() || signal.signalCategory || getSourceProfile(signal).contextLabel;
+
+      lowConfidenceSourceKinds.set(
+        sourceKindLabel,
+        (lowConfidenceSourceKinds.get(sourceKindLabel) ?? 0) + 1,
+      );
+      lowConfidenceFamilies.set(
+        familyLabel,
+        (lowConfidenceFamilies.get(familyLabel) ?? 0) + 1,
+      );
+    }
+
+    for (const flag of confidence.uncertaintyFlags) {
+      const existing = flagCounts.get(flag.code) ?? {
+        code: flag.code,
+        label: flag.label,
+        count: 0,
+      };
+      existing.count += 1;
+      flagCounts.set(flag.code, existing);
+    }
+  }
+
+  return {
+    highCount: counts.high,
+    moderateCount: counts.moderate,
+    lowCount: counts.low,
+    rows: (["high", "moderate", "low"] as const).map((level) => ({
+      level,
+      label: getEditorialConfidenceLabel(level),
+      count: counts[level],
+    })),
+    lowConfidenceSourceKinds: Array.from(lowConfidenceSourceKinds.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+      .slice(0, 3),
+    lowConfidenceFamilies: Array.from(lowConfidenceFamilies.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+      .slice(0, 3),
+    topUncertaintyFlags: Array.from(flagCounts.values())
+      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+      .slice(0, 4),
+  };
+}
+
 function buildObservations(input: {
   totalSignals: number;
   sourceKinds: SourceInsightRow[];
@@ -1362,6 +1508,7 @@ function buildObservations(input: {
   reuseMemory: SignalInsights["reuseMemory"];
   bundleCoverage: SignalInsights["bundleCoverage"];
   playbook: SignalInsights["playbook"];
+  editorialConfidence: SignalInsights["editorialConfidence"];
 }): InsightObservation[] {
   const observations: InsightObservation[] = [];
   const strongOrUsableRate = rateForQualities(input.scenarioRows, ["strong", "usable"]);
@@ -1396,6 +1543,19 @@ function buildObservations(input: {
     observations.push({
       tone: input.blockedSignals >= Math.max(2, Math.round(input.totalSignals * 0.25)) ? "warning" : "neutral",
       text: `Weak or missing Scenario Angles are currently blocking ${input.blockedSignals} records before the next recommended step.`,
+    });
+  }
+
+  if (input.editorialConfidence.lowCount > 0) {
+    const topLowConfidenceSource = input.editorialConfidence.lowConfidenceSourceKinds[0];
+    observations.push({
+      tone:
+        input.editorialConfidence.lowCount >= Math.max(2, Math.round(input.totalSignals * 0.25))
+          ? "warning"
+          : "neutral",
+      text: topLowConfidenceSource
+        ? `${input.editorialConfidence.lowCount} records currently sit in low-confidence guidance territory, with ${topLowConfidenceSource.label} clustering most often.`
+        : `${input.editorialConfidence.lowCount} records currently sit in low-confidence guidance territory.`,
     });
   }
 
@@ -1547,6 +1707,7 @@ export function buildSignalInsights(
   options?: {
     window?: InsightWindow;
     now?: Date;
+    tuning?: OperatorTuning;
     patterns?: SignalPattern[];
     allPatterns?: SignalPattern[];
     bundles?: PatternBundle[];
@@ -1558,6 +1719,7 @@ export function buildSignalInsights(
 ): SignalInsights {
   const now = options?.now ?? new Date();
   const window = options?.window ?? "all";
+  const tuning = options?.tuning;
   const filteredSignals = signals.filter((signal) => matchesWindow(signal, window, now));
   const includedSignalIds = new Set(filteredSignals.map((signal) => signal.recordId));
   const includedAuditEvents = auditEvents.filter((event) => includedSignalIds.has(event.signalId));
@@ -1626,12 +1788,37 @@ export function buildSignalInsights(
     patternCoverage,
     bundleCoverage,
   });
+  const editorialConfidence = buildEditorialConfidenceInsights({
+    signals: filteredSignals,
+    feedbackEntries: includedFeedbackEntries,
+    patterns: options?.patterns ?? [],
+    bundles: options?.bundles ?? [],
+    playbookCards: options?.playbookCards ?? [],
+    postingEntries: includedPostingEntries,
+    postingOutcomes: includedPostingOutcomes,
+    tuning,
+  });
 
   return {
     window,
     windowLabel: formatWindowLabel(window),
     totalSignals: filteredSignals.length,
     dateRangeLabel: formatDateRange(filteredSignals),
+    tuning: tuning
+      ? {
+          presetLabel: tuning.preset === "custom" ? "Custom" : tuning.preset[0].toUpperCase() + tuning.preset.slice(1),
+          summary: getOperatorTuningSummary(tuning),
+          rows: getOperatorTuningRows(tuning).map((row) => ({
+            key: row.key,
+            label: row.label,
+            valueLabel: row.valueLabel,
+          })),
+        }
+      : {
+          presetLabel: "Balanced",
+          summary: "Balanced mode. Transformability rescue is medium.",
+          rows: [],
+        },
     sourceKinds,
     topSources: [...specificSources]
       .sort(
@@ -1670,6 +1857,7 @@ export function buildSignalInsights(
     reuseMemory,
     bundleCoverage,
     playbook,
+    editorialConfidence,
     observations: buildObservations({
       totalSignals: filteredSignals.length,
       sourceKinds,
@@ -1687,6 +1875,7 @@ export function buildSignalInsights(
       reuseMemory,
       bundleCoverage,
       playbook,
+      editorialConfidence,
     }),
     limitations: [
       "Time windows are based on signal created date. Audit-derived metrics follow the records in that window rather than filtering events by event timestamp.",
@@ -1697,6 +1886,7 @@ export function buildSignalInsights(
       "Reuse memory is heuristic and advisory only. It matches prior judged outcomes through explicit fields such as mode, platform, pattern, bundle, source family, category, and scenario wording overlap rather than ML similarity.",
       "Playbook cards are manual, compact guidance only. Surfacing is heuristic and based on explicit links, editorial mode, family labels, and wording overlap rather than ML summarisation.",
       "Playbook coverage gaps are heuristic only. Coverage areas use explicit structured dimensions such as platform, editorial mode, source family, and recurring caution labels rather than clustering or semantic search.",
+      "Editorial confidence is heuristic and advisory only. It reflects confidence in current guidance support, not objective correctness or probabilistic truth.",
       "Pattern candidate suggestions are heuristic only. They do not auto-create patterns, perform similarity matching, or change workflow rules.",
       "Pattern coverage and gap typing are heuristic only. They use explicit keyword buckets and current pattern-match strength, not embeddings or clustering.",
       `Bundle coverage is heuristic only. Strength labels such as ${BUNDLE_COVERAGE_STRENGTH_LABELS.strong_coverage.toLowerCase()} or ${BUNDLE_COVERAGE_STRENGTH_LABELS.thin_bundle.toLowerCase()} come from explicit family matching and current usage signals, not ML or clustering.`,

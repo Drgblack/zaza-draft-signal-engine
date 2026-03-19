@@ -7,6 +7,7 @@ import {
 } from "@/lib/patterns";
 import type { PatternBundleSummary } from "@/lib/pattern-bundles";
 import type { SignalPattern } from "@/lib/pattern-definitions";
+import { getPatternSuggestionConfig, type OperatorTuningSettings } from "@/lib/tuning";
 import type { SignalRecord } from "@/types/signal";
 
 const STOP_WORDS = new Set([
@@ -180,6 +181,7 @@ function buildPrimaryReason(input: {
 function matchPattern(
   signal: SignalRecord,
   pattern: SignalPattern,
+  minimumScore: number,
   bundleSummariesByPatternId?: Record<string, PatternBundleSummary[]>,
   effectivenessById?: Record<string, PatternEffectivenessSummary>,
 ): PatternMatchSuggestion | null {
@@ -265,7 +267,7 @@ function matchPattern(
     score += 1;
   }
 
-  if (score < 4) {
+  if (score < minimumScore) {
     return null;
   }
 
@@ -293,9 +295,11 @@ export function findSuggestedPatterns(
     limit?: number;
     effectivenessById?: Record<string, PatternEffectivenessSummary>;
     bundleSummariesByPatternId?: Record<string, PatternBundleSummary[]>;
+    tuning?: OperatorTuningSettings;
   },
 ): PatternMatchSuggestion[] {
   const limit = options?.limit ?? 3;
+  const patternSuggestionConfig = getPatternSuggestionConfig(options?.tuning);
 
   return patterns
     .filter((pattern) => isPatternActive(pattern))
@@ -303,6 +307,7 @@ export function findSuggestedPatterns(
       matchPattern(
         signal,
         pattern,
+        patternSuggestionConfig.minimumScore,
         options?.bundleSummariesByPatternId,
         options?.effectivenessById,
       ),

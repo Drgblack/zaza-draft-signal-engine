@@ -1,6 +1,7 @@
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import { ABSTRACT_COMMENTARY_PATTERNS, COMMUNICATION_SIGNAL_KEYWORDS, clampScore, countKeywordMatches } from "@/lib/scoring-rules";
 import { getSourceProfile } from "@/lib/source-profiles";
+import { getTransformabilityRescueConfig, type OperatorTuningSettings } from "@/lib/tuning-definitions";
 import type { SignalRecord } from "@/types/signal";
 
 export interface TransformabilityAssessment {
@@ -20,12 +21,16 @@ function buildScenarioText(signal: SignalRecord): string {
   return signal.scenarioAngle?.trim().toLowerCase() ?? "";
 }
 
-export function assessTransformability(signal: SignalRecord): TransformabilityAssessment {
+export function assessTransformability(
+  signal: SignalRecord,
+  tuning?: OperatorTuningSettings,
+): TransformabilityAssessment {
   const profile = getSourceProfile(signal);
   const scenarioAssessment = assessScenarioAngle({
     scenarioAngle: signal.scenarioAngle,
     sourceTitle: signal.sourceTitle,
   });
+  const rescueConfig = getTransformabilityRescueConfig(tuning);
   const rawSourceText = buildRawSourceText(signal);
   const scenarioText = buildScenarioText(signal);
   const rawCommunicationHits = countKeywordMatches(rawSourceText, COMMUNICATION_SIGNAL_KEYWORDS);
@@ -35,11 +40,11 @@ export function assessTransformability(signal: SignalRecord): TransformabilityAs
   let score = isIndirectSource ? 18 : 8;
 
   if (scenarioAssessment.quality === "strong") {
-    score += 34;
+    score += rescueConfig.strongScenarioBonus;
   } else if (scenarioAssessment.quality === "usable") {
-    score += 22;
+    score += rescueConfig.usableScenarioBonus;
   } else if (scenarioAssessment.quality === "weak") {
-    score += 6;
+    score += rescueConfig.weakScenarioBonus;
   }
 
   if (scenarioCommunicationHits >= 2) {

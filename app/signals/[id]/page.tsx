@@ -38,6 +38,7 @@ import {
   listPatterns,
 } from "@/lib/patterns";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { getOperatorTuning } from "@/lib/tuning";
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import { buildInitialScoringFromSignal } from "@/lib/scoring";
 import { assessTransformability } from "@/lib/transformability";
@@ -131,11 +132,12 @@ export default async function SignalDetailPage({
   const postingOutcomesByPostingLogId = indexOutcomesByPostingLogId(postingOutcomes);
   const automationReadiness = getAutomationReadinessSnapshot(signal);
   const initialScoring = buildInitialScoringFromSignal(signal);
+  const tuning = await getOperatorTuning();
   const scenarioAssessment = assessScenarioAngle({
     scenarioAngle: signal.scenarioAngle,
     sourceTitle: signal.sourceTitle,
   });
-  const transformability = assessTransformability(signal);
+  const transformability = assessTransformability(signal, tuning.settings);
   const playbookCoverageSummary = buildPlaybookCoverageSummary({
     signals: allSignals,
     playbookCards,
@@ -160,6 +162,7 @@ export default async function SignalDetailPage({
     playbookCards,
     reuseMemoryCases,
     playbookCoverageSummary,
+    tuning: tuning.settings,
   });
   const readinessTone =
     automationReadiness.tone === "success"

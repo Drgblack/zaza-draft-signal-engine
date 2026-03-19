@@ -18,6 +18,7 @@ import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPatterns } from "@/lib/patterns";
 import { getPostingLogEntries, listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { getOperatorTuning } from "@/lib/tuning";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,7 @@ export default async function FinalReviewPage({
   const patterns = await listPatterns();
   const playbookCards = await listPlaybookCards();
   const bundles = await listPatternBundles();
+  const tuning = await getOperatorTuning();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
     signals: allSignals,
@@ -77,6 +79,7 @@ export default async function FinalReviewPage({
     playbookCards,
     reuseMemoryCases,
     playbookCoverageSummary,
+    tuning: tuning.settings,
   });
 
   if (!signal.xDraft || !signal.linkedInDraft || !signal.redditDraft) {

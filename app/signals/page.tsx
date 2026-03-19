@@ -14,6 +14,7 @@ import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPatterns } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { getOperatorTuning } from "@/lib/tuning";
 import { filterSignals, sortSignals, type SignalsSortKey } from "@/lib/workflow";
 import { SIGNAL_CATEGORIES, SIGNAL_STATUSES, type SignalCategory, type SignalStatus } from "@/types/signal";
 
@@ -36,6 +37,7 @@ export default async function SignalsPage({
   const bundles = await listPatternBundles();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const tuning = await getOperatorTuning();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
     signals,
@@ -59,6 +61,7 @@ export default async function SignalsPage({
     playbookCards,
     reuseMemoryCases,
     playbookCoverageSummary,
+    tuning.settings,
   );
 
   const statusParam = getSingleValue(params.status);
