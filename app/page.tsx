@@ -5,8 +5,12 @@ import { OverviewCards } from "@/components/signals/overview-cards";
 import { SignalsTable } from "@/components/signals/signals-table";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
+import { listFeedbackEntries } from "@/lib/feedback";
+import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { STATUS_DISPLAY_ORDER } from "@/lib/constants";
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { listPatterns } from "@/lib/patterns";
 import { formatDateTime } from "@/lib/utils";
 import { getScheduledSoonSignals, getWorkflowBuckets } from "@/lib/workflow";
 
@@ -14,6 +18,15 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const { signals, source, error } = await listSignalsWithFallback();
+  const feedbackEntries = await listFeedbackEntries();
+  const patterns = await listPatterns();
+  const bundles = await listPatternBundles();
+  const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
+    signals,
+    feedbackEntries,
+    patterns,
+    indexBundleSummariesByPatternId(bundles),
+  );
   const workflowBuckets = getWorkflowBuckets(signals);
   const scheduledSoon = getScheduledSoonSignals(signals);
   const statusCounts = STATUS_DISPLAY_ORDER.map((status) => ({
@@ -81,6 +94,7 @@ export default async function DashboardPage() {
           signals={recentSignals}
           title="Recent Signals"
           description="Latest signal records surfaced through mock or Airtable-backed data."
+          guidanceBySignalId={guidanceBySignalId}
         />
 
         <Card>

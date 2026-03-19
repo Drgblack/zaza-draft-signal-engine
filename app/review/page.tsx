@@ -4,6 +4,11 @@ import { WorkflowQueueSection } from "@/components/signals/workflow-queue-sectio
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
+import { listFeedbackEntries } from "@/lib/feedback";
+import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
+import { listPatterns } from "@/lib/patterns";
+import { buildSignalPostingSummary, indexPostingEntriesBySignalId, listPostingLogEntries } from "@/lib/posting-log";
 import { getScheduledSoonSignals, getWorkflowBuckets, sortSignals } from "@/lib/workflow";
 import { formatDateTime } from "@/lib/utils";
 
@@ -11,7 +16,24 @@ export const dynamic = "force-dynamic";
 
 export default async function ReviewPage() {
   const { signals, source, error } = await listSignalsWithFallback();
+  const feedbackEntries = await listFeedbackEntries();
+  const patterns = await listPatterns();
+  const bundles = await listPatternBundles();
+  const postingEntries = await listPostingLogEntries();
+  const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
+    signals,
+    feedbackEntries,
+    patterns,
+    indexBundleSummariesByPatternId(bundles),
+  );
   const sortedSignals = sortSignals(signals, "createdDate-desc");
+  const postingEntriesBySignalId = indexPostingEntriesBySignalId(postingEntries);
+  const postingSummaryBySignalId = Object.fromEntries(
+    sortedSignals.map((signal) => [
+      signal.recordId,
+      buildSignalPostingSummary(signal, postingEntriesBySignalId[signal.recordId] ?? []),
+    ]),
+  );
   const buckets = getWorkflowBuckets(sortedSignals);
   const scheduledSoon = getScheduledSoonSignals(sortedSignals);
 
@@ -85,6 +107,8 @@ export default async function ReviewPage() {
         description="New records or records still missing the structured editorial judgement layer."
         signals={buckets.needsInterpretation}
         emptyCopy="No signals are waiting on interpretation."
+        guidanceBySignalId={guidanceBySignalId}
+        postingSummaryBySignalId={postingSummaryBySignalId}
       />
 
       <WorkflowQueueSection
@@ -93,6 +117,8 @@ export default async function ReviewPage() {
         description="Signals with interpretation saved but no draft outputs yet."
         signals={buckets.readyForGeneration}
         emptyCopy="Nothing is queued for generation."
+        guidanceBySignalId={guidanceBySignalId}
+        postingSummaryBySignalId={postingSummaryBySignalId}
       />
 
       <WorkflowQueueSection
@@ -101,6 +127,8 @@ export default async function ReviewPage() {
         description="Drafted records that need operator review, approval, or final refinements."
         signals={buckets.readyForReview}
         emptyCopy="No drafted records need review right now."
+        guidanceBySignalId={guidanceBySignalId}
+        postingSummaryBySignalId={postingSummaryBySignalId}
       />
 
       <WorkflowQueueSection
@@ -109,6 +137,8 @@ export default async function ReviewPage() {
         description="Approved records that can be assigned a scheduled date."
         signals={buckets.readyToSchedule}
         emptyCopy="No approved records are waiting for scheduling."
+        guidanceBySignalId={guidanceBySignalId}
+        postingSummaryBySignalId={postingSummaryBySignalId}
       />
 
       <WorkflowQueueSection
@@ -117,6 +147,8 @@ export default async function ReviewPage() {
         description="Records already scheduled and waiting to be logged as posted."
         signals={buckets.scheduledAwaitingPosting}
         emptyCopy="No scheduled records are waiting to be posted."
+        guidanceBySignalId={guidanceBySignalId}
+        postingSummaryBySignalId={postingSummaryBySignalId}
       />
 
       <WorkflowQueueSection
@@ -125,6 +157,8 @@ export default async function ReviewPage() {
         description="Signals the scoring layer marked as reject or quality-gate fail. These stay visible for auditability without crowding the active queue."
         signals={buckets.filteredOut}
         emptyCopy="No signals are currently filtered out by the scoring gate."
+        guidanceBySignalId={guidanceBySignalId}
+        postingSummaryBySignalId={postingSummaryBySignalId}
       />
     </div>
   );

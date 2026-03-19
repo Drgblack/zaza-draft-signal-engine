@@ -1,30 +1,64 @@
 import { z } from "zod";
 
-export const INGESTION_SOURCE_KINDS = ["rss", "atom", "json", "reddit"] as const;
+export const INGESTION_SOURCE_KINDS = ["rss", "atom", "json", "reddit", "query"] as const;
+export const INGESTION_SOURCE_PRIORITIES = ["low", "normal", "high"] as const;
 
 export type IngestionSourceKind = (typeof INGESTION_SOURCE_KINDS)[number];
+export type IngestionSourcePriority = (typeof INGESTION_SOURCE_PRIORITIES)[number];
 
 export const ingestionKindCountSchema = z.object({
   rss: z.number().int().nonnegative(),
   atom: z.number().int().nonnegative(),
   json: z.number().int().nonnegative(),
   reddit: z.number().int().nonnegative(),
+  query: z.number().int().nonnegative(),
 });
 
-export const ingestionSourceSchema = z.object({
+export const ingestionSourceSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+    kind: z.enum(INGESTION_SOURCE_KINDS),
+    url: z.string().trim().url(),
+    subreddit: z.string().trim().min(1).optional(),
+    query: z.string().trim().min(1).optional(),
+    provider: z.string().trim().min(1).optional(),
+    publisher: z.string().trim().min(1),
+    topic: z.string().trim().min(1),
+    enabled: z.boolean(),
+    maxItemsPerRun: z.number().int().positive().max(100),
+    priority: z.enum(INGESTION_SOURCE_PRIORITIES).default("normal"),
+    notes: z.string().trim().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.kind === "reddit" && !value.subreddit) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["subreddit"],
+        message: "Reddit sources require a subreddit reference.",
+      });
+    }
+
+    if (value.kind === "query" && !value.query) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["query"],
+        message: "Query sources require explicit query text.",
+      });
+    }
+  });
+
+export type IngestionSourceDefinition = z.infer<typeof ingestionSourceSchema>;
+
+export const ingestionSourceOverrideSchema = z.object({
   id: z.string().trim().min(1),
-  name: z.string().trim().min(1),
-  kind: z.enum(INGESTION_SOURCE_KINDS),
-  url: z.string().trim().url(),
-  subreddit: z.string().trim().min(1).optional(),
-  publisher: z.string().trim().min(1),
-  topic: z.string().trim().min(1),
-  enabled: z.boolean(),
-  maxItems: z.number().int().positive().max(100).optional(),
+  enabled: z.boolean().optional(),
+  maxItemsPerRun: z.number().int().positive().max(100).optional(),
+  priority: z.enum(INGESTION_SOURCE_PRIORITIES).optional(),
   notes: z.string().trim().optional(),
 });
 
-export type IngestionSourceDefinition = z.infer<typeof ingestionSourceSchema>;
+export type IngestionSourceOverride = z.infer<typeof ingestionSourceOverrideSchema>;
 
 export const ingestionFeedItemSchema = z.object({
   externalId: z.string().trim().min(1).nullable(),
@@ -69,13 +103,33 @@ export const ingestionSourceResultSchema = z.object({
   sourceName: z.string().trim().min(1),
   kind: z.enum(INGESTION_SOURCE_KINDS),
   url: z.string().trim().url(),
+  maxItemsPerRun: z.number().int().positive(),
   itemsFetched: z.number().int().nonnegative(),
   itemsImported: z.number().int().nonnegative(),
+  itemsSkipped: z.number().int().nonnegative(),
   itemsSkippedDuplicates: z.number().int().nonnegative(),
   errors: z.array(z.string()),
 });
 
 export type IngestionSourceResult = z.infer<typeof ingestionSourceResultSchema>;
+
+export const ingestionSourcePerformanceSchema = z.object({
+  totalSignals: z.number().int().nonnegative(),
+  keepSignals: z.number().int().nonnegative(),
+  reviewSignals: z.number().int().nonnegative(),
+  rejectedSignals: z.number().int().nonnegative(),
+  interpretedSignals: z.number().int().nonnegative(),
+  generatedSignals: z.number().int().nonnegative(),
+});
+
+export type IngestionSourcePerformance = z.infer<typeof ingestionSourcePerformanceSchema>;
+
+export const managedIngestionSourceSchema = ingestionSourceSchema.extend({
+  ingestionLabel: z.string().trim().min(1),
+  performance: ingestionSourcePerformanceSchema,
+});
+
+export type ManagedIngestionSource = z.infer<typeof managedIngestionSourceSchema>;
 
 export const ingestionRunSummarySchema = z.object({
   configuredSourceCount: z.number().int().nonnegative(),
@@ -85,6 +139,8 @@ export const ingestionRunSummarySchema = z.object({
   itemsFetchedByKind: ingestionKindCountSchema,
   itemsImported: z.number().int().nonnegative(),
   itemsImportedByKind: ingestionKindCountSchema,
+  itemsSkipped: z.number().int().nonnegative(),
+  itemsSkippedByKind: ingestionKindCountSchema,
   itemsSkippedDuplicates: z.number().int().nonnegative(),
   itemsSkippedDuplicatesByKind: ingestionKindCountSchema,
   sourceResults: z.array(ingestionSourceResultSchema),

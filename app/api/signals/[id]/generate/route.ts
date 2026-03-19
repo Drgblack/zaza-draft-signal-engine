@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { saveSignalWithFallback } from "@/lib/airtable";
+import { appendAuditEventsSafe, buildOperatorOverrideEvent, buildRecommendationEvent, listAuditEvents } from "@/lib/audit";
+import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
+import { buildPatternCoverageRecords, buildPatternGapDetectedEvent } from "@/lib/pattern-coverage";
+import { assessPatternCandidate, buildPatternCandidateDetectedEvent } from "@/lib/pattern-discovery";
+import { listPatterns } from "@/lib/patterns";
 import { saveGenerationRequestSchema, toGenerationSavePayload, type SaveGenerationResponse } from "@/types/api";
 
 export async function PATCH(
@@ -28,6 +34,7 @@ export async function PATCH(
   }
 
   const generation = toGenerationSavePayload(parsed.data);
+  const previousSignalResult = await getSignalWithFallback(id);
   const result = await saveSignalWithFallback(id, {
     xDraft: generation.xDraft,
     linkedInDraft: generation.linkedInDraft,
@@ -38,6 +45,7 @@ export async function PATCH(
     hashtagsOrKeywords: generation.hashtagsOrKeywords,
     generationModelVersion: generation.generationModelVersion,
     promptVersion: generation.promptVersion,
+    editorialMode: generation.editorialMode,
     status: generation.status ?? "Draft Generated",
   });
 
@@ -55,11 +63,80 @@ export async function PATCH(
     );
   }
 
+  const nextSignal = result.signal;
+  const auditEvents = [];
+  if (previousSignalResult.signal) {
+    const overrideEvent = buildOperatorOverrideEvent(previousSignalResult.signal, "generate");
+    if (overrideEvent) {
+      auditEvents.push(overrideEvent);
+    }
+  }
+
+  const feedbackEntries = await getFeedbackEntries(id);
+  const allFeedbackEntries = await listFeedbackEntries();
+  const patterns = await listPatterns();
+  const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
+  const allAuditEvents = await listAuditEvents();
+  const candidateEvent = buildPatternCandidateDetectedEvent({
+    signal: nextSignal,
+    current: assessPatternCandidate(nextSignal, {
+      feedbackEntries,
+      patterns,
+    }),
+    previous: previousSignalResult.signal
+      ? assessPatternCandidate(previousSignalResult.signal, {
+          feedbackEntries,
+          patterns,
+        })
+      : null,
+  });
+  if (candidateEvent) {
+    auditEvents.push(candidateEvent);
+  }
+  const currentCoverage = buildPatternCoverageRecords(
+    allSignals.map((signal) => (signal.recordId === id ? nextSignal : signal)),
+    allFeedbackEntries,
+    patterns,
+    allAuditEvents,
+  ).find((record) => record.signalId === id);
+  const previousCoverage = previousSignalResult.signal
+    ? buildPatternCoverageRecords(allSignals, allFeedbackEntries, patterns, allAuditEvents).find(
+        (record) => record.signalId === id,
+      )
+    : null;
+  const gapEvent =
+    currentCoverage && previousCoverage !== undefined
+      ? buildPatternGapDetectedEvent({
+          signal: nextSignal,
+          current: currentCoverage,
+          previous: previousCoverage ?? null,
+        })
+      : null;
+  if (gapEvent) {
+    auditEvents.push(gapEvent);
+  }
+
+  auditEvents.push(
+    {
+      signalId: id,
+      eventType: "GENERATION_SAVED" as const,
+      actor: "operator" as const,
+      summary: `Saved generated drafts as ${nextSignal.status} using ${getEditorialModeDefinition(generation.editorialMode).label}.`,
+      metadata: {
+        generationSource: generation.generationSource,
+        promptVersion: generation.promptVersion,
+        editorialMode: generation.editorialMode,
+      },
+    },
+    buildRecommendationEvent(nextSignal),
+  );
+  await appendAuditEventsSafe(auditEvents);
+
   return NextResponse.json<SaveGenerationResponse>({
     success: true,
     persisted: result.persisted,
     source: result.source,
-    signal: result.signal,
+    signal: nextSignal,
     message:
       result.source === "airtable"
         ? "Generated drafts saved to Airtable and status updated to Draft Generated."

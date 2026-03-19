@@ -5,6 +5,10 @@ import { SignalsTable } from "@/components/signals/signals-table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
+import { listFeedbackEntries } from "@/lib/feedback";
+import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
+import { listPatterns } from "@/lib/patterns";
 import { filterSignals, sortSignals, type SignalsSortKey } from "@/lib/workflow";
 import { SIGNAL_CATEGORIES, SIGNAL_STATUSES, type SignalCategory, type SignalStatus } from "@/types/signal";
 
@@ -21,6 +25,15 @@ export default async function SignalsPage({
 }) {
   const params = await searchParams;
   const { signals, source, error } = await listSignalsWithFallback();
+  const feedbackEntries = await listFeedbackEntries();
+  const patterns = await listPatterns();
+  const bundles = await listPatternBundles();
+  const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
+    signals,
+    feedbackEntries,
+    patterns,
+    indexBundleSummariesByPatternId(bundles),
+  );
 
   const statusParam = getSingleValue(params.status);
   const categoryParam = getSingleValue(params.category);
@@ -82,6 +95,7 @@ export default async function SignalsPage({
         signals={filteredSignals}
         title="Signal Registry"
         description="Status, classification, draft readiness, and timing cues in one place."
+        guidanceBySignalId={guidanceBySignalId}
       />
     </div>
   );

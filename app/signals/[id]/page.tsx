@@ -1,7 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AuditTrail } from "@/components/signals/audit-trail";
 import { CategoryBadge } from "@/components/signals/category-badge";
+import { CopilotGuidanceCard } from "@/components/signals/copilot-guidance";
+import { FeedbackPanel } from "@/components/signals/feedback-panel";
+import { PostingHistoryPanel } from "@/components/signals/posting-history-panel";
+import { PatternCandidatePanel } from "@/components/patterns/pattern-candidate-panel";
+import { PatternCoveragePanel } from "@/components/patterns/pattern-coverage-panel";
+import { PatternFormCard } from "@/components/patterns/pattern-form-card";
+import { RelatedPatternsPanel } from "@/components/patterns/related-patterns-panel";
 import { ScoringPanel } from "@/components/signals/scoring-panel";
 import { SeverityBadge } from "@/components/signals/severity-badge";
 import { SignalWorkflowPanel } from "@/components/signals/signal-workflow-panel";
@@ -9,7 +17,26 @@ import { StatusBadge } from "@/components/signals/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { deriveDisplayEngagementScore, getSignalWithFallback } from "@/lib/airtable";
+import { deriveDisplayEngagementScore, getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
+import { getAuditEvents, listAuditEvents } from "@/lib/audit";
+import { buildBundleCoverageSummary, getSignalBundleCoverageHint } from "@/lib/bundle-coverage";
+import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
+import { getFeedbackAwareCopilotGuidance } from "@/lib/copilot";
+import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
+import { buildFinalReviewSummary } from "@/lib/final-review";
+import { indexOutcomesByPostingLogId, listPostingOutcomes } from "@/lib/outcomes";
+import { buildPatternCoverageRecords, buildPatternDraftFromCoverageGap } from "@/lib/pattern-coverage";
+import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
+import { assessPatternCandidate } from "@/lib/pattern-discovery";
+import { buildSignalPostingSummary, getPostingLogEntries } from "@/lib/posting-log";
+import {
+  buildPatternDraftFromSignal,
+  buildPatternEffectivenessSummaries,
+  findRelatedPatterns,
+  indexPatternEffectivenessSummaries,
+  listPatterns,
+} from "@/lib/patterns";
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import { buildInitialScoringFromSignal } from "@/lib/scoring";
 import { assessTransformability } from "@/lib/transformability";
@@ -54,8 +81,51 @@ export default async function SignalDetailPage({
   }
 
   const signal = result.signal;
+  const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
+  const auditEvents = await getAuditEvents(signal.recordId);
+  const feedbackEntries = await getFeedbackEntries(signal.recordId);
+  const allFeedbackEntries = await listFeedbackEntries();
+  const postingEntries = await getPostingLogEntries(signal.recordId);
+  const postingOutcomes = await listPostingOutcomes({ signalIds: [signal.recordId] });
+  const patterns = await listPatterns();
+  const allPatterns = await listPatterns({ includeRetired: true });
+  const bundles = await listPatternBundles();
+  const allAuditEvents = await listAuditEvents();
+  const allPatternFeedbackEntries = await listPatternFeedbackEntries();
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
+  const patternEffectivenessById = indexPatternEffectivenessSummaries(
+    buildPatternEffectivenessSummaries(patterns, allAuditEvents, allPatternFeedbackEntries, allFeedbackEntries),
+  );
+  const coverageAssessment =
+    buildPatternCoverageRecords(allSignals, allFeedbackEntries, patterns, allAuditEvents).find(
+      (record) => record.signalId === signal.recordId,
+    ) ?? null;
+  const bundleCoverageSummary = buildBundleCoverageSummary({
+    signals: allSignals,
+    bundles,
+    patterns: allPatterns,
+    auditEvents: allAuditEvents,
+    feedbackEntries: allFeedbackEntries,
+    patternFeedbackEntries: allPatternFeedbackEntries,
+  });
+  const bundleCoverageHint = getSignalBundleCoverageHint({
+    signal,
+    coverageRecord: coverageAssessment,
+    summary: bundleCoverageSummary,
+  });
+  const relatedPatterns = findRelatedPatterns(signal, patterns, { limit: 3 });
+  const patternCandidate = assessPatternCandidate(signal, {
+    feedbackEntries,
+    patterns,
+  });
+  const patternDraft = coverageAssessment
+    ? buildPatternDraftFromCoverageGap(signal, coverageAssessment)
+    : buildPatternDraftFromSignal(signal);
   const interpretationReady = hasInterpretation(signal);
   const generationReady = hasGeneration(signal);
+  const finalReviewSummary = buildFinalReviewSummary(signal);
+  const postingSummary = buildSignalPostingSummary(signal, postingEntries);
+  const postingOutcomesByPostingLogId = indexOutcomesByPostingLogId(postingOutcomes);
   const automationReadiness = getAutomationReadinessSnapshot(signal);
   const initialScoring = buildInitialScoringFromSignal(signal);
   const scenarioAssessment = assessScenarioAngle({
@@ -63,6 +133,13 @@ export default async function SignalDetailPage({
     sourceTitle: signal.sourceTitle,
   });
   const transformability = assessTransformability(signal);
+  const copilotGuidance = getFeedbackAwareCopilotGuidance(signal, {
+    allSignals,
+    feedbackEntries: allFeedbackEntries,
+    patterns,
+    bundleSummariesByPatternId,
+    patternEffectivenessById,
+  });
   const readinessTone =
     automationReadiness.tone === "success"
       ? "bg-emerald-50 text-emerald-700"
@@ -97,8 +174,16 @@ export default async function SignalDetailPage({
           <Link href={`/signals/${signal.recordId}/generate`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
             {generationReady ? "Review drafts" : "Generate drafts"}
           </Link>
+          {generationReady ? (
+            <Link href={`/signals/${signal.recordId}/review`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+              Open final review
+            </Link>
+          ) : null}
           <Link href="/review" className={buttonVariants({ variant: "ghost", size: "sm" })}>
             Open review queue
+          </Link>
+          <Link href="/patterns" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+            Open pattern library
           </Link>
         </CardContent>
       </Card>
@@ -187,6 +272,49 @@ export default async function SignalDetailPage({
             </CardContent>
           </Card>
 
+          <CopilotGuidanceCard signalId={signal.recordId} guidance={copilotGuidance} suggestedPatterns={patterns} />
+
+          <RelatedPatternsPanel
+            title="Related patterns"
+            description="Saved examples that look relevant to this record. Use them as references, not automatic templates."
+            emptyCopy="No related patterns match this record yet."
+            patterns={relatedPatterns}
+          />
+
+          <PatternCandidatePanel
+            assessment={patternCandidate}
+            actionHref={patternCandidate.alreadyCaptured ? null : "#save-pattern"}
+          />
+
+          {coverageAssessment ? (
+            <PatternCoveragePanel
+              assessment={coverageAssessment}
+              actionHref="#save-pattern"
+              bundleHint={bundleCoverageHint}
+            />
+          ) : null}
+
+          <PatternFormCard
+            cardId="save-pattern"
+            mode="create"
+            signalId={signal.recordId}
+            title="Save as pattern"
+            description="Capture the reusable core of this signal so it can help with future framing and output work."
+            initialValues={patternDraft}
+            suggestion={patternCandidate}
+            coverageAssessment={coverageAssessment}
+          />
+
+          <FeedbackPanel
+            signalId={signal.recordId}
+            initialEntries={feedbackEntries}
+            categories={["signal", "scenario", "copilot", "output", "source"]}
+            title="Operator Feedback"
+            description="Capture explicit judgement about signal quality, framing quality, co-pilot guidance, outputs, and source quality. This does not change scoring or workflow automatically."
+          />
+
+          <AuditTrail events={auditEvents} />
+
           <ScoringPanel signal={signal} source={result.source} initialScoring={initialScoring} />
 
           <Card>
@@ -237,7 +365,23 @@ export default async function SignalDetailPage({
                   <SummaryItem label="X Draft" value={signal.xDraft ?? "Not set"} />
                   <SummaryItem label="LinkedIn Draft" value={signal.linkedInDraft ?? "Not set"} />
                   <SummaryItem label="Reddit Draft" value={signal.redditDraft ?? "Not set"} />
+                  <div className="rounded-2xl bg-white/75 px-4 py-4 text-sm text-slate-600">
+                    <p className="font-medium text-slate-900">Final review</p>
+                    <p className="mt-2 leading-6">{finalReviewSummary.summary}</p>
+                    <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
+                      <span>{finalReviewSummary.readyCount} ready</span>
+                      <span>{finalReviewSummary.needsEditCount} need edit</span>
+                      <span>{finalReviewSummary.skipCount} skipped</span>
+                    </div>
+                    <Link href={`/signals/${signal.recordId}/review`} className="mt-3 inline-block text-[color:var(--accent)] underline underline-offset-4">
+                      Open final review workspace
+                    </Link>
+                  </div>
                   <div className="grid gap-4 md:grid-cols-2">
+                    <SummaryItem
+                      label="Editorial Mode"
+                      value={signal.editorialMode ? getEditorialModeDefinition(signal.editorialMode).label : "Not set"}
+                    />
                     <SummaryItem label="Scheduled Date" value={formatDateTime(signal.scheduledDate)} />
                     <SummaryItem label="Posted Date" value={formatDateTime(signal.postedDate)} />
                     <SummaryItem label="Platform Posted To" value={signal.platformPostedTo ?? "Not set"} />
@@ -251,6 +395,14 @@ export default async function SignalDetailPage({
               )}
             </CardContent>
           </Card>
+
+          <PostingHistoryPanel
+            signalId={signal.recordId}
+            postingEntries={postingEntries}
+            initialOutcomesByPostingLogId={postingOutcomesByPostingLogId}
+            postingSummary={postingSummary}
+            generationReady={generationReady}
+          />
         </div>
 
         <SignalWorkflowPanel signal={signal} source={result.source} />

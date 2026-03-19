@@ -1,6 +1,6 @@
 import type { SignalRecord } from "@/types/signal";
 
-export type SourceProfileKind = "reddit" | "feed" | "forum" | "internal" | "report" | "other";
+export type SourceProfileKind = "reddit" | "feed" | "query" | "forum" | "internal" | "report" | "other";
 
 export interface SourceProfile {
   id:
@@ -9,6 +9,8 @@ export interface SourceProfile {
     | "reddit-education-discussion"
     | "feed-policy-news"
     | "feed-teacher-news"
+    | "query-teacher-risk"
+    | "query-workload-stress"
     | "forum-teacher-discussion"
     | "internal-operator-signal"
     | "formal-report"
@@ -80,6 +82,39 @@ export function getSourceProfile(signal: SignalRecord): SourceProfile {
       trustBaseline: 42,
       notes: ["Education discussion is useful when the post is teacher-facing, but source trust remains moderate because it is still a public forum."],
       subreddit,
+    };
+  }
+
+  if (ingestionMethod === "query" || ingestionSource.startsWith("query:")) {
+    if (
+      ingestionSource.includes("complaint") ||
+      ingestionSource.includes("incident") ||
+      ingestionSource.includes("investigation") ||
+      ingestionSource.includes("behaviour")
+    ) {
+      return {
+        id: "query-teacher-risk",
+        sourceKind: "query",
+        kindLabel: "Query",
+        contextLabel: "Targeted teacher-risk query",
+        teacherProximity: 70,
+        communicationProximity: 72,
+        trustBaseline: 60,
+        notes: ["Curated query hits are targeted for teacher communication risk, but still inherit the credibility of the underlying source."],
+        subreddit: null,
+      };
+    }
+
+    return {
+      id: "query-workload-stress",
+      sourceKind: "query",
+      kindLabel: "Query",
+      contextLabel: "Targeted workload / communication query",
+      teacherProximity: 66,
+      communicationProximity: 64,
+      trustBaseline: 58,
+      notes: ["Curated query hits are more targeted than generic feeds, but still need operator review and source judgement."],
+      subreddit: null,
     };
   }
 

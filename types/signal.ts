@@ -63,6 +63,19 @@ export const HOOK_TEMPLATES = [
   "Other",
 ] as const;
 
+export const EDITORIAL_MODES = [
+  "awareness",
+  "risk_warning",
+  "helpful_tip",
+  "thought_leadership",
+  "calm_insight",
+  "this_could_happen_to_you",
+  "professional_guidance",
+  "reassurance_deescalation",
+] as const;
+
+export const FINAL_DRAFT_REVIEW_STATUSES = ["ready", "needs_edit", "skip"] as const;
+
 export const INTERPRETATION_CONFIDENCE_LEVELS = ["Low", "Medium", "High"] as const;
 export const INTERPRETATION_SOURCES = ["rules", "manual", "ai"] as const;
 export const GENERATION_SOURCES = ["anthropic", "openai", "mock", "manual"] as const;
@@ -79,6 +92,8 @@ export type SuggestedFormatPriority = (typeof SUGGESTED_FORMAT_PRIORITIES)[numbe
 export type OutcomeQuality = (typeof OUTCOME_QUALITIES)[number];
 export type TeacherVoiceSource = (typeof TEACHER_VOICE_SOURCES)[number];
 export type HookTemplate = (typeof HOOK_TEMPLATES)[number];
+export type EditorialMode = (typeof EDITORIAL_MODES)[number];
+export type FinalDraftReviewStatus = (typeof FINAL_DRAFT_REVIEW_STATUSES)[number];
 export type InterpretationConfidence = (typeof INTERPRETATION_CONFIDENCE_LEVELS)[number];
 export type InterpretationSource = (typeof INTERPRETATION_SOURCES)[number];
 export type GenerationSource = (typeof GENERATION_SOURCES)[number];
@@ -174,6 +189,7 @@ export interface SignalGenerationResult {
 }
 
 export interface SignalGenerationSavePayload extends SignalGenerationResult {
+  editorialMode: EditorialMode;
   status?: SignalStatus;
 }
 
@@ -185,6 +201,18 @@ export interface SignalWorkflowUpdatePayload {
   postUrl?: string | null;
   finalCaptionUsed?: string | null;
   reviewNotes?: string | null;
+}
+
+export interface SignalFinalReviewSavePayload {
+  finalXDraft: string | null;
+  finalLinkedInDraft: string | null;
+  finalRedditDraft: string | null;
+  xReviewStatus: FinalDraftReviewStatus | null;
+  linkedInReviewStatus: FinalDraftReviewStatus | null;
+  redditReviewStatus: FinalDraftReviewStatus | null;
+  finalReviewNotes: string | null;
+  finalReviewStartedAt?: string | null;
+  finalReviewedAt?: string | null;
 }
 
 export interface SignalScoringResult {
@@ -258,6 +286,15 @@ export interface SignalRecord extends SignalAutomationEvaluationFields {
   xDraft: string | null;
   linkedInDraft: string | null;
   redditDraft: string | null;
+  finalXDraft: string | null;
+  finalLinkedInDraft: string | null;
+  finalRedditDraft: string | null;
+  xReviewStatus: FinalDraftReviewStatus | null;
+  linkedInReviewStatus: FinalDraftReviewStatus | null;
+  redditReviewStatus: FinalDraftReviewStatus | null;
+  finalReviewNotes: string | null;
+  finalReviewStartedAt: string | null;
+  finalReviewedAt: string | null;
   imagePrompt: string | null;
   videoScript: string | null;
   ctaOrClosingLine: string | null;
@@ -284,6 +321,7 @@ export interface SignalRecord extends SignalAutomationEvaluationFields {
   teacherVoiceSource: TeacherVoiceSource | null;
   anonymisedUserPattern: boolean | null;
   relatedZazaFrameworkTag: string | null;
+  editorialMode: EditorialMode | null;
   generationModelVersion: string | null;
   promptVersion: string | null;
 }

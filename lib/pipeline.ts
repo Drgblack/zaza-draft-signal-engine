@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { appendAuditEventsSafe, buildRecommendationEvent, buildScoredEvent, type AuditEventInput } from "@/lib/audit";
 import { listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
 import { generateDrafts, toGenerationInputFromSignal } from "@/lib/generator";
 import { runIngestion } from "@/lib/ingestion/service";
@@ -241,6 +242,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
   const generated: PipelineRunSummary["records"]["generated"] = [];
   const recordsInterpretedWithSavedAngle: PipelineRunSummary["recordsInterpretedWithSavedAngle"] = [];
   const recordsGeneratedWithSavedAngle: PipelineRunSummary["recordsGeneratedWithSavedAngle"] = [];
+  const auditEvents: AuditEventInput[] = [];
   const touchedRecordIds = new Set<string>();
   const reusedScenarioAngleRecordIds = new Set<string>();
   const ignoredScenarioAngleRecordIds = new Set<string>();
@@ -263,6 +265,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
 
     candidatesScored += 1;
     touchedRecordIds.add(signal.recordId);
+    auditEvents.push(buildScoredEvent(savedScoring.signal, scoring), buildRecommendationEvent(savedScoring.signal));
 
     const scoredSignal = savedScoring.signal;
     const decision = getPipelineGateDecision(scoring);
@@ -314,6 +317,17 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
     }
 
     const interpretedSignal = savedInterpretation.signal;
+    auditEvents.push({
+      signalId: interpretedSignal.recordId,
+      eventType: "INTERPRETATION_SAVED",
+      actor: "system",
+      summary: savedScenarioAngleDecision.shouldReuse
+        ? "Pipeline saved interpretation using stored scenario framing."
+        : "Pipeline saved interpretation.",
+      metadata: {
+        reusedScenarioAngle: savedScenarioAngleDecision.shouldReuse,
+      },
+    });
     if (savedScenarioAngleDecision.shouldReuse) {
       reusedScenarioAngleRecordIds.add(signal.recordId);
       recordsInterpretedWithSavedAngle.push(
@@ -342,6 +356,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
           },
         ),
       );
+      auditEvents.push(buildRecommendationEvent(interpretedSignal));
       continue;
     }
 
@@ -372,6 +387,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
           },
         ),
       );
+      auditEvents.push(buildRecommendationEvent(interpretedSignal));
       continue;
     }
 
@@ -414,8 +430,23 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
           },
         ),
       );
+      auditEvents.push(buildRecommendationEvent(interpretedSignal));
       continue;
     }
+
+    auditEvents.push({
+      signalId: savedGeneration.signal.recordId,
+      eventType: "GENERATION_SAVED",
+      actor: "system",
+      summary: savedScenarioAngleDecision.shouldReuse
+        ? "Pipeline saved generated drafts using stored scenario framing."
+        : "Pipeline saved generated drafts.",
+      metadata: {
+        reusedScenarioAngle: savedScenarioAngleDecision.shouldReuse,
+        generationSource: draftOutputs.generationSource,
+      },
+    });
+    auditEvents.push(buildRecommendationEvent(savedGeneration.signal));
 
     if (savedScenarioAngleDecision.shouldReuse) {
       recordsGeneratedWithSavedAngle.push(
@@ -467,6 +498,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
     message: "Pipeline run completed.",
   };
   const result = pipelineRunSummarySchema.parse(draftSummary);
+  await appendAuditEventsSafe(auditEvents);
 
   return {
     source,

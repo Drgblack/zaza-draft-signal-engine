@@ -4,6 +4,8 @@ import type { SignalRecord } from "@/types/signal";
 
 function kindClasses(kind: ReturnType<typeof getSourceProfile>["sourceKind"]) {
   switch (kind) {
+    case "query":
+      return "bg-cyan-50 text-cyan-700 ring-cyan-200";
     case "reddit":
       return "bg-orange-50 text-orange-700 ring-orange-200";
     case "forum":

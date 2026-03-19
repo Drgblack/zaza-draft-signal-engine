@@ -5,11 +5,13 @@ import Link from "next/link";
 
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import type { ScenarioAngleSuggestion } from "@/lib/scenario-angle";
+import { PatternSuggestionList } from "@/components/patterns/pattern-suggestion-list";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RelatedPatternsPanel } from "@/components/patterns/related-patterns-panel";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -23,6 +25,8 @@ import {
   type SignalInterpretationResult,
   type SignalRecord,
 } from "@/types/signal";
+import type { SignalPattern } from "@/lib/pattern-definitions";
+import type { PatternMatchSuggestion } from "@/lib/pattern-match";
 
 function toneClasses(tone: "success" | "warning" | "error") {
   switch (tone) {
@@ -40,10 +44,14 @@ export function InterpretationWorkbench({
   signal,
   initialInterpretation,
   source,
+  relatedPatterns,
+  suggestedPatterns,
 }: {
   signal: SignalRecord;
   initialInterpretation: SignalInterpretationResult | null;
   source: SignalDataSource;
+  relatedPatterns: SignalPattern[];
+  suggestedPatterns: PatternMatchSuggestion[];
 }) {
   const [interpretation, setInterpretation] = useState<SignalInterpretationResult | null>(initialInterpretation);
   const [scenarioAngle, setScenarioAngle] = useState(signal.scenarioAngle ?? "");
@@ -364,6 +372,49 @@ export function InterpretationWorkbench({
               </p>
             ) : null}
           </div>
+
+          <RelatedPatternsPanel
+            title="Related patterns"
+            description="Manual pattern examples you can reuse when this signal needs stronger framing."
+            emptyCopy="No related patterns match this signal yet."
+            patterns={relatedPatterns}
+            allowScenarioUse
+            onUseScenario={(pattern) => {
+              if (!pattern.exampleScenarioAngle) {
+                return;
+              }
+
+              setScenarioAngle(pattern.exampleScenarioAngle);
+              setFeedback({
+                tone: "success",
+                title: "Pattern framing inserted",
+                body: `Loaded the Scenario Angle from ${pattern.name}. Review it and rerun interpretation before saving.`,
+              });
+            }}
+          />
+
+          <PatternSuggestionList
+            signalId={signal.recordId}
+            title="Suggested patterns for this signal"
+            description="Co-pilot pattern suggestions stay optional. Use one when it clearly fits the communication situation."
+            suggestions={suggestedPatterns}
+            emptyCopy="No stronger pattern suggestions surfaced for this signal."
+            location="interpretation"
+            applyHrefBuilder={(patternId) => `/signals/${signal.recordId}/generate?pattern=${patternId}&suggested=1`}
+            onUseScenario={(patternId) => {
+              const matched = suggestedPatterns.find((suggestion) => suggestion.pattern.id === patternId);
+              if (!matched?.pattern.exampleScenarioAngle) {
+                return;
+              }
+
+              setScenarioAngle(matched.pattern.exampleScenarioAngle);
+              setFeedback({
+                tone: "success",
+                title: "Suggested pattern angle inserted",
+                body: `Loaded the Scenario Angle from ${matched.pattern.name}. Review it and rerun interpretation before saving.`,
+              });
+            }}
+          />
 
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={handleRunInterpretation} disabled={isRunning}>

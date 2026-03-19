@@ -1,7 +1,9 @@
 import Link from "next/link";
 
+import { CopilotHint } from "@/components/signals/copilot-guidance";
 import { buttonVariants } from "@/components/ui/button";
 import { deriveDisplayEngagementScore } from "@/lib/airtable";
+import { getCopilotGuidance, type CopilotGuidance } from "@/lib/copilot";
 import { CategoryBadge } from "@/components/signals/category-badge";
 import { SourceContextBadge } from "@/components/signals/source-context-badge";
 import { SeverityBadge } from "@/components/signals/severity-badge";
@@ -15,10 +17,12 @@ export function SignalsTable({
   signals,
   title = "Signals",
   description = "Current signal queue",
+  guidanceBySignalId,
 }: {
   signals: SignalRecord[];
   title?: string;
   description?: string;
+  guidanceBySignalId?: Record<string, CopilotGuidance>;
 }) {
   return (
     <Card>
@@ -64,6 +68,7 @@ export function SignalsTable({
                         {signal.whySelected || signal.whyRejected ? (
                           <p className="max-w-md text-xs text-slate-500">{signal.whySelected ?? signal.whyRejected}</p>
                         ) : null}
+                        <CopilotHint guidance={guidanceBySignalId?.[signal.recordId] ?? getCopilotGuidance(signal)} />
                         {signal.sourceUrl ? (
                           <Link href={signal.sourceUrl} target="_blank" className="text-xs text-[color:var(--accent)]">
                             Open source

@@ -1,11 +1,23 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { FeedbackPanel } from "@/components/signals/feedback-panel";
 import { InterpretationWorkbench } from "@/components/signals/interpretation-workbench";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSignalWithFallback } from "@/lib/airtable";
+import { listAuditEvents } from "@/lib/audit";
+import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { buildInitialInterpretationFromSignal } from "@/lib/interpreter";
+import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
+import { findSuggestedPatterns } from "@/lib/pattern-match";
+import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
+import {
+  buildPatternEffectivenessSummaries,
+  findRelatedPatterns,
+  indexPatternEffectivenessSummaries,
+  listPatterns,
+} from "@/lib/patterns";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +34,21 @@ export default async function InterpretSignalPage({
   }
 
   const initialInterpretation = buildInitialInterpretationFromSignal(result.signal);
+  const feedbackEntries = await getFeedbackEntries(result.signal.recordId);
+  const allSignalFeedbackEntries = await listFeedbackEntries();
+  const patterns = await listPatterns();
+  const bundles = await listPatternBundles();
+  const allAuditEvents = await listAuditEvents();
+  const allPatternFeedbackEntries = await listPatternFeedbackEntries();
+  const patternEffectivenessById = indexPatternEffectivenessSummaries(
+    buildPatternEffectivenessSummaries(patterns, allAuditEvents, allPatternFeedbackEntries, allSignalFeedbackEntries),
+  );
+  const relatedPatterns = findRelatedPatterns(result.signal, patterns, { limit: 3 });
+  const suggestedPatterns = findSuggestedPatterns(result.signal, patterns, {
+    limit: 3,
+    bundleSummariesByPatternId: indexBundleSummariesByPatternId(bundles),
+    effectivenessById: patternEffectivenessById,
+  });
 
   return (
     <div className="space-y-6">
@@ -55,7 +82,21 @@ export default async function InterpretSignalPage({
         </CardContent>
       </Card>
 
-      <InterpretationWorkbench signal={result.signal} initialInterpretation={initialInterpretation} source={result.source} />
+      <InterpretationWorkbench
+        signal={result.signal}
+        initialInterpretation={initialInterpretation}
+        source={result.source}
+        relatedPatterns={relatedPatterns}
+        suggestedPatterns={suggestedPatterns}
+      />
+
+      <FeedbackPanel
+        signalId={result.signal.recordId}
+        initialEntries={feedbackEntries}
+        categories={["output"]}
+        title="Interpretation Feedback"
+        description="Quickly mark whether the interpretation output felt strong, weak, or still in need of revision."
+      />
     </div>
   );
 }

@@ -1,13 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { IngestionRunSummary, IngestionSourceDefinition } from "@/lib/ingestion/types";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import type { IngestionRunSummary, IngestionSourceKind, ManagedIngestionSource } from "@/lib/ingestion/types";
 import type { PipelineRunSummary } from "@/lib/pipeline";
+import type { IngestApiResponse, SourceRegistryResponse, UpdateSourceRegistryResponse } from "@/types/api";
 
-function toneClasses(tone: "success" | "warning" | "error") {
+type ResultTone = "success" | "warning" | "error";
+type SourceFamily = "feed" | "reddit" | "query";
+
+function toneClasses(tone: ResultTone) {
   switch (tone) {
     case "success":
       return "bg-emerald-50 text-emerald-700";
@@ -19,21 +25,79 @@ function toneClasses(tone: "success" | "warning" | "error") {
   }
 }
 
+function getSourceFamily(kind: IngestionSourceKind): SourceFamily {
+  if (kind === "reddit") {
+    return "reddit";
+  }
+
+  if (kind === "query") {
+    return "query";
+  }
+
+  return "feed";
+}
+
+function mergeSourceRecord(
+  sources: ManagedIngestionSource[],
+  updatedSource: ManagedIngestionSource,
+): ManagedIngestionSource[] {
+  return sources
+    .map((source) => (source.id === updatedSource.id ? updatedSource : source))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function sourcePerformanceSummary(source: ManagedIngestionSource) {
+  const parts = [
+    `${source.performance.totalSignals} seen`,
+    `${source.performance.keepSignals} keep`,
+    `${source.performance.reviewSignals} review`,
+    `${source.performance.interpretedSignals} interpreted`,
+    `${source.performance.generatedSignals} generated`,
+  ];
+
+  if (source.performance.rejectedSignals > 0) {
+    parts.push(`${source.performance.rejectedSignals} rejected`);
+  }
+
+  return parts.join(" · ");
+}
+
+function buildFamilySummary(result: IngestionRunSummary) {
+  return {
+    feed: {
+      checked: result.sourcesCheckedByKind.rss + result.sourcesCheckedByKind.atom + result.sourcesCheckedByKind.json,
+      fetched: result.itemsFetchedByKind.rss + result.itemsFetchedByKind.atom + result.itemsFetchedByKind.json,
+      imported: result.itemsImportedByKind.rss + result.itemsImportedByKind.atom + result.itemsImportedByKind.json,
+      skipped: result.itemsSkippedByKind.rss + result.itemsSkippedByKind.atom + result.itemsSkippedByKind.json,
+    },
+    reddit: {
+      checked: result.sourcesCheckedByKind.reddit,
+      fetched: result.itemsFetchedByKind.reddit,
+      imported: result.itemsImportedByKind.reddit,
+      skipped: result.itemsSkippedByKind.reddit,
+    },
+    query: {
+      checked: result.sourcesCheckedByKind.query,
+      fetched: result.itemsFetchedByKind.query,
+      imported: result.itemsImportedByKind.query,
+      skipped: result.itemsSkippedByKind.query,
+    },
+  };
+}
+
 export function IngestionRunner({
   sources,
   mode,
 }: {
-  sources: IngestionSourceDefinition[];
+  sources: ManagedIngestionSource[];
   mode: "airtable" | "mock";
 }) {
-  const redditSourceIds = useMemo(() => sources.filter((source) => source.kind === "reddit").map((source) => source.id), [sources]);
-  const feedSourceIds = useMemo(
-    () => sources.filter((source) => source.kind !== "reddit").map((source) => source.id),
-    [sources],
-  );
+  const [managedSources, setManagedSources] = useState<ManagedIngestionSource[]>(sources);
+  const [savedSources, setSavedSources] = useState<ManagedIngestionSource[]>(sources);
   const [isRunning, setIsRunning] = useState(false);
   const [isScoring, setIsScoring] = useState(false);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
+  const [savingSourceId, setSavingSourceId] = useState<string | null>(null);
   const [lastRunLabel, setLastRunLabel] = useState("all enabled sources");
   const [result, setResult] = useState<IngestionRunSummary | null>(null);
   const [pipelineSummary, setPipelineSummary] = useState<PipelineRunSummary | null>(null);
@@ -50,10 +114,131 @@ export function IngestionRunner({
     }>;
   } | null>(null);
   const [feedback, setFeedback] = useState<{
-    tone: "success" | "warning" | "error";
+    tone: ResultTone;
     title: string;
     body: string;
   } | null>(null);
+  const [sourceFeedback, setSourceFeedback] = useState<{
+    tone: ResultTone;
+    title: string;
+    body: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setManagedSources(sources);
+    setSavedSources(sources);
+  }, [sources]);
+
+  const enabledSources = useMemo(() => managedSources.filter((source) => source.enabled), [managedSources]);
+  const redditSourceIds = useMemo(
+    () => enabledSources.filter((source) => source.kind === "reddit").map((source) => source.id),
+    [enabledSources],
+  );
+  const feedSourceIds = useMemo(
+    () => enabledSources.filter((source) => ["rss", "atom", "json"].includes(source.kind)).map((source) => source.id),
+    [enabledSources],
+  );
+  const querySourceIds = useMemo(
+    () => enabledSources.filter((source) => source.kind === "query").map((source) => source.id),
+    [enabledSources],
+  );
+  const familyCounts = useMemo(
+    () =>
+      managedSources.reduce(
+        (counts, source) => {
+          const family = getSourceFamily(source.kind);
+          counts[family] += 1;
+          return counts;
+        },
+        { feed: 0, reddit: 0, query: 0 } satisfies Record<SourceFamily, number>,
+      ),
+    [managedSources],
+  );
+  const hasUnsavedSourceChanges = useMemo(
+    () =>
+      managedSources.some((source) => {
+        const saved = savedSources.find((item) => item.id === source.id);
+        return (
+          saved &&
+          (saved.enabled !== source.enabled ||
+            saved.maxItemsPerRun !== source.maxItemsPerRun ||
+            saved.priority !== source.priority)
+        );
+      }),
+    [managedSources, savedSources],
+  );
+
+  function updateSourceField<T extends keyof ManagedIngestionSource>(
+    sourceId: string,
+    field: T,
+    value: ManagedIngestionSource[T],
+  ) {
+    setManagedSources((current) =>
+      current.map((source) =>
+        source.id === sourceId
+          ? {
+              ...source,
+              [field]: value,
+            }
+          : source,
+      ),
+    );
+  }
+
+  async function refreshSources() {
+    const response = await fetch("/api/sources", {
+      cache: "no-store",
+    });
+    const data = (await response.json()) as SourceRegistryResponse;
+
+    if (!response.ok || !data.success || !data.sources) {
+      throw new Error(data.error ?? "Unable to refresh source metrics.");
+    }
+
+    setManagedSources(data.sources);
+    setSavedSources(data.sources);
+  }
+
+  async function handleSaveSource(source: ManagedIngestionSource) {
+    setSourceFeedback(null);
+    setSavingSourceId(source.id);
+
+    try {
+      const response = await fetch(`/api/sources/${source.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          enabled: source.enabled,
+          maxItemsPerRun: source.maxItemsPerRun,
+          priority: source.priority,
+        }),
+      });
+
+      const data = (await response.json()) as UpdateSourceRegistryResponse;
+
+      if (!response.ok || !data.success || !data.sourceRecord) {
+        throw new Error(data.error ?? "Unable to update source settings.");
+      }
+
+      setManagedSources((current) => mergeSourceRecord(current, data.sourceRecord!));
+      setSavedSources((current) => mergeSourceRecord(current, data.sourceRecord!));
+      setSourceFeedback({
+        tone: "success",
+        title: "Source settings updated",
+        body: `${data.sourceRecord.name} now runs with a cap of ${data.sourceRecord.maxItemsPerRun} items per pass.`,
+      });
+    } catch (error) {
+      setSourceFeedback({
+        tone: "error",
+        title: "Source update failed",
+        body: error instanceof Error ? error.message : "Unable to update source settings.",
+      });
+    } finally {
+      setSavingSourceId(null);
+    }
+  }
 
   async function handleRunIngestion(sourceIds?: string[], label = "all enabled sources") {
     setFeedback(null);
@@ -69,18 +254,14 @@ export function IngestionRunner({
         body: JSON.stringify(sourceIds?.length ? { sourceIds } : {}),
       });
 
-      const data = (await response.json()) as {
-        success?: boolean;
-        mode?: "airtable" | "mock";
-        result?: IngestionRunSummary;
-        error?: string;
-      };
+      const data = (await response.json()) as IngestApiResponse;
 
       if (!response.ok || !data.success || !data.result) {
         throw new Error(data.error ?? "Unable to run ingestion.");
       }
 
       setResult(data.result);
+      await refreshSources();
       setFeedback({
         tone: data.mode === "airtable" ? "success" : "warning",
         title: data.mode === "airtable" ? "Ingestion completed" : "Mock ingestion completed",
@@ -143,6 +324,7 @@ export function IngestionRunner({
         saved: data.saved ?? 0,
         results: data.results,
       });
+      await refreshSources();
       setFeedback({
         tone: data.source === "airtable" ? "success" : "warning",
         title: data.source === "airtable" ? "Batch scoring completed" : "Mock batch scoring completed",
@@ -187,6 +369,7 @@ export function IngestionRunner({
       }
 
       setPipelineSummary(data.result);
+      await refreshSources();
       setFeedback({
         tone: data.source === "airtable" ? "success" : "warning",
         title: data.source === "airtable" ? "Pipeline completed" : "Mock pipeline completed",
@@ -203,6 +386,8 @@ export function IngestionRunner({
     }
   }
 
+  const latestFamilySummary = result ? buildFamilySummary(result) : null;
+
   return (
     <div className="space-y-6">
       <Card>
@@ -212,62 +397,183 @@ export function IngestionRunner({
             Fetch enabled sources, normalise candidate items, skip obvious duplicates, and save new records for human review.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-4">
-          <Button onClick={() => void handleRunIngestion(undefined, "all enabled sources")} disabled={isRunning}>
-            {isRunning ? "Running..." : "Run all sources"}
-          </Button>
-          {feedSourceIds.length > 0 ? (
-            <Button variant="secondary" onClick={() => void handleRunIngestion(feedSourceIds, "feed sources")} disabled={isRunning}>
-              {isRunning ? "Running..." : "Run feed sources"}
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <Button
+              onClick={() => void handleRunIngestion(undefined, "all enabled sources")}
+              disabled={isRunning || hasUnsavedSourceChanges}
+            >
+              {isRunning ? "Running..." : "Run all sources"}
             </Button>
-          ) : null}
-          {redditSourceIds.length > 0 ? (
-            <Button variant="secondary" onClick={() => void handleRunIngestion(redditSourceIds, "Reddit sources")} disabled={isRunning}>
-              {isRunning ? "Running..." : "Run Reddit sources"}
+            {feedSourceIds.length > 0 ? (
+              <Button
+                variant="secondary"
+                onClick={() => void handleRunIngestion(feedSourceIds, "feed sources")}
+                disabled={isRunning || hasUnsavedSourceChanges}
+              >
+                {isRunning ? "Running..." : "Run feed sources"}
+              </Button>
+            ) : null}
+            {redditSourceIds.length > 0 ? (
+              <Button
+                variant="secondary"
+                onClick={() => void handleRunIngestion(redditSourceIds, "Reddit sources")}
+                disabled={isRunning || hasUnsavedSourceChanges}
+              >
+                {isRunning ? "Running..." : "Run Reddit sources"}
+              </Button>
+            ) : null}
+            {querySourceIds.length > 0 ? (
+              <Button
+                variant="secondary"
+                onClick={() => void handleRunIngestion(querySourceIds, "query sources")}
+                disabled={isRunning || hasUnsavedSourceChanges}
+              >
+                {isRunning ? "Running..." : "Run query sources"}
+              </Button>
+            ) : null}
+            <Button variant="secondary" onClick={handleBatchScoring} disabled={isRunning || isScoring || hasUnsavedSourceChanges}>
+              {isScoring ? "Scoring..." : "Score new candidates"}
             </Button>
-          ) : null}
-          <Button variant="secondary" onClick={handleBatchScoring} disabled={isRunning || isScoring}>
-            {isScoring ? "Scoring..." : "Score new candidates"}
-          </Button>
-          <Button variant="secondary" onClick={handleRunPipeline} disabled={isRunning || isScoring || isRunningPipeline}>
-            {isRunningPipeline ? "Running pipeline..." : "Run pipeline"}
-          </Button>
-          <p className="text-sm text-slate-500">
-            Current mode: <span className="font-medium text-slate-700">{mode === "airtable" ? "Airtable" : "Mock mode"}</span>
-          </p>
+            <Button
+              variant="secondary"
+              onClick={handleRunPipeline}
+              disabled={isRunning || isScoring || isRunningPipeline || hasUnsavedSourceChanges}
+            >
+              {isRunningPipeline ? "Running pipeline..." : "Run pipeline"}
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
+            <p>
+              Current mode: <span className="font-medium text-slate-700">{mode === "airtable" ? "Airtable" : "Mock mode"}</span>
+            </p>
+            {hasUnsavedSourceChanges ? (
+              <p className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">
+                Save source changes before running ingestion or pipeline actions.
+              </p>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Configured Sources</CardTitle>
+            <CardTitle>Source Registry</CardTitle>
             <CardDescription>
-              {sources.length} enabled sources in the registry. {feedSourceIds.length} feed sources and {redditSourceIds.length} Reddit sources are currently available.
+              {managedSources.length} configured sources. {familyCounts.feed} feed sources, {familyCounts.reddit} Reddit sources, and{" "}
+              {familyCounts.query} query sources are available. Tune the mix here without changing the downstream pipeline.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {sources.map((source) => (
-              <div key={source.id} className="rounded-2xl bg-white/80 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                      <p className="font-medium text-slate-950">{source.name}</p>
-                      <p className="mt-1 text-sm text-slate-600">{source.publisher} · {source.topic}</p>
-                    </div>
-                    <div className="rounded-full bg-slate-100 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-500">
-                      {source.kind}
-                  </div>
-                </div>
-                <p className="mt-3 text-sm text-slate-500">{source.notes ?? source.url}</p>
+          <CardContent className="space-y-4">
+            {sourceFeedback ? (
+              <div className={`rounded-2xl px-4 py-3 text-sm ${toneClasses(sourceFeedback.tone)}`}>
+                <p className="font-medium">{sourceFeedback.title}</p>
+                <p className="mt-1">{sourceFeedback.body}</p>
               </div>
-            ))}
+            ) : null}
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                  <tr>
+                    <th className="px-3 py-3 font-medium">Source</th>
+                    <th className="px-3 py-3 font-medium">Kind</th>
+                    <th className="px-3 py-3 font-medium">Status</th>
+                    <th className="px-3 py-3 font-medium">Items / run</th>
+                    <th className="px-3 py-3 font-medium">Priority</th>
+                    <th className="px-3 py-3 font-medium">Useful signal hints</th>
+                    <th className="px-3 py-3 font-medium">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {managedSources.map((source) => {
+                    const savedSource = savedSources.find((item) => item.id === source.id);
+                    const isDirty =
+                      !!savedSource &&
+                      (savedSource.enabled !== source.enabled ||
+                        savedSource.maxItemsPerRun !== source.maxItemsPerRun ||
+                        savedSource.priority !== source.priority);
+
+                    return (
+                      <tr key={source.id} className="align-top">
+                        <td className="px-3 py-4">
+                          <p className="font-medium text-slate-950">{source.name}</p>
+                          <p className="mt-1 text-slate-600">
+                            {source.publisher} · {source.topic}
+                          </p>
+                          <p className="mt-2 text-xs text-slate-500">
+                            {source.kind === "query" && source.query ? `Query: ${source.query}` : source.notes ?? source.url}
+                          </p>
+                        </td>
+                        <td className="px-3 py-4">
+                          <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs uppercase tracking-[0.18em] text-slate-500">
+                            {getSourceFamily(source.kind)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-4">
+                          <label className="flex items-center gap-2 text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={source.enabled}
+                              onChange={(event) => updateSourceField(source.id, "enabled", event.target.checked)}
+                              className="h-4 w-4 rounded border-slate-300 text-[color:var(--accent)] focus:ring-[color:var(--accent-soft)]"
+                            />
+                            {source.enabled ? "Enabled" : "Disabled"}
+                          </label>
+                        </td>
+                        <td className="px-3 py-4">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={source.maxItemsPerRun}
+                            onChange={(event) =>
+                              updateSourceField(
+                                source.id,
+                                "maxItemsPerRun",
+                                Math.min(100, Math.max(1, Number(event.target.value) || 1)),
+                              )
+                            }
+                            className="h-10 w-24"
+                          />
+                        </td>
+                        <td className="px-3 py-4">
+                          <Select
+                            value={source.priority}
+                            onChange={(event) => updateSourceField(source.id, "priority", event.target.value as ManagedIngestionSource["priority"])}
+                            className="h-10 min-w-28"
+                          >
+                            <option value="low">Low</option>
+                            <option value="normal">Normal</option>
+                            <option value="high">High</option>
+                          </Select>
+                        </td>
+                        <td className="px-3 py-4 text-slate-600">
+                          <p>{sourcePerformanceSummary(source)}</p>
+                        </td>
+                        <td className="px-3 py-4">
+                          <Button
+                            variant={isDirty ? "primary" : "secondary"}
+                            onClick={() => void handleSaveSource(source)}
+                            disabled={savingSourceId === source.id || !isDirty}
+                          >
+                            {savingSourceId === source.id ? "Saving..." : isDirty ? "Save" : "Saved"}
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader>
-            <CardTitle>Latest Result</CardTitle>
-            <CardDescription>Operator-facing summary of the most recent ingestion run.</CardDescription>
+            <CardTitle>Latest Ingestion Result</CardTitle>
+            <CardDescription>Compact source-by-source comparison for the most recent ingestion run.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {feedback ? (
@@ -292,59 +598,62 @@ export function IngestionRunner({
                     <p className="mt-2 text-2xl font-semibold text-slate-950">{result.sourcesChecked}</p>
                   </div>
                   <div className="rounded-2xl bg-white/80 px-4 py-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Items fetched</p>
-                    <p className="mt-2 text-2xl font-semibold text-slate-950">{result.itemsFetched}</p>
-                  </div>
-                  <div className="rounded-2xl bg-white/80 px-4 py-4">
                     <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Imported</p>
                     <p className="mt-2 text-2xl font-semibold text-slate-950">{result.itemsImported}</p>
                   </div>
                   <div className="rounded-2xl bg-white/80 px-4 py-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Skipped duplicates</p>
-                    <p className="mt-2 text-2xl font-semibold text-slate-950">{result.itemsSkippedDuplicates}</p>
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Fetched</p>
+                    <p className="mt-2 text-2xl font-semibold text-slate-950">{result.itemsFetched}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/80 px-4 py-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Skipped</p>
+                    <p className="mt-2 text-2xl font-semibold text-slate-950">{result.itemsSkipped}</p>
                   </div>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  {(["rss", "atom", "json", "reddit"] as const).map((kind) => {
-                    const checked = result.sourcesCheckedByKind[kind];
-                    const fetched = result.itemsFetchedByKind[kind];
-                    const imported = result.itemsImportedByKind[kind];
-                    const skipped = result.itemsSkippedDuplicatesByKind[kind];
 
-                    if (checked === 0 && fetched === 0 && imported === 0 && skipped === 0) {
-                      return null;
-                    }
+                {latestFamilySummary ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {(["feed", "reddit", "query"] as const).map((family) => {
+                      const metrics = latestFamilySummary[family];
+                      if (metrics.checked === 0 && metrics.fetched === 0 && metrics.imported === 0 && metrics.skipped === 0) {
+                        return null;
+                      }
 
-                    return (
-                      <div key={kind} className="rounded-2xl bg-white/80 px-4 py-4">
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{kind}</p>
-                        <p className="mt-2 text-sm text-slate-600">
-                          {checked} checked · {fetched} fetched
-                        </p>
-                        <p className="mt-1 text-sm text-slate-600">
-                          {imported} imported · {skipped} skipped
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
+                      return (
+                        <div key={family} className="rounded-2xl bg-white/80 px-4 py-4">
+                          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{family}</p>
+                          <p className="mt-2 text-sm text-slate-600">
+                            {metrics.checked} checked · {metrics.fetched} fetched
+                          </p>
+                          <p className="mt-1 text-sm text-slate-600">
+                            {metrics.imported} imported · {metrics.skipped} skipped
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
                 <div className="space-y-3">
                   {result.sourceResults.map((source) => (
                     <div key={source.sourceId} className="rounded-2xl bg-white/80 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="font-medium text-slate-950">{source.sourceName}</p>
-                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{source.kind}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
+                            {getSourceFamily(source.kind)} · cap {source.maxItemsPerRun}
+                          </p>
                         </div>
                         <p className="text-sm text-slate-500">
-                          {source.itemsImported} imported · {source.itemsSkippedDuplicates} skipped
+                          {source.itemsImported} imported · {source.itemsSkipped} skipped
                         </p>
                       </div>
+                      <p className="mt-2 text-sm text-slate-600">
+                        {source.itemsFetched} fetched · {source.itemsSkippedDuplicates} duplicate skips
+                      </p>
                       {source.errors.length > 0 ? (
                         <p className="mt-2 text-sm text-amber-700">{source.errors.join(" ")}</p>
-                      ) : (
-                        <p className="mt-2 text-sm text-slate-500">{source.itemsFetched} items fetched.</p>
-                      )}
+                      ) : null}
                     </div>
                   ))}
                 </div>

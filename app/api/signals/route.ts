@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { appendAuditEventsSafe, buildRecommendationEvent } from "@/lib/audit";
 import { createSignal, getSafeAirtableErrorMessage, listSignals } from "@/lib/airtable";
 import { buildMockCreatedSignal, mockSignalRecords } from "@/lib/mock-data";
 import { getAppConfig } from "@/lib/config";
@@ -87,17 +88,42 @@ export async function POST(request: Request) {
   const config = getAppConfig();
 
   if (!config.isAirtableConfigured) {
+    const signal = buildMockCreatedSignal(submission);
+    await appendAuditEventsSafe([
+      {
+        signalId: signal.recordId,
+        eventType: "INGESTED",
+        actor: "operator",
+        summary: "Manually added signal in mock mode.",
+        metadata: {
+          source: "mock",
+        },
+      },
+      buildRecommendationEvent(signal),
+    ]);
     return NextResponse.json<CreateSignalApiResponse>({
       success: true,
       source: "mock",
       persisted: false,
-      signal: buildMockCreatedSignal(submission),
+      signal,
       message: "Signal accepted in mock mode. Configure Airtable to persist submissions.",
     });
   }
 
   try {
     const signal = await createSignal(submission);
+    await appendAuditEventsSafe([
+      {
+        signalId: signal.recordId,
+        eventType: "INGESTED",
+        actor: "operator",
+        summary: "Manually added signal.",
+        metadata: {
+          source: "airtable",
+        },
+      },
+      buildRecommendationEvent(signal),
+    ]);
 
     return NextResponse.json<CreateSignalApiResponse>({
       success: true,

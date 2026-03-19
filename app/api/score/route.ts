@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { appendAuditEventsSafe, buildRecommendationEvent, buildScoredEvent, type AuditEventInput } from "@/lib/audit";
 import { scoreSignal } from "@/lib/scoring";
 import { hasScoring } from "@/lib/workflow";
 import {
@@ -92,6 +93,11 @@ export async function POST(request: Request) {
       );
     }
 
+    await appendAuditEventsSafe([
+      buildScoredEvent(persisted.signal, scoring),
+      buildRecommendationEvent(persisted.signal),
+    ]);
+
     return NextResponse.json<ScoreResponse>({
       success: true,
       persisted: persisted.persisted,
@@ -112,6 +118,7 @@ export async function POST(request: Request) {
     .slice(0, limit);
 
   const results: ScoreBatchResponse["results"] = [];
+  const auditEvents: AuditEventInput[] = [];
   let saved = 0;
 
   for (const signal of targetSignals) {
@@ -146,6 +153,7 @@ export async function POST(request: Request) {
 
     if (persisted.signal) {
       saved += 1;
+      auditEvents.push(buildScoredEvent(persisted.signal, scoring), buildRecommendationEvent(persisted.signal));
     }
 
     results.push({
@@ -157,6 +165,8 @@ export async function POST(request: Request) {
       error: persisted.signal ? undefined : persisted.error ?? "Unable to save scoring result.",
     });
   }
+
+  await appendAuditEventsSafe(auditEvents);
 
   return NextResponse.json<ScoreBatchResponse>({
     success: true,

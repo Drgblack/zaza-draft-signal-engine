@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { appendAuditEventsSafe, buildOperatorOverrideEvent, type AuditEventInput } from "@/lib/audit";
 import { getSignalWithFallback } from "@/lib/airtable";
 import { interpretSignal, toInterpretationInput as toSignalInterpretationInput } from "@/lib/interpreter";
 import {
@@ -56,6 +57,32 @@ export async function POST(request: Request) {
   }
 
   const interpretation = interpretationResultSchema.parse(interpretSignal(signal));
+  const currentSignalId = signal.recordId ?? parsed.data.signalId ?? null;
+
+  if (currentSignalId) {
+    const currentSignalResult = await getSignalWithFallback(currentSignalId);
+    const auditEvents: AuditEventInput[] = [
+      {
+        signalId: currentSignalId,
+        eventType: "INTERPRETATION_RUN",
+        actor: "operator",
+        summary: "Ran interpretation preview.",
+        metadata: {
+          category: interpretation.signalCategory,
+          severity: interpretation.severityScore,
+        },
+      },
+    ];
+
+    if (currentSignalResult.signal) {
+      const overrideEvent = buildOperatorOverrideEvent(currentSignalResult.signal, "interpret");
+      if (overrideEvent) {
+        auditEvents.push(overrideEvent);
+      }
+    }
+
+    await appendAuditEventsSafe(auditEvents);
+  }
 
   return NextResponse.json<InterpretationResponse>({
     success: true,

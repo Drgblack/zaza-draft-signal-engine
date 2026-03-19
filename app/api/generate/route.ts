@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
+import { appendAuditEventsSafe, buildOperatorOverrideEvent, type AuditEventInput } from "@/lib/audit";
 import { getSignalWithFallback } from "@/lib/airtable";
+import { suggestEditorialMode } from "@/lib/editorial-modes";
 import { generateDrafts, toGenerationInputFromSignal } from "@/lib/generator";
+import { getPattern, getPatternAuditSubjectId, isPatternActive } from "@/lib/patterns";
 import { generateRequestSchema, toGenerationInput, type GenerationResponse } from "@/types/api";
 
 export async function POST(request: Request) {
@@ -31,6 +34,26 @@ export async function POST(request: Request) {
     );
   }
 
+  const selectedPattern = parsed.data.patternId ? await getPattern(parsed.data.patternId) : null;
+  if (parsed.data.patternId && !selectedPattern) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Selected pattern not found.",
+      },
+      { status: 404 },
+    );
+  }
+  if (selectedPattern && !isPatternActive(selectedPattern)) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Retired patterns are kept for reference only and cannot be applied in generation.",
+      },
+      { status: 400 },
+    );
+  }
+
   const signal = inputSignal ?? (sourceSignal?.signal ? toGenerationInputFromSignal(sourceSignal.signal) : null);
   if (!signal) {
     return NextResponse.json(
@@ -42,12 +65,80 @@ export async function POST(request: Request) {
     );
   }
 
-  const generation = await generateDrafts(signal);
+  const editorialMode =
+    parsed.data.editorialMode ??
+    sourceSignal?.signal?.editorialMode ??
+    (sourceSignal?.signal ? suggestEditorialMode(sourceSignal.signal).mode : "awareness");
+  const generation = await generateDrafts(signal, {
+    pattern: selectedPattern,
+    editorialMode,
+  });
+  const currentSignalId = signal.recordId ?? parsed.data.signalId ?? null;
+
+  if (currentSignalId) {
+    const currentSignalResult = await getSignalWithFallback(currentSignalId);
+    const usedSuggestedPattern =
+      Boolean(parsed.data.suggestedPatternId) &&
+      parsed.data.suggestedPatternId === generation.appliedPattern?.id;
+    const auditEvents: AuditEventInput[] = [
+      {
+        signalId: currentSignalId,
+        eventType: "GENERATION_RUN",
+        actor: "operator",
+        summary: "Ran draft generation preview.",
+        metadata: {
+          generationSource: generation.outputs.generationSource,
+          usedFallback: generation.usedFallback,
+          patternId: generation.appliedPattern?.id ?? null,
+          patternName: generation.appliedPattern?.name ?? null,
+          suggestedPatternId: usedSuggestedPattern ? parsed.data.suggestedPatternId ?? null : null,
+          editorialMode,
+        },
+      },
+    ];
+
+    if (generation.appliedPattern) {
+      auditEvents.push({
+        signalId: currentSignalId,
+        eventType: "PATTERN_APPLIED",
+        actor: "operator",
+        summary: `Applied pattern: ${generation.appliedPattern.name}.`,
+        metadata: {
+          patternId: generation.appliedPattern.id,
+          patternName: generation.appliedPattern.name,
+          suggestedPatternUsed: usedSuggestedPattern,
+        },
+      });
+      auditEvents.push({
+        signalId: getPatternAuditSubjectId(generation.appliedPattern.id),
+        eventType: "PATTERN_APPLIED",
+        actor: "operator",
+        summary: `Applied pattern: ${generation.appliedPattern.name}.`,
+        metadata: {
+          patternId: generation.appliedPattern.id,
+          patternName: generation.appliedPattern.name,
+          signalId: currentSignalId,
+          suggestedPatternUsed: usedSuggestedPattern,
+        },
+      });
+    }
+
+    if (currentSignalResult.signal) {
+      const overrideEvent = buildOperatorOverrideEvent(currentSignalResult.signal, "generate");
+      if (overrideEvent) {
+        auditEvents.push(overrideEvent);
+      }
+    }
+
+    await appendAuditEventsSafe(auditEvents);
+  }
 
   return NextResponse.json<GenerationResponse>({
     success: true,
     signal,
     outputs: generation.outputs,
+    appliedPattern: generation.appliedPattern,
+    editorialMode,
     message: generation.message,
     usedFallback: generation.usedFallback,
   });

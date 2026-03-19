@@ -313,6 +313,24 @@ function mapRecordFromAirtable(record: AirtableRecord<AirtableFields>): SignalRe
     xDraft: parseText(getFieldValue(fields, "xDraft")),
     linkedInDraft: parseText(getFieldValue(fields, "linkedInDraft")),
     redditDraft: parseText(getFieldValue(fields, "redditDraft")),
+    finalXDraft: parseText(getFieldValue(fields, "finalXDraft")),
+    finalLinkedInDraft: parseText(getFieldValue(fields, "finalLinkedInDraft")),
+    finalRedditDraft: parseText(getFieldValue(fields, "finalRedditDraft")),
+    xReviewStatus: parseSelect(
+      getFieldValue(fields, "xReviewStatus"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.xReviewStatus.allowedValues ?? [],
+    ) as SignalRecord["xReviewStatus"],
+    linkedInReviewStatus: parseSelect(
+      getFieldValue(fields, "linkedInReviewStatus"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.linkedInReviewStatus.allowedValues ?? [],
+    ) as SignalRecord["linkedInReviewStatus"],
+    redditReviewStatus: parseSelect(
+      getFieldValue(fields, "redditReviewStatus"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.redditReviewStatus.allowedValues ?? [],
+    ) as SignalRecord["redditReviewStatus"],
+    finalReviewNotes: parseText(getFieldValue(fields, "finalReviewNotes")),
+    finalReviewStartedAt: parseText(getFieldValue(fields, "finalReviewStartedAt")),
+    finalReviewedAt: parseText(getFieldValue(fields, "finalReviewedAt")),
     imagePrompt: parseText(getFieldValue(fields, "imagePrompt")),
     videoScript: parseText(getFieldValue(fields, "videoScript")),
     ctaOrClosingLine: parseText(getFieldValue(fields, "ctaOrClosingLine")),
@@ -342,6 +360,10 @@ function mapRecordFromAirtable(record: AirtableRecord<AirtableFields>): SignalRe
     teacherVoiceSource: parseText(getFieldValue(fields, "teacherVoiceSource")) as SignalRecord["teacherVoiceSource"],
     anonymisedUserPattern: parseCheckbox(getFieldValue(fields, "anonymisedUserPattern")),
     relatedZazaFrameworkTag: parseText(getFieldValue(fields, "relatedZazaFrameworkTag")),
+    editorialMode: parseSelect(
+      getFieldValue(fields, "editorialMode"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.editorialMode.allowedValues ?? [],
+    ) as SignalRecord["editorialMode"],
     generationModelVersion: parseText(getFieldValue(fields, "generationModelVersion")),
     promptVersion: parseText(getFieldValue(fields, "promptVersion")),
   };

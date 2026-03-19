@@ -1,7 +1,9 @@
 import { createSignal, listSignalsWithFallback } from "@/lib/airtable";
+import { appendAuditEventsSafe, buildRecommendationEvent, type AuditEventInput } from "@/lib/audit";
+import { buildMockQueryItems, fetchQueryItems } from "@/lib/ingestion/fetch-query";
 import { addMockSignalRecord } from "@/lib/mock-data";
 import { buildMockRedditItems, fetchRedditPosts } from "@/lib/ingestion/fetch-reddit";
-import { getEnabledIngestionSources, INGESTION_SOURCES } from "@/lib/ingestion/sources";
+import { getEnabledIngestionSources, listIngestionSources } from "@/lib/ingestion/sources";
 import { fetchSourceItems } from "@/lib/ingestion/fetch-feeds";
 import { buildDuplicateKeyFromSignal, normalizeFeedItemToCandidate } from "@/lib/ingestion/normalize";
 import { ingestionRunSummarySchema, type IngestionRunSummary, type IngestionSourceKind, type IngestionSourceResult } from "@/lib/ingestion/types";
@@ -13,6 +15,7 @@ function createKindCounts() {
     atom: 0,
     json: 0,
     reddit: 0,
+    query: 0,
   };
 }
 
@@ -26,17 +29,23 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
 }> {
   const config = getAppConfig();
   const mode = config.isAirtableConfigured ? "airtable" : "mock";
-  const enabledSources = getEnabledIngestionSources(sourceIds);
-  const existing = await listSignalsWithFallback({ limit: 500 });
+  const [configuredSources, enabledSources, existing] = await Promise.all([
+    listIngestionSources(),
+    getEnabledIngestionSources(sourceIds),
+    listSignalsWithFallback({ limit: 500 }),
+  ]);
   const duplicateKeys = new Set(existing.signals.map(buildDuplicateKeyFromSignal));
 
   const sourceResults: IngestionSourceResult[] = [];
   const sourcesCheckedByKind = createKindCounts();
   const itemsFetchedByKind = createKindCounts();
   const itemsImportedByKind = createKindCounts();
+  const itemsSkippedByKind = createKindCounts();
   const itemsSkippedDuplicatesByKind = createKindCounts();
+  const auditEvents: AuditEventInput[] = [];
   let itemsFetched = 0;
   let itemsImported = 0;
+  let itemsSkipped = 0;
   let itemsSkippedDuplicates = 0;
 
   for (const source of enabledSources) {
@@ -46,8 +55,10 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
       sourceName: source.name,
       kind: source.kind,
       url: source.url,
+      maxItemsPerRun: source.maxItemsPerRun,
       itemsFetched: 0,
       itemsImported: 0,
+      itemsSkipped: 0,
       itemsSkippedDuplicates: 0,
       errors: [],
     };
@@ -56,17 +67,25 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
       let fetchedItems;
 
       try {
-        fetchedItems = source.kind === "reddit" ? await fetchRedditPosts(source) : await fetchSourceItems(source);
+        fetchedItems =
+          source.kind === "reddit"
+            ? await fetchRedditPosts(source)
+            : source.kind === "query"
+              ? await fetchQueryItems(source)
+              : await fetchSourceItems(source);
       } catch (error) {
         if (mode === "mock" && source.kind === "reddit") {
           fetchedItems = buildMockRedditItems(source);
           sourceResult.errors.push("Live Reddit fetch unavailable. Using bounded mock Reddit posts.");
+        } else if (mode === "mock" && source.kind === "query") {
+          fetchedItems = buildMockQueryItems(source);
+          sourceResult.errors.push("Live query fetch unavailable. Using bounded mock query results.");
         } else {
           throw error;
         }
       }
 
-      const items = fetchedItems.slice(0, source.maxItems ?? 25);
+      const items = fetchedItems.slice(0, source.maxItemsPerRun);
       sourceResult.itemsFetched = items.length;
       itemsFetched += items.length;
       bumpKindCount(itemsFetchedByKind, source.kind, items.length);
@@ -78,8 +97,11 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
         }
 
         if (duplicateKeys.has(candidate.duplicateKey)) {
+          sourceResult.itemsSkipped += 1;
           sourceResult.itemsSkippedDuplicates += 1;
+          itemsSkipped += 1;
           itemsSkippedDuplicates += 1;
+          bumpKindCount(itemsSkippedByKind, source.kind);
           bumpKindCount(itemsSkippedDuplicatesByKind, source.kind);
           continue;
         }
@@ -106,16 +128,26 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
           status: candidate.status,
         } as const;
 
-        if (mode === "airtable") {
-          await createSignal(payload);
-        } else {
-          addMockSignalRecord(payload);
-        }
+        const createdSignal = mode === "airtable" ? await createSignal(payload) : addMockSignalRecord(payload);
 
         duplicateKeys.add(candidate.duplicateKey);
         sourceResult.itemsImported += 1;
         itemsImported += 1;
         bumpKindCount(itemsImportedByKind, source.kind);
+        auditEvents.push(
+          {
+            signalId: createdSignal.recordId,
+            eventType: "INGESTED",
+            actor: "system",
+            summary: `Imported from ${source.name}.`,
+            metadata: {
+              sourceKind: source.kind,
+              ingestionMethod: candidate.ingestionMethod,
+              autoGenerated: true,
+            },
+          },
+          buildRecommendationEvent(createdSignal),
+        );
       }
     } catch (error) {
       sourceResult.errors.push(error instanceof Error ? error.message : "Unable to fetch source.");
@@ -124,16 +156,20 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
     sourceResults.push(sourceResult);
   }
 
+  await appendAuditEventsSafe(auditEvents);
+
   return {
     mode,
     result: ingestionRunSummarySchema.parse({
-      configuredSourceCount: INGESTION_SOURCES.length,
+      configuredSourceCount: configuredSources.length,
       sourcesChecked: enabledSources.length,
       sourcesCheckedByKind,
       itemsFetched,
       itemsFetchedByKind,
       itemsImported,
       itemsImportedByKind,
+      itemsSkipped,
+      itemsSkippedByKind,
       itemsSkippedDuplicates,
       itemsSkippedDuplicatesByKind,
       sourceResults,

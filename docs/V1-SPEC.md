@@ -13,8 +13,10 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - `POST /api/signals`
 - Operator-triggered ingestion foundation with:
   - source registry
+  - source registry controls for enable / disable, per-run caps, and simple priority labels
   - RSS / Atom feed fetching
   - bounded Reddit post fetching from configured public subreddits
+  - bounded curated query execution through registry-defined query sources
   - feed normalisation
   - simple duplicate guard
   - `POST /api/ingest`
@@ -43,6 +45,73 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - `POST /api/generate`
 - `PATCH /api/signals/[id]/generate`
 - `PATCH /api/signals/[id]/workflow`
+- Operator co-pilot guidance layer that surfaces:
+  - recommended next action
+  - blockers
+  - readiness notes
+  - compact queue hints
+- Persisted audit trail that records:
+  - system recommendations
+  - operator actions
+  - pipeline progression checkpoints
+- Lightweight insight layer with:
+  - `/insights`
+  - compact source-mix summaries
+  - Scenario Angle progression checks
+  - pipeline stage counts
+  - operator override and manual-intervention summaries
+  - optional `all time`, `last 7 days`, and `last 30 days` windows based on record created date
+- Structured operator feedback loop with:
+  - `/api/signals/[id]/feedback`
+  - explicit feedback labels for signals, Scenario Angle framing, co-pilot recommendations, outputs, and sources
+  - persisted local feedback store
+  - feedback-linked audit events
+  - feedback summaries on detail and insight views
+- Feedback-aware co-pilot guidance with:
+  - past-feedback hints on signal detail
+  - light feedback-aware hints in queue views
+  - source / framing / output / recommendation memory used as secondary guidance context only
+- Pattern-aware co-pilot suggestions with:
+  - centralized heuristic matching in `lib/pattern-match.ts`
+  - compact related-pattern suggestions on the signal detail co-pilot card
+  - optional suggested-pattern surfacing on interpretation and generation workbenches
+  - explicit reasons for why a pattern may fit
+  - optional effectiveness hints when feedback data exists
+  - no automatic pattern selection or hidden prompt injection
+- Manual pattern library with:
+  - `/patterns`
+  - quick pattern capture from a signal detail page
+  - persistent local pattern storage
+  - related-pattern assists on interpretation and generation workbenches
+  - basic pattern editing and source-signal linking
+- Pattern discovery assist with:
+  - centralized heuristic evaluation in `lib/pattern-discovery.ts`
+  - small pattern-candidate surfacing on signal detail and generation views
+  - recent suggested candidates on `/patterns`
+  - light candidate summaries on `/insights`
+  - explicit `PATTERN_CANDIDATE_DETECTED` audit events on meaningful recalculation only
+- Pattern-aware generation with:
+  - visible one-pattern selection on the generation workbench
+  - prompt-level pattern guidance using description, example Scenario Angle, and example output
+  - explicit `PATTERN_APPLIED` audit events
+  - no automatic pattern selection or hidden prompt behavior
+- Editorial modes / posting-intent profiles with:
+  - centralized mode definitions in `lib/editorial-modes.ts`
+  - visible single-mode selection on the generation workbench
+  - bounded co-pilot mode suggestions
+  - prompt-level intent shaping and explicit guardrails
+  - saved editorial mode metadata on generated drafts
+- Platform intent profiles with:
+  - centralized platform definitions in `lib/platform-profiles.ts`
+  - explicit X / LinkedIn / Reddit tone and structure rules
+  - prompt-level platform shaping layered under editorial mode
+  - compact operator-visible helper notes on the generation workbench
+- Final review workspace with:
+  - `/signals/[id]/review`
+  - side-by-side X / LinkedIn / Reddit comparison
+  - editable final draft fields separate from raw generated drafts
+  - per-platform final decision states
+  - lightweight final-review audit events
 - Dashboard, signals index, signal detail, new signal, review, interpretation, and generation pages
 - Generation workbench page
 - Generation readiness and quality guidance with:
@@ -54,6 +123,7 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 ## Explicitly Excluded
 - Broad scraping
 - Broad social ingestion beyond bounded public subreddit posts
+- Broad free-form search ingestion
 - Autonomous agents
 - Scheduling automation
 - Auth and user accounts
@@ -67,26 +137,528 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 1. Operator manually submits one signal.
 2. Operator can also run ingestion against enabled structured feed sources to import candidate signals.
 3. Operator can also run bounded Reddit ingestion against configured public subreddits to import recent discussion posts.
-4. Imported candidates are saved as new records with ingestion metadata and human-review flags.
-5. Operator can score new or existing records to decide whether they should be kept, reviewed, or rejected.
-6. Operator can run a bounded pipeline pass that:
+4. Operator can also run bounded curated query sources that target teacher-risk communication themes such as parent complaint, behaviour documentation, and report-writing stress.
+5. Operator can tune the source mix from `/ingestion` by:
+   - disabling noisy sources
+   - lowering or raising `maxItemsPerRun`
+   - marking sources as low / normal / high priority for manual curation
+   - reviewing lightweight source usefulness hints derived from existing records
+6. Imported candidates are saved as new records with ingestion metadata and human-review flags.
+7. Operator can score new or existing records to decide whether they should be kept, reviewed, or rejected.
+8. Operator can run a bounded pipeline pass that:
    - ingests
    - scores
    - gates
    - auto-interprets kept/pass records
    - auto-generates only high-priority kept/pass records
-7. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
-8. Operator can add a scenario angle when a raw source needs to be transformed into a clearer teacher communication situation before interpretation.
-9. The app evaluates whether the angle is missing, weak, usable, or strong and can suggest 2-3 bounded alternatives for indirect signals.
-10. Operator edits and saves the interpretation back to the signal record when needed.
-11. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
-12. Generation prioritises:
+9. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
+10. Operator can add a scenario angle when a raw source needs to be transformed into a clearer teacher communication situation before interpretation.
+11. The app evaluates whether the angle is missing, weak, usable, or strong and can suggest 2-3 bounded alternatives for indirect signals.
+12. Operator edits and saves the interpretation back to the signal record when needed.
+13. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
+14. Generation prioritises:
    - a usable scenario angle
    - saved interpretation fields
    - source evidence/context
-13. Operator sees whether generation is ready, cautionary, or blocked before running it.
-14. Operator edits and saves the drafts back to the record when needed.
-15. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
+15. Operator sees whether generation is ready, cautionary, or blocked before running it.
+16. Operator edits and saves the drafts back to the record when needed.
+17. Operator uses the co-pilot guidance layer to see the next best action without changing the core status workflow.
+18. The app records a bounded audit trail of key decisions and transitions for each signal.
+19. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
+
+## Query Source Notes
+- Query sources are curated registry definitions, not free-form operator searches.
+- The current execution strategy uses Google News RSS search as a bounded adapter for those definitions.
+- Query sources are intended to improve thematic targeting around teacher-risk communication and workload signals, not to broaden coverage indiscriminately.
+
+## Source Mix Control Notes
+- Source defaults still live in code, but operator tuning is applied through local file-backed overrides.
+- Current registry controls are intentionally simple:
+  - `enabled`
+  - `maxItemsPerRun`
+  - `priority`
+  - `notes`
+- Per-source usefulness hints are derived from current records and shown as compact counts such as:
+  - total seen
+  - keep
+  - review
+  - interpreted
+  - generated
+- This is a manual curation layer, not an automated optimiser.
+
+## Co-Pilot Guidance Notes
+- The co-pilot layer is a bounded recommendation system based on record state.
+- It is not a chat assistant and it does not execute actions automatically.
+- Current guidance draws on:
+  - scoring and quality-gate state
+  - Scenario Angle quality
+  - source context and transformability
+  - interpretation and generation completeness
+  - workflow status
+  - lightweight pattern matching against saved patterns when those patterns look relevant
+- Typical recommendations include:
+  - strengthen Scenario Angle
+  - move to interpretation
+  - move to generation
+  - review now
+  - schedule next
+  - leave filtered out
+- The purpose is to reduce operator friction, not replace editorial judgement.
+- Pattern suggestion matching is intentionally bounded:
+  - keyword overlap across Scenario Angle, summary, content angle, tags, and pattern examples
+  - shared communication-situation markers such as parent tension, documentation, incident communication, or planning reset
+  - optional effectiveness hints based on existing pattern feedback and usage outcomes
+  - no embeddings, semantic retrieval, or automatic application
+
+## Audit Trail Notes
+- The audit trail is a lightweight, append-only decision memory per signal.
+- It currently records major checkpoints such as:
+  - ingestion
+  - scoring saves
+  - co-pilot recommendation snapshots
+  - Scenario Angle additions or changes
+  - interpretation runs and saves
+  - generation runs and saves
+  - workflow status changes
+  - explicit operator overrides when the chosen action differs from current guidance
+  - pattern-candidate detection when a record newly looks worth saving as a pattern
+  - explicit suggested-pattern interactions when an operator uses a co-pilot pattern suggestion
+- The audit trail is intentionally not:
+  - a full analytics system
+  - an event stream
+  - a keystroke log
+- The goal is to preserve a readable timeline of what the system recommended and what the operator did.
+
+## Insight Layer Notes
+- The insight layer is intentionally descriptive, compact, and inspectable.
+- It does not:
+  - predict outcomes
+  - tune thresholds
+  - change scoring
+  - auto-optimise the source mix
+- Current insight coverage is derived from:
+  - current saved signal fields
+  - Scenario Angle quality assessment
+  - persisted audit events
+- Current windowing is intentionally simple:
+  - `all time`
+  - `last 7 days`
+  - `last 30 days`
+- Windowing currently uses signal `createdDate`, then pulls audit-derived metrics for those included records.
+- Current insight summaries include:
+  - counts by source kind
+  - top and weak source contributors
+  - stage progression counts
+  - Scenario Angle quality vs progression
+  - records currently blocked on Scenario Angle quality
+  - audited override counts and manual intervention concentration
+  - pattern-candidate counts and saved-vs-unsaved candidate summaries
+  - explicit pattern-suggestion interaction counts and suggested-pattern applications
+- Current limitations:
+  - suggestion adoption for Scenario Angle prompts is not explicitly tracked yet
+  - pattern discovery is heuristic only and intentionally does not use similarity search, embeddings, or auto-creation
+  - insight output is bounded to current record state plus append-only audit memory
+  - this is not a general-purpose analytics dashboard
+
+## Operator Feedback Notes
+- Operator feedback is a structured labelling layer, not a rating system.
+- Current feedback categories are intentionally narrow:
+  - signal quality
+  - Scenario Angle quality
+  - co-pilot recommendation quality
+  - output quality
+  - source quality
+- Current feedback values are:
+  - `useful_signal`
+  - `weak_signal`
+  - `irrelevant_signal`
+  - `strong_framing`
+  - `weak_framing`
+  - `good_recommendation`
+  - `bad_recommendation`
+  - `strong_output`
+  - `weak_output`
+  - `needs_revision`
+  - `high_quality_source`
+  - `noisy_source`
+- Feedback is currently stored in a lightweight local JSON store at:
+  - `data/signal-feedback.json`
+- Each feedback item is linked to a `signalId` and includes:
+  - timestamp
+  - category
+  - value
+  - optional note
+  - actor = `operator`
+- Feedback is append-only and explicit:
+  - it does not change scoring
+  - it does not change pipeline gating
+  - it does not tune sources automatically
+- Each feedback submission also writes a readable audit event so the decision memory stays connected to explicit operator judgement.
+- The insight layer now includes simple feedback counts and passive source-feedback summaries for manual source tuning.
+- Future runs can build on this data for analysis or operator tooling, but no automated learning loop exists in this run.
+
+## Feedback-Aware Guidance Notes
+- The co-pilot layer can now reference past operator feedback as secondary context.
+- This remains guidance only:
+  - it does not change scores
+  - it does not change gating
+  - it does not block actions
+  - it does not override operator judgement
+- Current feedback-aware context is derived through bounded heuristics such as:
+  - exact source labels previously marked high quality or noisy
+  - similar records from the same source kind and, when available, the same signal category
+  - past framing feedback on similar records
+  - past output feedback on similar records
+  - past co-pilot feedback on similar records
+- The guidance UI now separates:
+  - primary recommendation
+  - reason
+  - “What we’ve seen before” context lines
+- These context lines are intentionally short and non-binding. They are there to improve editorial memory and trust, not to act as rules.
+- Current limitations:
+  - there is no similarity search, embedding logic, or statistical model
+  - matching is heuristic and intentionally shallow
+  - the co-pilot may have no feedback-aware context when there is not enough relevant history
+
+## Pattern Library Notes
+- The pattern library is a manual playbook, not an automatic recommendation engine.
+- Current patterns are stored in a lightweight local JSON store at:
+  - `data/signal-patterns.json`
+- Each pattern currently captures:
+  - name
+  - description
+  - pattern type
+  - source context
+  - example signal reference
+  - example Scenario Angle
+  - example output
+  - tags
+  - created-at and created-by metadata
+- Pattern creation is intentionally quick:
+  - open a signal detail page
+  - use `Save as pattern`
+  - adjust the prefilled description, tags, framing, or output example if needed
+- Pattern discovery is intentionally bounded:
+  - it can suggest that a record may be worth saving
+  - it can explain why with short operator-readable reasons
+  - it does not auto-create patterns
+  - it does not auto-tag everything
+  - it does not use embeddings, clustering, or hidden ranking
+- Pattern use is assistive only:
+  - related patterns can appear in interpretation and generation workbenches
+  - operators can reuse a saved Scenario Angle as a starting point
+  - no pattern is auto-applied
+  - no pattern changes scoring, gating, or workflow decisions
+- Pattern matching is intentionally shallow and heuristic:
+  - source context overlap
+  - shared tags derived from signal fields such as category, source type, platform direction, and framing/output presence
+- Co-pilot pattern suggestions use similarly explicit signals:
+  - keyword overlap between the current signal and saved pattern descriptions or example Scenario Angles
+  - shared communication-situation markers
+  - shared tags and source context
+  - lightweight effectiveness hints from saved pattern feedback
+- Pattern coverage is a separate bounded visibility layer:
+  - `covered` means a strong existing pattern match or already-applied pattern is present
+  - `partially_covered` means only a weak or indirect match exists
+  - `uncovered` means no meaningful current pattern match exists
+- Coverage gaps are detected through explicit heuristics only:
+  - current pattern-match strength
+  - Scenario Angle quality
+  - useful-signal or strong-framing feedback
+  - whether the record still reached generation successfully
+  - simple keyword-bucket gap typing such as documentation, parent confusion, boundary-setting, or progress-concern cases
+- Gap types are intentionally lightweight:
+  - they help operators see recurring weak areas in the library
+  - they do not cluster records semantically
+  - they do not auto-create patterns
+- Signal detail pages can now show a subtle coverage-gap hint when a record looks reusable but has weak or no current pattern support.
+- Creating a pattern from a gap signal can now carry the gap reason forward so the operator sees why the pattern matters.
+- Patterns now also have a lifecycle state:
+  - `active`
+  - `retired`
+- Lifecycle rules stay manual and explicit:
+  - new patterns default to `active`
+  - retired patterns remain stored and viewable
+  - retired patterns are excluded from normal suggestions and generation selection
+  - retirement is reversible through explicit reactivation
+- Pattern health and overlap hints are heuristic only:
+  - repeated `weak_pattern` feedback
+  - repeated `needs_refinement` feedback
+  - low recent usage
+  - often-used patterns that still lead to weak outputs
+  - simple overlap checks using name, description, Scenario Angle, tags, and communication-situation keywords
+- Health and overlap hints do not retire, merge, or edit patterns automatically. They exist to help the operator curate the library deliberately.
+- Pattern bundles are a separate manual organisational layer:
+  - each bundle has:
+    - name
+    - description
+    - created-at and created-by metadata
+    - linked `patternIds`
+  - bundles are created manually
+  - pattern membership is assigned manually
+  - bundles do not apply themselves automatically in interpretation or generation
+- Bundles are intended to represent small playbook kits such as:
+  - parent complaint
+  - behaviour incident
+  - neutral documentation
+  - de-escalation
+- Bundle use in workflow remains light:
+  - bundle names can appear as context on pattern suggestions
+  - operators can browse bundle detail views to navigate related patterns more easily
+  - generation still applies one explicit pattern at a time, not a whole bundle
+- Bundle coverage is a separate heuristic visibility layer:
+  - bundles can now surface simple strength labels:
+    - `strong_coverage`
+    - `partial_coverage`
+    - `thin_bundle`
+    - `inactive_bundle`
+  - strength is derived from explicit signals such as:
+    - active vs retired pattern count
+    - member-pattern usage and effectiveness
+    - whether related signals are still uncovered or only partially covered
+    - whether the family is still producing gap candidates
+  - bundle detail pages can now show a compact health note based on that coverage summary
+- Missing kits are inferred heuristically only:
+  - recurring uncovered or weakly covered signal families can now surface as missing-kit candidates
+  - family labels come from explicit keyword buckets and current gap-type context
+  - examples include:
+    - parent complaint / de-escalation
+    - behaviour incident communication
+    - neutral factual documentation
+    - progress concern / difficult feedback
+    - planning reset / workload calm-down
+  - missing-kit candidates do not auto-create bundles or auto-assign patterns
+- `/insights` now includes a strategic bundle-coverage section:
+  - existing bundles with current coverage strength
+  - missing-kit candidates
+  - compact suggested next actions such as creating a new bundle or expanding an existing thin one
+- Signal detail pages can now show a subtle kit-level note when a strong pattern gap also points to a missing or thin bundle family.
+- Current limitations:
+  - pattern discovery remains heuristic and intentionally shallow
+  - co-pilot pattern suggestions are heuristic and may choose not to surface anything when the match is weak
+  - pattern coverage and gap typing are heuristic and based on explicit keyword buckets rather than ML or embeddings
+  - pattern lifecycle health hints are heuristic and may surface review suggestions conservatively rather than comprehensively
+  - bundle membership is manual and intentionally flat; there is no tree taxonomy, auto-grouping, or bundle ranking system
+  - bundle coverage and missing-kit detection are also heuristic and use explicit family matching rather than ML, clustering, or automatic taxonomy building
+  - there is no versioning or edit history
+  - there is no batch recommendation workflow beyond a short recent-candidate list
+  - this is meant to preserve reusable operator judgement, not encode a full taxonomy
+
+## Pattern-Aware Generation Notes
+- Pattern use in generation is optional and explicit.
+- The operator can select at most one pattern on the generation workbench.
+- The selected pattern is visible before generation runs and can be cleared at any time.
+- Pattern guidance currently contributes:
+  - pattern description
+  - example Scenario Angle
+  - example output
+- Pattern guidance is sent into prompt construction as secondary context only.
+- Current guardrails are explicit:
+  - the current Scenario Angle stays primary when it is usable
+  - the selected pattern does not override interpretation fields
+  - the selected pattern is not copied verbatim into outputs
+  - the selected pattern is not auto-selected
+- Pattern use is logged through:
+  - `PATTERN_APPLIED` audit events
+- Current limitations:
+  - only one pattern can be selected
+  - there is no automatic pattern ranking or matching inside generation
+  - pattern influence is guidance, not templating
+  - saved generation records do not yet persist a first-class pattern reference field outside the audit trail
+
+## Editorial Mode Notes
+- Editorial modes are a bounded intent-profile layer, not a copywriting playground.
+- Current modes are:
+  - `Awareness`
+  - `Risk Warning`
+  - `Helpful Tip`
+  - `Thought Leadership`
+  - `Calm Insight`
+  - `This Could Happen To You`
+  - `Professional Guidance`
+  - `Reassurance / De-escalation`
+- Editorial mode stays explicit and operator-controlled:
+  - one mode only
+  - visible on the generation workbench
+  - editable before generation runs
+  - saved back to the signal when drafts are saved
+- Editorial mode works alongside, not above:
+  - current Scenario Angle
+  - saved interpretation fields
+  - optional selected pattern guidance
+- Mode rules are explicit and inspectable:
+  - each mode defines purpose, tone tendency, framing preference, and concrete avoid-rules
+  - prompt construction includes those rules directly rather than relying on hidden behaviour
+- Co-pilot mode suggestions are intentionally light:
+  - the system can suggest one likely mode
+  - the operator can ignore it
+  - no mode is auto-forced or auto-optimised
+- `/insights` now includes compact editorial-mode usage visibility:
+  - saved mode counts
+  - most-used mode
+  - simple strong-output pairing counts
+  - underused modes
+- Current limitations:
+  - no multi-mode generation
+  - no A/B testing or campaign planning
+  - no automatic mode optimisation
+  - no hidden prompt behaviour beyond the explicit saved mode definition
+
+## Platform Intent Profile Notes
+- Platform intent profiles are a bounded expression layer for:
+  - `X`
+  - `LinkedIn`
+  - `Reddit`
+- The layering is explicit:
+  - `Scenario Angle` = what the communication problem is
+  - optional `Pattern` = reusable framing memory
+  - `Editorial Mode` = what kind of post the operator wants
+  - `Platform Intent Profile` = how that intent should behave on a specific platform
+- Platform profiles currently define:
+  - tone tendency
+  - expected structure
+  - brevity / depth
+  - what to avoid
+  - how the current editorial mode should express itself on that platform
+- Current platform assumptions are intentionally simple:
+  - `X` = concise, sharper, high-signal, not thread-like
+  - `LinkedIn` = reflective, professionally credible, more contextual
+  - `Reddit` = discussion-first, grounded, non-promotional, less polished
+- The generation workbench now shows compact helper notes near:
+  - X Draft
+  - LinkedIn Draft
+  - Reddit Draft
+- Mock generation now uses the same explicit platform rules so platform-native differences are visible without a live provider.
+- Current limitations:
+  - no separate per-platform selectors
+  - no posting automation
+  - no thread generation
+  - no A/B testing or optimisation loop
+  - platform shaping is still bounded to three fixed output slots rather than becoming a full content system
+
+## Final Review Workspace Notes
+- Final review is a dedicated last-mile editorial workspace, not a CMS or scheduler.
+- The workspace now lives at:
+  - `/signals/[id]/review`
+- Its purpose is to let the operator:
+  - compare generated platform drafts side by side
+  - make final edits cleanly
+  - mark each platform draft as:
+    - `ready`
+    - `needs_edit`
+    - `skip`
+  - store one compact overall review note
+- Final review storage is intentionally lightweight:
+  - raw generated drafts stay in:
+    - `xDraft`
+    - `linkedInDraft`
+    - `redditDraft`
+  - edited final-review drafts are stored separately in:
+    - `finalXDraft`
+    - `finalLinkedInDraft`
+    - `finalRedditDraft`
+  - per-platform final decision states are stored in:
+    - `xReviewStatus`
+    - `linkedInReviewStatus`
+    - `redditReviewStatus`
+  - overall review notes and timestamps are stored in:
+    - `finalReviewNotes`
+    - `finalReviewStartedAt`
+    - `finalReviewedAt`
+- This preserves the original generated drafts while still giving the operator a lightweight place to save final editorial edits.
+- Final review does not replace the existing workflow status model:
+  - final review is a decision-support layer
+  - approval, scheduling, and posting remain separate manual actions
+- The review queue now links directly into final review for signals with generated drafts, and detail pages now show a compact final-review summary.
+- Current audit coverage includes:
+  - `FINAL_REVIEW_STARTED`
+  - `FINAL_DRAFT_EDITED`
+  - `FINAL_DRAFT_MARKED_READY`
+  - `FINAL_DRAFT_MARKED_SKIP`
+  - `FINAL_REVIEW_COMPLETED`
+- Audit is still save-level only:
+  - no keystroke logging
+  - no revision history system
+- `/insights` now includes a light final-review summary by platform readiness and skip rate.
+- Current limitations:
+  - manual posting remains external
+  - there is no version history or diffing
+  - there is no collaborative review or approval chain
+  - there is no scheduler or platform integration inside this workspace
+
+## Posting Log / External Publishing Memory Notes
+- Posting memory is a manual truth-capture layer, not a publisher.
+- The operator can now log what was actually posted outside the app from the final review workspace.
+- Each posting entry stores a lightweight record of:
+  - signal id
+  - platform
+  - posted date/time
+  - final posted text
+  - optional live URL
+  - optional note
+- Posting memory stays separate from final review state:
+  - final review stores edited readiness decisions
+  - posting memory stores what was actually published
+- The current storage model is intentionally simple:
+  - multiple posting log entries can exist for one signal
+  - the posting log is the source of truth for publishing history
+  - legacy signal posting fields are updated as a lightweight latest-post summary only
+- Signal detail pages now show a compact `Posting History` section.
+- The final review workspace now supports lightweight per-platform `Mark as posted` logging without overwriting the reviewed draft state.
+- `/review` and `/insights` now read posting memory lightly to show:
+  - what has already been posted
+  - what is ready but still not posted
+  - which platforms, modes, patterns, and source families most often reach actual posting
+- Current audit coverage includes:
+  - `POST_LOGGED`
+  - `POST_URL_ADDED`
+  - `POST_NOTE_ADDED`
+- Current limitations:
+  - manual only
+  - no OAuth or direct platform integrations
+  - no scheduling automation
+  - no engagement import from external social platforms
+
+## Outcome Quality Tracking Notes
+- Outcome quality is a manual qualitative layer linked to a specific posting log entry.
+- Its purpose is to answer:
+  - was this worth posting?
+  - did this feel strong or weak?
+  - should this exact approach be reused?
+- Each posting outcome stores:
+  - `outcomeQuality`
+    - `strong`
+    - `acceptable`
+    - `weak`
+  - `reuseRecommendation`
+    - `reuse_this_approach`
+    - `adapt_before_reuse`
+    - `do_not_repeat`
+  - optional note
+  - timestamp
+  - actor
+- Outcome quality stays separate from:
+  - platform analytics
+  - likes, comments, or external engagement metrics
+  - automatic performance scoring
+- The operator can now add or edit outcome quality from the posting history UI on the signal detail page.
+- Posting history now shows:
+  - qualitative outcome badge
+  - reuse recommendation badge
+  - optional note preview
+- Audit coverage now includes:
+  - `OUTCOME_RECORDED`
+  - `OUTCOME_UPDATED`
+- `/insights` now uses saved outcomes descriptively to show:
+  - strong / acceptable / weak counts
+  - platform-level outcome quality
+  - editorial modes most often marked worth reusing
+  - patterns and source families most often tied to strong outcomes
+- Current limitations:
+  - qualitative only
+  - one current outcome record per posting log entry
+  - no external analytics import
+  - no automatic judgement or success scoring
 
 ## Source-Aware Prioritisation Notes
 - Teacher discussion and forum-style sources can score better when they contain direct teacher communication tension.
@@ -103,5 +675,12 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 ## Next Planned Runs
 - Improve duplicate handling and better borderline-review tooling
 - Add more operator control over bounded pipeline scope and thresholds
-- Add stronger operator-side quality controls for interpretation and generation outputs
+- Tighten the co-pilot recommendation set with a few more precise review-stage distinctions if operator use shows that they help
+- Decide whether parts of the audit trail should later be surfaced in grouped pipeline summaries or learning tools without turning it into analytics noise
+- Tighten the insight layer with a few more operator-safe summaries such as stronger recent-window source comparisons or cleaner audited follow-vs-override coverage
+- Decide whether feedback should later support lightweight editing or superseding semantics beyond the current append-only history
+- Use accumulated feedback to improve future operator-facing analysis without auto-adjusting scoring or recommendations
+- Decide whether pattern reuse should later be audited and summarised more explicitly without turning the library into a recommendation engine
+- Decide whether saved draft records later need a lightweight first-class “pattern used” field, or whether audit-only traceability is sufficient
+- Tighten weak source definitions and query wording based on observed usefulness
 - Keep the workflow single-operator and human-in-the-loop without auth or posting integrations

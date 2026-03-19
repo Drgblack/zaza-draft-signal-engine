@@ -3,6 +3,8 @@ import type { SignalCategory, SignalStatus } from "@/types/signal";
 export const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/signals", label: "Signals" },
+  { href: "/patterns", label: "Patterns" },
+  { href: "/insights", label: "Insights" },
   { href: "/ingestion", label: "Ingestion" },
   { href: "/signals/new", label: "New Signal" },
   { href: "/review", label: "Review" },

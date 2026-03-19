@@ -1,38 +1,644 @@
 # Codex Runs
 
 ## Current Run
-Run 10 improves the human-guided scenario transformation layer:
-- new Airtable-backed field:
-  - `Scenario Angle`
-- new internal property:
-  - `scenarioAngle`
-- scenario-angle quality is now evaluated as:
-  - `missing`
-  - `weak`
-  - `usable`
-  - `strong`
-- the interpretation workbench now lets the operator:
-  - add or edit scenario framing before running interpretation
-  - see lightweight quality feedback and improvement guidance
-  - request 2-3 bounded scenario-angle suggestions
-  - click a suggestion to insert it into the field
-  - rerun interpretation against the live scenario framing
-  - save the scenario angle back to Airtable together with the interpretation
-- suggestion support uses the existing provider preference order:
-  - `ANTHROPIC_API_KEY`
-  - `OPENAI_API_KEY`
-  - mock/rules fallback
-- the interpretation engine now uses framing in this order:
-  - `Scenario Angle`
-  - `Manual Summary`
-  - `Raw Excerpt`
-  - `Source Title`
-  - source metadata
-- weak scenario angles no longer carry the same weight as strong ones, so the interpreter falls back more gracefully to source evidence when the framing is poor
-- generation now explicitly prioritises a usable scenario angle when drafting outputs
-- the signal detail page now surfaces `Scenario Angle` so the transformation step is visible outside the workbench
+Run 35 adds Outcome Quality Tracking:
+- new qualitative outcome model split into:
+  - pure outcome shape helpers in `lib/outcome-memory.ts`
+  - file-backed persistence in `lib/outcomes.ts`
+- each posting log entry can now carry one editable qualitative judgement with:
+  - `outcomeQuality`
+    - `strong`
+    - `acceptable`
+    - `weak`
+  - `reuseRecommendation`
+    - `reuse_this_approach`
+    - `adapt_before_reuse`
+    - `do_not_repeat`
+  - optional note
+- new route at `PATCH /api/signals/[id]/posting-log/[postingLogId]/outcome`
+- signal detail posting history is now interactive:
+  - operator can rate a posted item
+  - operator can edit the rating later
+  - posted items now show qualitative outcome badges and optional outcome notes
+- audit logging now supports:
+  - `OUTCOME_RECORDED`
+  - `OUTCOME_UPDATED`
+- `/insights` now includes a lightweight outcome-quality section covering:
+  - strong / acceptable / weak counts
+  - quality by platform
+  - top reuse mode
+  - strongest source family
+  - strongest linked pattern
+  - mode most often marked do not repeat
+- mock mode now includes seeded posted outcomes and matching audit events
+- this run remains bounded:
+  - no social API analytics
+  - no automatic success scoring
+  - no quantitative growth dashboard
+  - no recommendation auto-updates
 
 ## Previous Runs
+- Run 34 adds a Posting Log & External Publishing Memory layer:
+- new centralized posting-memory module in `lib/posting-memory.ts`
+- new file-backed posting-log store in `lib/posting-log.ts`
+- new route at `POST /api/signals/[id]/posting-log`
+- final review workspace now lets the operator log what was actually posted per platform after manual external publishing
+- each posting entry stores:
+  - platform
+  - posted date/time
+  - final posted text
+  - optional live URL
+  - optional note
+- posting history is now shown on signal detail pages through a compact `Posting History` section
+- review queue cards now surface lightweight posted-vs-ready state alongside final-review state
+- `/insights` now includes compact posting-memory metrics:
+  - total posts logged
+  - posted signals
+  - posts by platform
+  - most-posted editorial mode
+  - most common posted pattern and source family when available
+- audit logging now supports:
+  - `POST_LOGGED`
+  - `POST_URL_ADDED`
+  - `POST_NOTE_ADDED`
+- mock mode now includes seeded posting history
+- this run remains bounded:
+  - no social API integrations
+  - no auto-posting
+  - no scheduler or publishing suite
+  - no platform analytics import
+- Run 33 adds a Final Review Workspace:
+- new dedicated review page at `/signals/[id]/review`
+- final review brings together:
+  - source context
+  - Scenario Angle
+  - interpretation summary
+  - editorial mode
+  - last applied pattern context when available
+  - generated X / LinkedIn / Reddit drafts
+- platform drafts can now be compared side by side and edited in one place
+- each platform now supports a simple final decision:
+  - `ready`
+  - `needs_edit`
+  - `skip`
+- raw generated drafts are preserved, while edited review versions are stored separately in:
+  - `finalXDraft`
+  - `finalLinkedInDraft`
+  - `finalRedditDraft`
+- per-platform review state is stored in:
+  - `xReviewStatus`
+  - `linkedInReviewStatus`
+  - `redditReviewStatus`
+- overall review notes and review timestamps are also stored:
+  - `finalReviewNotes`
+  - `finalReviewStartedAt`
+  - `finalReviewedAt`
+- new save route at `PATCH /api/signals/[id]/review`
+- review queue cards now surface compact final-review summaries and link directly into the new workspace
+- signal detail pages now show a small final-review summary and link
+- audit logging now supports:
+  - `FINAL_REVIEW_STARTED`
+  - `FINAL_DRAFT_EDITED`
+  - `FINAL_DRAFT_MARKED_READY`
+  - `FINAL_DRAFT_MARKED_SKIP`
+  - `FINAL_REVIEW_COMPLETED`
+- `/insights` now lightly includes final-review metrics by platform
+- mock mode now includes seeded final-review state and audit history
+- this run remains bounded:
+  - no social posting automation
+  - no collaborative review
+  - no version history system
+  - no scheduling integration beyond existing manual workflow
+- Run 32 adds Platform Intent Profiles:
+- new centralized platform-profile module in `lib/platform-profiles.ts`
+- explicit, inspectable profiles now exist for:
+  - `X`
+  - `LinkedIn`
+  - `Reddit`
+- each profile now defines:
+  - tone tendency
+  - expected structure
+  - brevity / depth
+  - explicit avoid-rules
+  - how the selected editorial mode should express itself on that platform
+- generation prompt construction now layers:
+  - Scenario Angle
+  - optional pattern guidance
+  - selected editorial mode
+  - platform intent profile
+- X, LinkedIn, and Reddit prompt instructions now differ materially instead of relying on a generic “make it suitable” hint
+- mock generation now makes the three text outputs feel more platform-native:
+  - X stays shorter and sharper
+  - LinkedIn stays more reflective and professionally framed
+  - Reddit stays more discussion-first and less polished
+- `/signals/[id]/generate` now surfaces compact helper notes near each platform draft field so the operator can see why they differ
+- generation metadata now lightly exposes the platform profile version
+- this run remains bounded:
+  - no separate platform selectors
+  - no posting automation
+  - no thread generation
+  - no A/B testing or optimisation
+  - no prompt playground complexity
+- Run 31 adds Editorial Modes / Posting Intent Profiles:
+- new centralized mode model in `lib/editorial-modes.ts`
+- current modes are intentionally small and explicit:
+  - `Awareness`
+  - `Risk Warning`
+  - `Helpful Tip`
+  - `Thought Leadership`
+  - `Calm Insight`
+  - `This Could Happen To You`
+  - `Professional Guidance`
+  - `Reassurance / De-escalation`
+- `/signals/[id]/generate` now includes a visible single-mode selector with:
+  - purpose
+  - tone tendency
+  - framing guidance
+  - guardrails / avoid rules
+  - optional co-pilot suggested mode context
+- generation prompt construction is now explicitly mode-aware across:
+  - X draft
+  - LinkedIn draft
+  - Reddit draft
+  - image prompt
+  - video script
+  - CTA / closing line
+  - hashtags / keywords
+- editorial mode works alongside Scenario Angle and optional pattern guidance rather than overriding them
+- saved generation metadata now persists `editorialMode` on the signal record
+- signal detail pages now show the saved editorial mode when drafts exist
+- co-pilot guidance now surfaces a bounded suggested editorial mode when useful
+- `/insights` now lightly includes:
+  - saved editorial-mode usage counts
+  - most-used mode
+  - simple strong-output pairing counts
+  - underused modes
+- mock generation now changes output framing materially by selected mode so the behaviour is testable without a live provider
+- this run remains bounded:
+  - no multi-mode generation
+  - no A/B testing
+  - no automatic mode optimisation
+  - no hidden prompt playground
+  - no campaign-planning layer
+- Run 30 adds Bundle Coverage Gaps & Missing Kits:
+- new centralized bundle-coverage module in `lib/bundle-coverage.ts`
+- bundle family matching stays heuristic and inspectable:
+  - Scenario Angle and signal keyword overlap
+  - existing pattern gap types
+  - bundle names and descriptions
+  - member-pattern language
+- bundles can now surface compact coverage-strength labels:
+  - `strong_coverage`
+  - `partial_coverage`
+  - `thin_bundle`
+  - `inactive_bundle`
+- `/insights` now includes a dedicated Bundle Coverage & Missing Kits section with:
+  - strength counts across existing bundles
+  - bundle-by-bundle notes
+  - recurring missing-kit candidates
+  - suggested next actions
+- bundle detail pages now show a light health note derived from the same summary
+- signal detail pages can now show a subtle kit-level hint when a strong pattern gap also points to a missing or thin bundle family
+- mock mode now includes another recurring documentation-family gap signal so missing-kit detection is visible without Airtable
+- this run remains bounded:
+  - no automatic bundle creation
+  - no automatic pattern reassignment
+  - no ML clustering
+  - no taxonomy engine
+- Run 29 adds Pattern Bundles / Pattern Kits:
+- new centralized bundle module in `lib/pattern-bundles.ts`
+- bundles are intentionally compact and manual:
+  - name
+  - description
+  - created-at and created-by metadata
+  - linked `patternIds`
+- bundles are created manually from `/pattern-bundles`
+- patterns can now be assigned to and removed from bundles from the pattern detail page
+- new bundle pages:
+  - `/pattern-bundles`
+  - `/pattern-bundles/[id]`
+- bundle detail pages show:
+  - bundle description
+  - included patterns
+  - active vs retired pattern state inside the bundle
+  - bundle audit trail
+- pattern suggestions now carry light bundle context when a matching pattern belongs to a bundle
+- co-pilot hints can now mention a related bundle through the top suggested pattern context
+- generation can now show bundle badges for the currently selected pattern
+- `/insights` now lightly includes:
+  - bundle count
+  - most-used bundle
+  - bundle with the most active patterns
+  - short bundle notes
+- audit logging now supports:
+  - `PATTERN_BUNDLE_CREATED`
+  - `PATTERN_ASSIGNED_TO_BUNDLE`
+  - `PATTERN_REMOVED_FROM_BUNDLE`
+- mock mode now includes sample bundles and bundle audit history so the kit workflow is testable without Airtable
+- this run remains bounded:
+  - no automatic bundle generation
+  - no ML clustering
+  - no automatic bundle application
+  - no hierarchy or taxonomy engine
+- Run 28 adds Pattern Lifecycle & Retirement:
+- patterns now have explicit lifecycle state in the central model:
+  - `active`
+  - `retired`
+- new patterns default to `active`
+- retired patterns stay stored and viewable, but they are excluded from normal suggestions and generation selection
+- pattern detail pages now include:
+  - current lifecycle state
+  - explicit `Retire pattern` / `Reactivate pattern` action
+  - lightweight health hints
+  - lightweight overlap hints
+- new centralized health module in `lib/pattern-health.ts`
+- current health heuristics stay bounded and inspectable:
+  - repeated `weak_pattern` feedback
+  - repeated `needs_refinement` feedback
+  - low recent usage
+  - patterns that are often used but still lead to weak outputs
+  - simple overlap checks based on names, descriptions, Scenario Angles, tags, and shared communication-situation markers
+- `/patterns` now shows:
+  - lifecycle state badges
+  - active / retired / all filters
+  - de-emphasised retired cards
+  - compact review and overlap hints
+- `/insights` now includes light lifecycle counts:
+  - active patterns
+  - retired patterns
+  - patterns needing review
+  - repeated weak/refinement signals
+  - overlap hints
+- audit logging now supports:
+  - `PATTERN_RETIRED`
+  - `PATTERN_REACTIVATED`
+- mock mode now includes both active and retired patterns so the lifecycle flow is testable without Airtable
+- this run remains bounded:
+  - no auto-retirement
+  - no auto-delete
+  - no auto-merge
+  - no embeddings or ML ranking
+- Run 27 adds Pattern Coverage Gaps:
+- new centralized coverage module in `lib/pattern-coverage.ts`
+- coverage stays heuristic and inspectable:
+  - existing pattern-match strength
+  - whether a pattern was already applied or previously suggested
+  - Scenario Angle quality
+  - useful-signal / strong-framing feedback
+  - whether the record still reached generation successfully
+- each record can now be classified as:
+  - `covered`
+  - `partially_covered`
+  - `uncovered`
+- gap candidates are now surfaced when a signal is strong enough to reuse but the library does not cover it well
+- gap types are grouped with simple keyword buckets such as:
+  - parent confusion / unclear communication
+  - low-level behaviour concern messaging
+  - documentation clarity and neutral reporting
+  - student progress concern without evidence
+- `/signals/[id]` now shows a subtle coverage-gap note when the current record looks like a missing reusable pattern
+- the `Save as pattern` flow now carries the coverage-gap reason forward and can audit `PATTERN_CREATED_FROM_GAP`
+- `/insights` now includes:
+  - covered / partial / uncovered rates
+  - top gap types
+  - compact gap guidance notes
+- audit logging now supports `PATTERN_GAP_DETECTED`
+- mock mode now includes uncovered example signals so gap coverage is visible without Airtable
+- this run remains bounded:
+  - no auto-created patterns
+  - no embeddings or clustering
+  - no opaque recommendation engine
+  - no workflow automation changes
+- Run 26 adds pattern-aware co-pilot suggestions:
+- new centralized matching module in `lib/pattern-match.ts`
+- pattern matching stays heuristic and inspectable:
+  - Scenario Angle keyword overlap
+  - summary / content-angle overlap
+  - source-context overlap
+  - shared pattern tags
+  - shared communication-situation markers
+- co-pilot guidance now supports multiple related-pattern suggestions instead of a single shallow stub
+- each suggestion now includes:
+  - pattern name
+  - short why-it-matches reason
+  - optional effectiveness hint from pattern feedback and usage outcomes
+- `/signals/[id]` now shows a compact related-pattern suggestion list inside the co-pilot card
+- operators can move directly from a suggestion to:
+  - pattern detail
+  - generation with that pattern preselected
+- `/signals/[id]/interpret` now surfaces suggested patterns and can insert a suggested pattern angle
+- `/signals/[id]/generate` now surfaces suggested patterns and can select one directly as generation guidance
+- explicit suggestion interactions now write `PATTERN_SUGGESTED` audit events
+- suggested-pattern applications are now traceable through `PATTERN_APPLIED` metadata
+- `/insights` now includes light pattern-suggestion interaction metrics
+- mock mode now includes suggestion interaction history so the flow is testable without Airtable
+- this run remains bounded:
+  - no automatic pattern selection
+  - no automatic pattern application
+  - no embeddings or semantic retrieval
+  - no hidden prompt logic
+  - no scoring or workflow automation changes
+- Run 25 adds Pattern Discovery Assist:
+  - new centralized heuristic layer in `lib/pattern-discovery.ts`
+  - candidate assessment now stays explicit and inspectable:
+    - `yes` / `maybe` / `no`
+    - simple strength label
+    - short operator-readable reason
+    - suggested pattern type
+  - current positive signals include bounded heuristics such as:
+    - useful signal feedback
+    - strong framing
+    - strong output
+    - clean generation progression
+    - reusable source-context plus Scenario Angle combination
+    - common communication-situation matching
+  - current negative signals include bounded heuristics such as:
+    - weak or irrelevant signal feedback
+    - weak framing
+    - weak output or needs-revision output
+    - filtered-out records
+    - explicit one-off markers
+  - `/signals/[id]` now shows a compact Pattern Candidate panel when relevant
+  - the existing `Save as pattern` flow now includes the suggestion reason so creation feels quicker and better justified
+  - `/signals/[id]/generate` now lightly surfaces the same candidate suggestion on the generation workbench
+  - `/patterns` now includes a short Suggested Pattern Candidates section with direct links back to signal detail and pattern capture
+  - `/insights` now includes:
+    - candidate-worthy record counts
+    - saved-vs-unsaved candidate counts
+    - dominant candidate-shape observations
+  - audit logging now supports `PATTERN_CANDIDATE_DETECTED`
+  - candidate audit events are written only on meaningful save or feedback recalculation, not on page render
+  - mock mode now includes seeded candidate history so the assist is visible without Airtable
+  - this run remains bounded:
+    - no automatic pattern creation
+    - no embeddings or similarity search
+    - no heavy recommendation engine
+    - no automatic tagging of every record
+    - no scoring or workflow automation changes
+- Run 23 adds pattern-aware generation:
+  - the generation workbench now includes a visible one-pattern selector
+  - operators can:
+    - choose one saved pattern
+    - clear the selection
+    - regenerate drafts with or without pattern guidance
+  - generation prompt construction now accepts optional pattern guidance from:
+    - pattern description
+    - example Scenario Angle
+    - example output
+  - prompt rules explicitly keep pattern influence bounded:
+    - current Scenario Angle remains primary
+    - patterns guide tone and structure only
+    - patterns are not copied directly
+    - patterns are never auto-selected
+  - generation responses now return the applied pattern summary when relevant
+  - the generation workbench now shows:
+    - selected pattern context before generation
+    - applied-pattern badge after generation
+    - last applied pattern from audit history on reload
+  - `POST /api/generate` now accepts optional `patternId`
+  - pattern use now writes a readable `PATTERN_APPLIED` audit event
+  - co-pilot guidance can now surface a light “similar pattern exists” suggestion on the signal detail page
+  - mock mode now uses the selected pattern to slightly steer fallback drafts so the behavior is testable without a live model
+  - this run remains bounded:
+    - no automatic pattern selection
+    - no pattern ranking engine
+    - no multi-pattern blending
+    - no hidden prompt injection
+    - no scoring or workflow automation changes
+- Run 22 adds a manual Pattern Library:
+  - new pattern model and local persistence in:
+    - `lib/pattern-definitions.ts`
+    - `lib/patterns.ts`
+  - new pattern routes:
+    - `GET /api/patterns`
+    - `POST /api/patterns`
+    - `GET /api/patterns/[id]`
+    - `PATCH /api/patterns/[id]`
+  - patterns are intentionally compact and human-readable:
+    - name
+    - description
+    - pattern type
+    - source context
+    - example signal reference
+    - example Scenario Angle
+    - example output
+    - tags
+  - signal detail pages now include:
+    - related-pattern references
+    - a quick `Save as pattern` panel prefilled from the current signal
+  - new library pages:
+    - `/patterns`
+    - `/patterns/[id]`
+  - interpretation and generation workbenches now surface related patterns as light editorial support
+  - interpretation workbench can insert a saved pattern Scenario Angle as a starting point
+  - pattern creation writes a readable `PATTERN_CREATED` audit event on the source signal
+  - mock mode now includes seeded patterns so the library and related-pattern assists work without Airtable
+  - the pattern layer remains bounded:
+    - no automatic pattern discovery
+    - no embeddings or similarity search
+    - no automatic scoring or workflow changes
+    - no versioning or collaborative editing
+- Run 21 makes the co-pilot guidance feedback-aware:
+  - new bounded helper module in `lib/feedback-insights.ts`
+  - co-pilot guidance can now attach optional past-feedback context lines without changing the primary recommendation
+  - current feedback-aware guidance looks for simple, inspectable signals such as:
+    - exact source labels previously marked high quality or noisy
+    - similar records from the same source kind and, when available, the same signal category
+    - past framing feedback on similar records
+    - past output feedback on similar records
+    - past co-pilot feedback on similar records
+  - the guidance object now includes optional `feedbackContext`
+  - `/signals/[id]` now shows a small “What we've seen before” section inside the co-pilot card when relevant
+  - queue hints on `/signals`, `/review`, and the dashboard now reuse the same feedback-aware guidance path and can show one short historical hint when relevant
+  - the feedback-aware layer remains bounded:
+    - no score changes
+    - no pipeline changes
+    - no automatic source tuning
+    - no machine learning or prediction
+    - no blocking behaviour
+  - mock mode now surfaces feedback-aware guidance from the seeded feedback store so the feature is testable without Airtable
+- Run 20 adds a structured operator feedback loop:
+  - new centralized feedback module in `lib/feedback.ts`
+  - new feedback route at `POST /api/signals/[id]/feedback`
+  - feedback categories stay intentionally small and explicit:
+    - signal quality
+    - Scenario Angle quality
+    - co-pilot recommendation quality
+    - output quality
+    - source quality
+  - current feedback values are:
+    - `useful_signal`
+    - `weak_signal`
+    - `irrelevant_signal`
+    - `strong_framing`
+    - `weak_framing`
+    - `good_recommendation`
+    - `bad_recommendation`
+    - `strong_output`
+    - `weak_output`
+    - `needs_revision`
+    - `high_quality_source`
+    - `noisy_source`
+  - feedback is persisted in a lightweight local JSON store at:
+    - `data/signal-feedback.json`
+  - every feedback save now also writes a readable `FEEDBACK_ADDED` audit event
+  - signal detail page now includes a compact feedback panel showing:
+    - latest label by category
+    - count by category
+    - optional note for the next feedback click
+  - interpretation and generation views now also allow explicit output-quality feedback capture
+  - `/insights` now includes feedback summaries and passive source-feedback watchlists
+  - mock mode includes seeded feedback and matching audit events so the loop works without Airtable
+  - this run is still capture only:
+    - no auto-adjustment
+    - no learning loop
+    - no score tuning
+    - no source auto-optimisation
+- Run 19 adds a lightweight insight layer:
+  - new centralized aggregation module in `lib/insights.ts`
+  - new operator-facing page at `/insights`
+  - insights stay compact and descriptive rather than turning into a dashboard product
+  - current summaries include:
+    - source-family counts
+    - strongest and weakest current source contributors
+    - Scenario Angle quality vs interpretation/generation progression
+    - records currently blocked by weak or missing framing
+    - pipeline stage counts such as:
+      - ingested
+      - scored
+      - scored only
+      - interpreted
+      - interpreted only
+      - generated
+      - filtered out
+    - operator override counts and intervention concentration by stage
+    - rule-based practical observations
+  - simple time windows are now supported on `/insights`:
+    - all time
+    - last 7 days
+    - last 30 days
+  - current windows intentionally use record `createdDate`, with audit-derived metrics scoped to the included records
+  - audit access now supports full insight aggregation through `listAuditEvents()`
+  - mock mode now includes seeded audit history so the insight view remains useful without Airtable
+  - the insight layer is intentionally bounded:
+    - no predictive models
+    - no auto-tuning
+    - no automated source optimisation
+    - no chart-heavy analytics surface
+- Run 18 adds persisted decision memory and an audit trail:
+  - new append-only audit layer in `lib/audit.ts`
+  - audit events are stored in a lightweight local JSON store at:
+    - `data/signal-audit-events.json`
+  - event model includes:
+    - `INGESTED`
+    - `SCORED`
+    - `RECOMMENDED_ACTION`
+    - `SCENARIO_ANGLE_ADDED`
+    - `INTERPRETATION_RUN`
+    - `INTERPRETATION_SAVED`
+    - `GENERATION_RUN`
+    - `GENERATION_SAVED`
+    - `STATUS_CHANGED`
+    - `OPERATOR_OVERRIDE`
+  - actors are explicitly tracked as:
+    - `system`
+    - `operator`
+  - audit logging now captures key decision points for:
+    - ingestion
+    - scoring saves
+    - co-pilot recommendation snapshots at key state changes
+    - scenario-angle additions or changes
+    - interpretation runs and saves
+    - generation runs and saves
+    - workflow status changes
+    - operator overrides when the chosen action differs from current guidance
+  - audit logging is non-blocking:
+    - core workflow saves still succeed even if audit logging fails
+    - the audit timeline is additive only
+  - `/signals/[id]` now includes a compact `Audit Trail` section showing:
+    - chronological events
+    - actor tags
+    - short human-readable summaries
+- Run 17 added an operator co-pilot layer:
+  - new shared guidance logic in `lib/copilot.ts`
+  - each record now gets a bounded recommended next action derived from:
+    - scoring results
+    - recommendation and quality gate
+    - review priority
+    - Scenario Angle quality
+    - interpretation presence
+    - generation presence
+    - workflow status
+    - source context and transformability
+  - examples of current next-action outputs:
+    - `Needs scoring first`
+    - `Needs stronger Scenario Angle`
+    - `Ready for interpretation`
+    - `Generation may be generic - improve framing first`
+    - `Ready for generation`
+    - `High potential - review now`
+    - `Ready to schedule`
+    - `Filtered out - no action recommended`
+  - `/signals/[id]` now includes a compact `Co-Pilot Guidance` card showing:
+    - recommended next action
+    - short reason
+    - blockers when present
+    - quick navigation to the recommended step
+  - `/signals` and `/review` now surface compact co-pilot hints so operators can scan the queue more quickly without opening every record
+  - the co-pilot layer is guidance only:
+    - it does not replace statuses
+    - it does not auto-run actions
+    - it does not create a second workflow system
+- Run 16 added source mix optimisation and registry controls:
+  - source registry entries now support operator-tunable controls:
+    - `enabled`
+    - `maxItemsPerRun`
+    - `priority`
+    - `notes`
+  - these controls now apply consistently across:
+    - RSS / Atom / JSON feed sources
+    - Reddit sources
+    - query sources
+  - source settings are merged from:
+    - code-defined default sources
+    - lightweight file-backed local overrides in `data/ingestion-source-overrides.json`
+  - `/ingestion` now includes a minimal source management table where the operator can:
+    - enable or disable a source
+    - adjust the per-run fetch cap
+    - set a simple priority label
+    - see lightweight usefulness signals
+  - usefulness signals are derived from existing records at runtime, not from a separate analytics store:
+    - total signals seen
+    - `Keep`
+    - `Review`
+    - interpreted
+    - generated
+    - rejected
+  - ingestion summaries now include:
+    - grouped totals for feed, Reddit, and query source families
+    - per-source fetched / imported / skipped counts
+    - the active cap used for each source
+  - ingestion and pipeline actions are blocked while source settings are unsaved, so run scope stays explicit and operator-safe
+- Run 15 added bounded query-layer ingestion:
+  - `query` as a first-class source kind
+  - curated query definitions in the registry
+  - bounded Google News RSS search adapter in `lib/ingestion/fetch-query.ts`
+  - `/ingestion` support for query-only runs and mixed-source summaries
+- Run 14 added transformability-aware scoring:
+  - bounded `transformabilityScore`-style internal logic for indirect sources
+  - policy/news/report sources can score more fairly when a strong `Scenario Angle` turns them into a clear teacher communication problem
+  - transformability reasoning now appears in operator-facing explanations
+- Run 13 added source-aware prioritisation:
+  - source profile helper for teacher discussion, query, report, feed, and internal/operator sources
+  - bounded scoring adjustments for source kind and source context
+  - subtle source-context surfacing in list and review views
+- Run 12B added bounded Reddit ingestion:
+  - `reddit` as a first-class source kind
+  - public subreddit post fetching only
+  - bounded recent-post import into the same signal schema and duplicate guard
+- Run 12A added pipeline reuse of saved Scenario Angles:
+  - operator-controlled reuse of saved usable/strong scenario angles during bounded pipeline runs
+  - weak or missing scenario angles are ignored in automated reuse
 - Run 9.1 added human-guided scenario transformation input to interpretation:
   - new Airtable-backed field:
     - `Scenario Angle`
@@ -198,11 +804,29 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 - Queue views now surface source context so operators can distinguish teacher discussion, internal/operator signals, and news/policy sources more quickly.
 - Recommendation and quality gate decisions do not change editorial status automatically in this run.
 - Ingestion is currently operator-triggered only. There are no background jobs, cron triggers, or autonomous recurring runs.
+- Source registry tuning is also manual:
+  - there is no automated source pruning
+  - there is no self-learning source optimiser
+  - there is no time-series analytics layer in this run
+- The co-pilot layer is also bounded and manual:
+  - it recommends actions
+  - it explains blockers
+  - it does not execute workflow steps automatically
+- The audit layer is also intentionally bounded:
+  - it records key decisions and transitions
+  - it does not log every UI render or field keystroke
+  - it is a decision memory layer, not an analytics platform
 - Pipeline chaining is also operator-triggered only. It is a bounded run, not a background loop.
 - Supported source kinds in this run are:
   - RSS
   - Atom
   - JSON feeds
+  - Query sources
+- Ingestion now also supports bounded curated query definitions:
+  - query sources are registry entries, not free-form operator searches
+  - current execution strategy adapts curated queries onto Google News RSS search
+  - runs stay operator-triggered and bounded by per-source limits
+  - query hits enter the same duplicate-safe normalisation flow as other sources
 - Ingestion now also supports bounded Reddit source definitions using public subreddit JSON endpoints for:
   - recent public posts only
   - small per-source limits
@@ -212,7 +836,37 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
   - all enabled sources
   - feed sources only
   - Reddit sources only
-- Ingestion summaries now show source-kind-aware counts so operators can see whether a run was driven by feeds or Reddit.
+  - query sources only
+- Ingestion summaries now show source-kind-aware counts so operators can see whether a run was driven by feeds, Reddit, or curated queries.
+- Source registry controls now add:
+  - per-source enable / disable
+  - per-source fetch caps through `maxItemsPerRun`
+  - simple operator priority labels
+  - file-backed local overrides so source tuning survives local restarts without mutating the code registry
+- Source usefulness hints are intentionally lightweight and derived from current records:
+  - they are meant to help tune noisy sources
+  - they are not a full analytics system
+- Co-pilot recommendations are intentionally additive:
+  - they help the operator decide what to do next
+  - they do not change the existing editorial status model
+  - they do not introduce a competing workflow state machine
+- Audit events are persisted at major checkpoints only:
+  - scoring save
+  - co-pilot recommendation snapshots at major transitions
+  - interpretation and generation runs/saves
+  - workflow status changes
+  - system ingestion
+- Current audit design intentionally favours:
+  - fewer meaningful events
+  - short summaries
+  - append-only traceability
+  over exhaustive logging
+- Current co-pilot logic particularly helps with:
+  - spotting indirect records that still need stronger Scenario Angle framing
+  - seeing when interpretation is strong enough for generation
+  - understanding when a filtered-out record is not worth more effort
+  - prioritising draft-ready high-potential records for review
+- Query sources are intended to behave like editorial assets: small, curated targeting definitions around teacher-risk communication themes rather than broad web search.
 - Pipeline automation currently reuses the existing scoring, interpretation, and generation layers rather than introducing a parallel logic path.
 - Pipeline outputs still stop in the human review queue. Approval, scheduling, posting, and archival remain manual.
 - The review queue groups records into:
@@ -300,11 +954,14 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 - Pipeline result summaries stay in the operator UI and API response for auditability. There is no dedicated Airtable pipeline audit table in this run.
 
 ## Suggested Next Runs
-1. Add controlled operator options for choosing pipeline scope, such as “existing new records only” vs “ingest plus run”.
-2. Improve duplicate handling beyond title/url heuristics without building full clustering complexity.
-3. Add optional scenario-angle suggestion chaining into ingestion-to-review flows for indirect signals, but only when operator-triggered.
-4. Add explicit Airtable field-clearing semantics for update routes where needed.
-5. Improve operator control over pipeline thresholds and borderline keep/review decisions without turning the product into a tuning console.
-6. Tighten Reddit source selection and moderation heuristics so higher-signal teacher communication threads are prioritised without widening collection scope.
-7. Add tighter transformability checks for policy/news sources so scenario-angle quality can influence advancement more directly without making the scorer opaque.
-8. Decide whether transformability should remain an internal judgement aid or be partially persisted for auditability once the heuristics stabilise.
+1. Surface richer audit summaries for pipeline runs so the operator can see grouped “what advanced” vs “what stalled” without leaving the detail page.
+2. Tighten the co-pilot layer with a few more bounded distinctions such as “review interpretation before generating” vs “drafts exist but need approval”.
+3. Add controlled operator options for comparing source usefulness across a bounded recent window without turning the product into an analytics dashboard.
+4. Tighten the curated source mix itself:
+   - prune weak feeds
+   - tune query definitions
+   - lower or raise per-source caps based on observed usefulness
+5. Improve duplicate handling beyond title/url heuristics without building full clustering complexity.
+6. Add optional scenario-angle suggestion chaining into ingestion-to-review flows for indirect signals, but only when operator-triggered.
+7. Add explicit Airtable field-clearing semantics for update routes where needed.
+8. Improve operator control over pipeline thresholds and borderline keep/review decisions without turning the product into a tuning console.

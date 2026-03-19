@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import {
+  EDITORIAL_MODES,
+  FINAL_DRAFT_REVIEW_STATUSES,
   GENERATION_SOURCES,
   HOOK_TEMPLATES,
   INTERPRETATION_CONFIDENCE_LEVELS,
@@ -19,6 +21,7 @@ import {
   type SignalGenerationInput,
   type SignalGenerationResult,
   type SignalGenerationSavePayload,
+  type SignalFinalReviewSavePayload,
   type SignalInterpretationInput,
   type SignalInterpretationSavePayload,
   type SignalScoringResult,
@@ -30,8 +33,14 @@ import {
   type SignalRecord,
   type SuggestedFormatPriority,
 } from "@/types/signal";
-import type { IngestionRunSummary } from "@/lib/ingestion/types";
+import type { IngestionRunSummary, ManagedIngestionSource } from "@/lib/ingestion/types";
 import type { PipelineRunSummary } from "@/lib/pipeline";
+import type { FeedbackCategory, FeedbackValue, SignalFeedback } from "@/lib/feedback-definitions";
+import type { PatternFeedbackEntry } from "@/lib/pattern-feedback-definitions";
+import type { PostingOutcome } from "@/lib/outcome-memory";
+import type { PostingLogEntry } from "@/lib/posting-memory";
+import type { PatternSummary, SignalPattern } from "@/lib/pattern-definitions";
+import type { PatternBundle } from "@/lib/pattern-bundles";
 import type { ScenarioAngleAssessment, ScenarioAngleSuggestion } from "@/lib/scenario-angle";
 
 const optionalNullableString = z.union([z.string(), z.null()]).optional();
@@ -167,6 +176,9 @@ export const generateRequestSchema = z
   .object({
     signalId: z.string().trim().min(1).optional(),
     signal: generationSignalSchema.optional(),
+    patternId: z.string().trim().min(1).optional(),
+    suggestedPatternId: z.string().trim().min(1).optional(),
+    editorialMode: z.enum(EDITORIAL_MODES).optional(),
   })
   .superRefine((value, context) => {
     if (!value.signalId && !value.signal) {
@@ -193,6 +205,7 @@ export const generationResultSchema = z.object({
 });
 
 export const saveGenerationRequestSchema = generationResultSchema.extend({
+  editorialMode: z.enum(EDITORIAL_MODES),
   status: z.enum(SIGNAL_STATUSES).optional(),
 });
 
@@ -235,8 +248,27 @@ export const workflowUpdateRequestSchema = z
     }
   });
 
+export const finalReviewUpdateRequestSchema = z.object({
+  finalXDraft: optionalNullableString,
+  finalLinkedInDraft: optionalNullableString,
+  finalRedditDraft: optionalNullableString,
+  xReviewStatus: z.enum(FINAL_DRAFT_REVIEW_STATUSES).nullable(),
+  linkedInReviewStatus: z.enum(FINAL_DRAFT_REVIEW_STATUSES).nullable(),
+  redditReviewStatus: z.enum(FINAL_DRAFT_REVIEW_STATUSES).nullable(),
+  finalReviewNotes: optionalNullableString,
+});
+
 export const ingestRequestSchema = z.object({
   sourceIds: z.array(z.string().trim().min(1)).optional(),
+});
+
+export const sourceRegistryUpdateRequestSchema = z.object({
+  enabled: z.boolean().optional(),
+  maxItemsPerRun: z.number().int().min(1).max(100).optional(),
+  priority: z.enum(["low", "normal", "high"]).optional(),
+  notes: z.string().trim().optional(),
+}).refine((value) => Object.values(value).some((entry) => entry !== undefined), {
+  message: "Provide at least one source setting to update.",
 });
 
 export const scoringResultSchema = z.object({
@@ -362,6 +394,8 @@ export interface GenerationResponse {
   success: true;
   signal: SignalGenerationInput;
   outputs: SignalGenerationResult;
+  appliedPattern?: PatternSummary | null;
+  editorialMode: SignalRecord["editorialMode"];
   message?: string;
   usedFallback?: boolean;
 }
@@ -384,10 +418,109 @@ export interface SaveWorkflowResponse {
   error?: string;
 }
 
+export interface SaveFinalReviewResponse {
+  success: boolean;
+  persisted: boolean;
+  source: SignalDataSource;
+  signal: SignalRecord | null;
+  message: string;
+  error?: string;
+}
+
+export interface SaveFeedbackResponse {
+  success: boolean;
+  persisted: boolean;
+  source: SignalDataSource;
+  feedback: SignalFeedback | null;
+  message: string;
+  error?: string;
+}
+
+export interface PostingLogResponse {
+  success: boolean;
+  persisted: boolean;
+  entry: PostingLogEntry | null;
+  entries: PostingLogEntry[];
+  signal: SignalRecord | null;
+  message: string;
+  error?: string;
+}
+
+export interface PostingOutcomeResponse {
+  success: boolean;
+  persisted: boolean;
+  outcome: PostingOutcome | null;
+  previousOutcome: PostingOutcome | null;
+  message: string;
+  error?: string;
+}
+
+export interface FeedbackSummaryResponse {
+  success: boolean;
+  source: SignalDataSource;
+  categories: Array<{
+    category: FeedbackCategory;
+    value: FeedbackValue;
+    count: number;
+  }>;
+}
+
+export interface PatternResponse {
+  success: boolean;
+  persisted: boolean;
+  pattern: SignalPattern | null;
+  message: string;
+  error?: string;
+}
+
+export interface PatternListResponse {
+  success: boolean;
+  patterns: SignalPattern[];
+  error?: string;
+}
+
+export interface PatternBundleResponse {
+  success: boolean;
+  persisted: boolean;
+  bundle: PatternBundle | null;
+  message: string;
+  error?: string;
+}
+
+export interface PatternBundleListResponse {
+  success: boolean;
+  bundles: PatternBundle[];
+  error?: string;
+}
+
+export interface PatternFeedbackResponse {
+  success: boolean;
+  persisted: boolean;
+  feedback: PatternFeedbackEntry | null;
+  message: string;
+  error?: string;
+}
+
 export interface IngestApiResponse {
   success: boolean;
   mode: SignalDataSource;
   result?: IngestionRunSummary;
+  error?: string;
+}
+
+export interface SourceRegistryResponse {
+  success: boolean;
+  source: SignalDataSource;
+  sources?: ManagedIngestionSource[];
+  message?: string;
+  error?: string;
+}
+
+export interface UpdateSourceRegistryResponse {
+  success: boolean;
+  source: SignalDataSource;
+  sourceRecord?: ManagedIngestionSource;
+  message?: string;
   error?: string;
 }
 
@@ -547,6 +680,7 @@ export function toGenerationSavePayload(
     generationModelVersion: value.generationModelVersion.trim(),
     promptVersion: value.promptVersion.trim(),
     generatedAt: value.generatedAt,
+    editorialMode: value.editorialMode,
     status: value.status,
   };
 }
@@ -595,6 +729,20 @@ export function toWorkflowSavePayload(
     postUrl: normalizeOptionalString(value.postUrl),
     finalCaptionUsed: normalizeOptionalString(value.finalCaptionUsed),
     reviewNotes: normalizeOptionalString(value.reviewNotes),
+  };
+}
+
+export function toFinalReviewSavePayload(
+  value: z.infer<typeof finalReviewUpdateRequestSchema>,
+): SignalFinalReviewSavePayload {
+  return {
+    finalXDraft: normalizeOptionalString(value.finalXDraft),
+    finalLinkedInDraft: normalizeOptionalString(value.finalLinkedInDraft),
+    finalRedditDraft: normalizeOptionalString(value.finalRedditDraft),
+    xReviewStatus: value.xReviewStatus,
+    linkedInReviewStatus: value.linkedInReviewStatus,
+    redditReviewStatus: value.redditReviewStatus,
+    finalReviewNotes: normalizeOptionalString(value.finalReviewNotes),
   };
 }
 

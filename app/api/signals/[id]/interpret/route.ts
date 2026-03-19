@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { saveSignalWithFallback } from "@/lib/airtable";
+import { appendAuditEventsSafe, buildOperatorOverrideEvent, buildRecommendationEvent, listAuditEvents, type AuditEventInput } from "@/lib/audit";
+import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
+import { buildPatternCoverageRecords, buildPatternGapDetectedEvent } from "@/lib/pattern-coverage";
+import { assessPatternCandidate, buildPatternCandidateDetectedEvent } from "@/lib/pattern-discovery";
+import { listPatterns } from "@/lib/patterns";
 import { saveInterpretationRequestSchema, toInterpretationSavePayload, type SaveInterpretationResponse } from "@/types/api";
 
 export async function PATCH(
@@ -28,6 +33,7 @@ export async function PATCH(
   }
 
   const interpretation = toInterpretationSavePayload(parsed.data);
+  const previousSignalResult = await getSignalWithFallback(id);
   const result = await saveSignalWithFallback(id, {
     scenarioAngle: interpretation.scenarioAngle,
     signalCategory: interpretation.signalCategory,
@@ -59,11 +65,93 @@ export async function PATCH(
     );
   }
 
+  const nextSignal = result.signal;
+  const feedbackEntries = await getFeedbackEntries(id);
+  const allFeedbackEntries = await listFeedbackEntries();
+  const patterns = await listPatterns();
+  const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
+  const allAuditEvents = await listAuditEvents();
+  const auditEvents: AuditEventInput[] = [];
+  if (previousSignalResult.signal) {
+    const previousScenarioAngle = previousSignalResult.signal.scenarioAngle?.trim() ?? "";
+    const nextScenarioAngle = interpretation.scenarioAngle?.trim() ?? "";
+    if (nextScenarioAngle && nextScenarioAngle !== previousScenarioAngle) {
+      auditEvents.push({
+        signalId: id,
+        eventType: "SCENARIO_ANGLE_ADDED",
+        actor: "operator",
+        summary: previousScenarioAngle ? "Updated Scenario Angle." : "Added Scenario Angle.",
+        metadata: {
+          hadPreviousScenarioAngle: previousScenarioAngle.length > 0,
+        },
+      });
+    }
+
+    const overrideEvent = buildOperatorOverrideEvent(previousSignalResult.signal, "interpret");
+    if (overrideEvent) {
+      auditEvents.push(overrideEvent);
+    }
+  }
+
+  const candidateEvent = buildPatternCandidateDetectedEvent({
+    signal: nextSignal,
+    current: assessPatternCandidate(nextSignal, {
+      feedbackEntries,
+      patterns,
+    }),
+    previous: previousSignalResult.signal
+      ? assessPatternCandidate(previousSignalResult.signal, {
+          feedbackEntries,
+          patterns,
+        })
+      : null,
+  });
+  if (candidateEvent) {
+    auditEvents.push(candidateEvent);
+  }
+  const currentCoverage = buildPatternCoverageRecords(
+    allSignals.map((signal) => (signal.recordId === id ? nextSignal : signal)),
+    allFeedbackEntries,
+    patterns,
+    allAuditEvents,
+  ).find((record) => record.signalId === id);
+  const previousCoverage = previousSignalResult.signal
+    ? buildPatternCoverageRecords(allSignals, allFeedbackEntries, patterns, allAuditEvents).find(
+        (record) => record.signalId === id,
+      )
+    : null;
+  const gapEvent =
+    currentCoverage && previousCoverage !== undefined
+      ? buildPatternGapDetectedEvent({
+          signal: nextSignal,
+          current: currentCoverage,
+          previous: previousCoverage ?? null,
+        })
+      : null;
+  if (gapEvent) {
+    auditEvents.push(gapEvent);
+  }
+
+  auditEvents.push(
+    {
+      signalId: id,
+      eventType: "INTERPRETATION_SAVED",
+      actor: "operator",
+      summary: `Saved interpretation as ${nextSignal.status}.`,
+      metadata: {
+        category: interpretation.signalCategory,
+        severity: interpretation.severityScore,
+      },
+    },
+    buildRecommendationEvent(nextSignal),
+  );
+  await appendAuditEventsSafe(auditEvents);
+
   return NextResponse.json<SaveInterpretationResponse>({
     success: true,
     persisted: result.persisted,
     source: result.source,
-    signal: result.signal,
+    signal: nextSignal,
     message:
       result.source === "airtable"
         ? "Interpretation saved to Airtable and status updated to Interpreted."
