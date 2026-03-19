@@ -96,6 +96,9 @@ export default async function PatternsPage({
             <Link href="/pattern-bundles" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
               Open bundles
             </Link>
+            <Link href="/playbook" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open playbook
+            </Link>
           </div>
           <CardTitle className="text-3xl">Pattern Library</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">

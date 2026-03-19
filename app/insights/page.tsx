@@ -3,10 +3,11 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
-import { listAuditEvents } from "@/lib/audit";
+import { appendAuditEventsSafe, listAuditEvents } from "@/lib/audit";
 import { BUNDLE_COVERAGE_STRENGTH_LABELS, type BundleCoverageStrength } from "@/lib/bundle-coverage";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { listPostingOutcomes } from "@/lib/outcomes";
+import { listPlaybookCards } from "@/lib/playbook-cards";
 import { buildPatternBundleUsageRows, listPatternBundles } from "@/lib/pattern-bundles";
 import { buildPatternHealthAssessments, buildPatternHealthSummary } from "@/lib/pattern-health";
 import { PATTERN_TYPE_LABELS } from "@/lib/pattern-definitions";
@@ -48,6 +49,18 @@ function bundleCoverageClasses(strength: BundleCoverageStrength): string {
 
   if (strength === "thin_bundle") {
     return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+
+  return "bg-slate-100 text-slate-700 ring-slate-200";
+}
+
+function playbookGapClasses(kind: "uncovered" | "weak_coverage" | "opportunity"): string {
+  if (kind === "weak_coverage") {
+    return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+
+  if (kind === "opportunity") {
+    return "bg-emerald-50 text-emerald-700 ring-emerald-200";
   }
 
   return "bg-slate-100 text-slate-700 ring-slate-200";
@@ -119,6 +132,7 @@ export default async function InsightsPage({
   const patterns = await listPatterns();
   const allPatterns = await listPatterns({ includeRetired: true });
   const bundles = await listPatternBundles();
+  const playbookCards = await listPlaybookCards({ status: "all" });
   const patternFeedbackEntries = await listPatternFeedbackEntries();
   const patternEffectivenessSummaries = buildPatternEffectivenessSummaries(
     allPatterns,
@@ -142,10 +156,29 @@ export default async function InsightsPage({
     patterns,
     allPatterns,
     bundles,
+    playbookCards,
     patternFeedbackEntries,
     postingEntries,
     postingOutcomes,
   });
+  await appendAuditEventsSafe(
+    insights.playbook.topCoverageGaps.map((gap) => ({
+      signalId: `playbook-gap:${gap.key}`,
+      eventType: "PLAYBOOK_GAP_DETECTED",
+      actor: "system",
+      summary: `Playbook coverage gap detected: ${gap.summary}`,
+      metadata: {
+        gapKind: gap.kind,
+        flag: gap.flag,
+        coverageArea: gap.label,
+        signalCount: gap.signalCount,
+        strongOutcomeCount: gap.strongOutcomeCount,
+        weakOutcomeCount: gap.weakOutcomeCount,
+        cautionCount: gap.cautionCount,
+        cardCount: gap.cardCount,
+      },
+    })),
+  );
   const scoredStage = insights.pipeline.stages.find((stage) => stage.key === "scored");
   const interpretedStage = insights.pipeline.stages.find((stage) => stage.key === "interpreted");
   const generatedStage = insights.pipeline.stages.find((stage) => stage.key === "generated");
@@ -602,6 +635,185 @@ export default async function InsightsPage({
                 </div>
               ))
             )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Playbook Coverage Gaps</CardTitle>
+            <CardDescription>
+              High-signal areas where operators are still improvising, adapting too often, or seeing clear opportunities without a saved card.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Coverage areas"
+                value={String(insights.playbook.coverageAreaCount)}
+                detail={`${insights.playbook.coveredAreaCount} covered and ${insights.playbook.lowSignalAreaCount} still low-signal.`}
+              />
+              <MetricCard
+                label="Uncovered"
+                value={String(insights.playbook.uncoveredAreaCount)}
+                detail="Areas with enough activity but no relevant playbook card."
+              />
+              <MetricCard
+                label="Weak coverage"
+                value={String(insights.playbook.weaklyCoveredAreaCount)}
+                detail={
+                  insights.playbook.weakCoverageGaps[0]
+                    ? "Areas where current card guidance is not holding up cleanly."
+                    : "No weakly covered area is stable enough to call out yet."
+                }
+              />
+              <MetricCard
+                label="Opportunities"
+                value={String(insights.playbook.opportunityGaps.length)}
+                detail="Areas with strong outcomes but no saved playbook guidance yet."
+              />
+            </div>
+
+            {insights.playbook.topCoverageGaps.length === 0 ? (
+              <EmptyState copy="No stable playbook coverage gaps are visible in this window yet." />
+            ) : (
+              <div className="space-y-4">
+                {[
+                  {
+                    title: "Uncovered",
+                    rows: insights.playbook.uncoveredGaps,
+                    emptyCopy: "No uncovered playbook gaps are stable enough to surface.",
+                  },
+                  {
+                    title: "Weak Coverage",
+                    rows: insights.playbook.weakCoverageGaps,
+                    emptyCopy: "No weakly covered area is stable enough to surface.",
+                  },
+                  {
+                    title: "Opportunity",
+                    rows: insights.playbook.opportunityGaps,
+                    emptyCopy: "No strong no-card opportunity is visible right now.",
+                  },
+                ].map((group) => (
+                  <div key={group.title} className="space-y-3">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{group.title}</p>
+                    {group.rows.length === 0 ? (
+                      <EmptyState copy={group.emptyCopy} />
+                    ) : (
+                      group.rows.map((gap) => (
+                        <div key={gap.key} className="rounded-2xl bg-white/80 px-4 py-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="font-medium text-slate-950">{gap.label}</p>
+                            <Badge className={playbookGapClasses(gap.kind)}>
+                              {gap.kind === "weak_coverage"
+                                ? "Weak coverage"
+                                : gap.kind === "opportunity"
+                                  ? "Opportunity"
+                                  : "Uncovered"}
+                            </Badge>
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-slate-700">{gap.summary}</p>
+                          <p className="mt-2 text-sm leading-6 text-slate-500">{gap.whyFlagged}</p>
+                          <p className="mt-3 text-sm text-slate-700">{gap.suggestedAction}</p>
+                          <div className="mt-3 flex flex-wrap items-center gap-4 text-sm">
+                            <Link
+                              href={`/playbook?gapKey=${encodeURIComponent(gap.key)}`}
+                              className="text-[color:var(--accent)] underline underline-offset-4"
+                            >
+                              Create playbook card
+                            </Link>
+                            {gap.signalIds[0] ? (
+                              <Link
+                                href={`/signals/${gap.signalIds[0]}`}
+                                className="text-[color:var(--accent)] underline underline-offset-4"
+                              >
+                                Open example signal
+                              </Link>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Playbook Cards</CardTitle>
+            <CardDescription>
+              Compact operator guidance cards derived manually from recurring editorial judgement.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Cards"
+                value={String(insights.playbook.cardCount)}
+                detail={`${insights.playbook.activeCount} active and ${insights.playbook.retiredCount} retired.`}
+              />
+              <MetricCard
+                label="Referenced cards"
+                value={String(insights.playbook.referencedCount)}
+                detail="Cards that surfaced at least once as relevant guidance in this window."
+              />
+              <MetricCard
+                label="Top card"
+                value={insights.playbook.topCards[0]?.title ?? "None yet"}
+                detail={
+                  insights.playbook.topCards[0]
+                    ? `${insights.playbook.topCards[0].count} relevant matches in this window.`
+                    : "No card has surfaced often enough to call out yet."
+                }
+              />
+              <MetricCard
+                label="Families without cards"
+                value={String(insights.playbook.uncoveredFamiliesWithoutCard.length)}
+                detail="Recurring family labels still not represented in active cards."
+              />
+            </div>
+
+            {insights.playbook.topCards.length === 0 ? (
+              <EmptyState copy="No playbook cards are being surfaced for current signals yet." />
+            ) : (
+              <div className="space-y-3">
+                {insights.playbook.topCards.map((card) => (
+                  <div key={card.cardId} className="rounded-2xl bg-white/80 px-4 py-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="font-medium text-slate-950">{card.title}</p>
+                      <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{card.count} matches</Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-4 text-sm">
+                      <Link href={`/playbook/${card.cardId}`} className="text-[color:var(--accent)] underline underline-offset-4">
+                        Open playbook card
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {insights.playbook.topCards[0]
+                  ? `${insights.playbook.topCards[0].title} is currently the most frequently surfaced playbook card in this window.`
+                  : "No playbook card is surfacing often enough to call out yet."}
+              </div>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {insights.playbook.topCoverageGaps[0]
+                  ? insights.playbook.topCoverageGaps[0].summary
+                  : "No playbook coverage gap is clearly dominant right now."}
+              </div>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {insights.playbook.activeCount > 0
+                  ? `${insights.playbook.activeCount} active card${insights.playbook.activeCount === 1 ? "" : "s"} are currently available as operator guidance.`
+                  : "There are no active playbook cards available yet."}
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -1110,6 +1322,94 @@ export default async function InsightsPage({
                 ? `${insights.outcomes.topDoNotRepeatModeLabel} is the mode most often marked do not repeat in this window.`
                 : "No editorial mode is collecting enough do-not-repeat judgments to surface yet."}
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Reuse Memory</CardTitle>
+            <CardDescription>
+              Prior judged outcomes that now act as bounded editorial memory for reuse and caution.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Judged cases"
+                value={String(insights.reuseMemory.totalCases)}
+                detail="Posted items with qualitative outcomes available for reuse memory."
+              />
+              <MetricCard
+                label="Reusable"
+                value={String(insights.reuseMemory.reusableCount)}
+                detail="Cases marked strong or worth reusing."
+              />
+              <MetricCard
+                label="Caution"
+                value={String(insights.reuseMemory.cautionCount)}
+                detail="Cases marked weak or do not repeat."
+              />
+              <MetricCard
+                label="Top reusable combo"
+                value={insights.reuseMemory.topReusableCombinationLabel ?? "None yet"}
+                detail="Most common reusable combination in current judged history."
+              />
+            </div>
+
+            <div className="space-y-3">
+              {insights.reuseMemory.platformRows.map((row) => (
+                <div key={row.platform} className="rounded-2xl bg-white/80 px-4 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-medium text-slate-950">{row.label}</p>
+                    <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.reusableCount} reusable</Badge>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{row.cautionCount} cautionary outcomes.</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Reuse Memory Notes</CardTitle>
+            <CardDescription>
+              This layer is advisory only. It helps the operator remember what worked before without auto-reusing anything.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              {insights.reuseMemory.topReusableCombinationLabel
+                ? `${insights.reuseMemory.topReusableCombinationLabel} is currently the strongest reusable combination in judged history.`
+                : "No reusable combination is stable enough to call out yet."}
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              {insights.reuseMemory.topDoNotRepeatCombinationLabel
+                ? `${insights.reuseMemory.topDoNotRepeatCombinationLabel} is the combination most often marked do not repeat.`
+                : "No combination is collecting enough do-not-repeat memory to surface yet."}
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              {insights.reuseMemory.strongestPlatformLabel
+                ? `${insights.reuseMemory.strongestPlatformLabel} is currently the platform where reuse memory is strongest.`
+                : "No platform has enough positive reuse-memory history to stand out yet."}
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              {insights.reuseMemory.weakestPlatformLabel
+                ? `${insights.reuseMemory.weakestPlatformLabel} is currently the platform with the most cautionary reuse memory.`
+                : "No platform has enough cautionary reuse-memory history to surface yet."}
+            </div>
+            {insights.reuseMemory.reusableRows.length > 0 ? (
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                <p className="font-medium text-slate-900">Top reusable combinations</p>
+                <div className="mt-3 space-y-2">
+                  {insights.reuseMemory.reusableRows.map((row) => (
+                    <p key={row.label}>{row.label}: {row.count}</p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>

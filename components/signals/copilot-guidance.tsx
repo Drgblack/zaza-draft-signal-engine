@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { PatternSuggestionList } from "@/components/patterns/pattern-suggestion-list";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -110,6 +111,63 @@ export function CopilotGuidanceCard({
             </Link>
           </div>
         ) : null}
+        {guidance.reuseMemory.highlights.length > 0 ? (
+          <div className="rounded-2xl bg-white/75 px-4 py-4 text-sm text-slate-600">
+            <p className="font-medium text-slate-900">Reuse memory</p>
+            <div className="mt-3 space-y-3">
+              {guidance.reuseMemory.highlights.map((highlight) => (
+                <div key={highlight.postingLogId} className="flex gap-3">
+                  <span className={`inline-flex h-fit rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${feedbackToneClasses(
+                    highlight.tone === "positive"
+                      ? "success"
+                      : highlight.tone === "caution"
+                        ? "warning"
+                        : "neutral",
+                  )}`}>
+                    {highlight.tone === "positive" ? "worked before" : highlight.tone === "caution" ? "use caution" : "past outcome"}
+                  </span>
+                  <div className="space-y-1">
+                    <p className="leading-6">{highlight.text}</p>
+                    {highlight.matchedOn.length > 0 ? (
+                      <p className="text-xs leading-5 text-slate-500">Matched on {highlight.matchedOn.join(", ")}.</p>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {guidance.playbookCoverageHint ? (
+          <div className="rounded-2xl bg-white/75 px-4 py-4 text-sm text-slate-600">
+            <p className="font-medium text-slate-900">Playbook coverage</p>
+            <p className="mt-2 leading-6">{guidance.playbookCoverageHint.text}</p>
+            <Link
+              href={guidance.playbookCoverageHint.actionHref}
+              className="mt-3 inline-block text-[color:var(--accent)] underline underline-offset-4"
+            >
+              Create playbook card
+            </Link>
+          </div>
+        ) : null}
+        {guidance.playbookCards.length > 0 ? (
+          <div className="rounded-2xl bg-white/75 px-4 py-4 text-sm text-slate-600">
+            <p className="font-medium text-slate-900">Related playbook cards</p>
+            <div className="mt-3 space-y-3">
+              {guidance.playbookCards.map((match) => (
+                <div key={match.card.id}>
+                  <p className="font-medium text-slate-900">{match.card.title}</p>
+                  <p className="mt-1 leading-6">{match.reason}</p>
+                  <Link
+                    href={`/playbook/${match.card.id}`}
+                    className="mt-2 inline-block text-[color:var(--accent)] underline underline-offset-4"
+                  >
+                    Open playbook card
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <PatternSuggestionList
           signalId={signalId}
           title="Related patterns"
@@ -139,32 +197,31 @@ export function CopilotHint({
 }: {
   guidance: CopilotGuidance;
 }) {
+  const unified = buildUnifiedGuidanceModel({ guidance });
+  const supportItem =
+    unified.relatedPlaybookCards[0] ?? unified.relatedPatterns[0] ?? unified.relatedBundles[0] ?? null;
+
   return (
     <div className="space-y-1">
       <div className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${toneClasses(guidance.tone)}`}>
         {guidance.shortLabel}
       </div>
       <p className="max-w-md text-xs leading-5 text-slate-500">{guidance.reason}</p>
-      {guidance.feedbackContext[0] ? (
-        <p className="max-w-md text-xs leading-5 text-slate-400">{guidance.feedbackContext[0].text}</p>
-      ) : null}
-      {guidance.patternSuggestions[0] ? (
+      {unified.supportingSignals[0] ? (
         <p className="max-w-md text-xs leading-5 text-slate-400">
-          Suggested pattern: {guidance.patternSuggestions[0].pattern.name}. {guidance.patternSuggestions[0].reason}
+          {unified.supportingSignals[0].label}: {unified.supportingSignals[0].text}
         </p>
       ) : null}
-      {guidance.patternSuggestions[0]?.bundles[0] ? (
+      {unified.reuseMemory?.highlights[0] ? (
+        <p className="max-w-md text-xs leading-5 text-slate-400">{unified.reuseMemory.highlights[0].text}</p>
+      ) : null}
+      {supportItem ? (
         <p className="max-w-md text-xs leading-5 text-slate-400">
-          Related bundle: {guidance.patternSuggestions[0].bundles[0].name}.
+          {supportItem.title}. {supportItem.reason}
         </p>
       ) : null}
-      {guidance.suggestedEditorialMode ? (
-        <p className="max-w-md text-xs leading-5 text-slate-400">
-          Suggested mode: {getEditorialModeDefinition(guidance.suggestedEditorialMode.mode).label}. {guidance.suggestedEditorialMode.reason}
-        </p>
-      ) : null}
-      {guidance.patternSuggestions[0]?.effectivenessHint ? (
-        <p className="max-w-md text-xs leading-5 text-slate-400">{guidance.patternSuggestions[0].effectivenessHint}</p>
+      {unified.gapWarnings[0] ? (
+        <p className="max-w-md text-xs leading-5 text-slate-400">{unified.gapWarnings[0].text}</p>
       ) : null}
     </div>
   );

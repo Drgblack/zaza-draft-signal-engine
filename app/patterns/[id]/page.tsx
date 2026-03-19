@@ -84,6 +84,9 @@ export default async function PatternDetailPage({
           <Link href="/patterns" className="text-[color:var(--accent)] underline underline-offset-4">
             Back to library
           </Link>
+          <Link href={`/playbook?patternId=${pattern.id}`} className="text-[color:var(--accent)] underline underline-offset-4">
+            Create playbook card
+          </Link>
           {pattern.exampleSignalId ? (
             <Link href={`/signals/${pattern.exampleSignalId}`} className="text-[color:var(--accent)] underline underline-offset-4">
               Open source signal

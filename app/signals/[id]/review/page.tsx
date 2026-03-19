@@ -2,13 +2,22 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { FinalReviewWorkspace } from "@/components/signals/final-review-workspace";
+import { GuidancePanel } from "@/components/signals/guidance-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { getAuditEvents } from "@/lib/audit";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import { listFeedbackEntries } from "@/lib/feedback";
 import { buildFinalReviewSummary } from "@/lib/final-review";
-import { getPostingLogEntries } from "@/lib/posting-log";
+import { assembleGuidanceForSignal } from "@/lib/guidance";
+import { listPostingOutcomes } from "@/lib/outcomes";
+import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
+import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { listPlaybookCards } from "@/lib/playbook-cards";
+import { listPatterns } from "@/lib/patterns";
+import { getPostingLogEntries, listPostingLogEntries } from "@/lib/posting-log";
+import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 
 export const dynamic = "force-dynamic";
 
@@ -33,10 +42,42 @@ export default async function FinalReviewPage({
   }
 
   const signal = result.signal;
+  const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
+  const feedbackEntries = await listFeedbackEntries();
   const auditEvents = await getAuditEvents(signal.recordId);
   const postingEntries = await getPostingLogEntries(signal.recordId);
+  const allPostingEntries = await listPostingLogEntries();
+  const postingOutcomes = await listPostingOutcomes();
+  const patterns = await listPatterns();
+  const playbookCards = await listPlaybookCards();
+  const bundles = await listPatternBundles();
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
+  const reuseMemoryCases = buildReuseMemoryCases({
+    signals: allSignals,
+    postingEntries: allPostingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const playbookCoverageSummary = buildPlaybookCoverageSummary({
+    signals: allSignals,
+    playbookCards,
+    postingEntries: allPostingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
   const reviewSummary = buildFinalReviewSummary(signal);
   const appliedPatternName = getLastAppliedPatternName(auditEvents);
+  const guidance = assembleGuidanceForSignal({
+    signal,
+    context: "review",
+    allSignals,
+    feedbackEntries,
+    patterns,
+    bundleSummariesByPatternId,
+    playbookCards,
+    reuseMemoryCases,
+    playbookCoverageSummary,
+  });
 
   if (!signal.xDraft || !signal.linkedInDraft || !signal.redditDraft) {
     return (
@@ -60,6 +101,13 @@ export default async function FinalReviewPage({
             </div>
           </CardContent>
         </Card>
+
+        <GuidancePanel
+          guidance={guidance}
+          variant="compact"
+          title="Review guidance"
+          description="Compact next-step guidance for this signal before final review can continue."
+        />
       </div>
     );
   }
@@ -90,6 +138,13 @@ export default async function FinalReviewPage({
           </Link>
         </CardContent>
       </Card>
+
+      <GuidancePanel
+        guidance={guidance}
+        variant="compact"
+        title="Review guidance"
+        description="Compact review-stage guidance that keeps reuse memory, playbook support, pattern support, and any meaningful caution in one place."
+      />
 
       <FinalReviewWorkspace
         signal={signal}

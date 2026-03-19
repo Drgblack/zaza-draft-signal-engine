@@ -8,7 +8,12 @@ import { listSignalsWithFallback } from "@/lib/airtable";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
+import { listPostingOutcomes } from "@/lib/outcomes";
+import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPatterns } from "@/lib/patterns";
+import { listPostingLogEntries } from "@/lib/posting-log";
+import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { filterSignals, sortSignals, type SignalsSortKey } from "@/lib/workflow";
 import { SIGNAL_CATEGORIES, SIGNAL_STATUSES, type SignalCategory, type SignalStatus } from "@/types/signal";
 
@@ -27,12 +32,33 @@ export default async function SignalsPage({
   const { signals, source, error } = await listSignalsWithFallback();
   const feedbackEntries = await listFeedbackEntries();
   const patterns = await listPatterns();
+  const playbookCards = await listPlaybookCards();
   const bundles = await listPatternBundles();
+  const postingEntries = await listPostingLogEntries();
+  const postingOutcomes = await listPostingOutcomes();
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
+  const reuseMemoryCases = buildReuseMemoryCases({
+    signals,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const playbookCoverageSummary = buildPlaybookCoverageSummary({
+    signals,
+    playbookCards,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
   const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
     signals,
     feedbackEntries,
     patterns,
-    indexBundleSummariesByPatternId(bundles),
+    bundleSummariesByPatternId,
+    undefined,
+    playbookCards,
+    reuseMemoryCases,
+    playbookCoverageSummary,
   );
 
   const statusParam = getSingleValue(params.status);

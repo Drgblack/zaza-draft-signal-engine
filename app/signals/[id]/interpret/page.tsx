@@ -2,22 +2,29 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { FeedbackPanel } from "@/components/signals/feedback-panel";
+import { GuidancePanel } from "@/components/signals/guidance-panel";
 import { InterpretationWorkbench } from "@/components/signals/interpretation-workbench";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { listAuditEvents } from "@/lib/audit";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
+import { assembleGuidanceForSignal } from "@/lib/guidance";
 import { buildInitialInterpretationFromSignal } from "@/lib/interpreter";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { findSuggestedPatterns } from "@/lib/pattern-match";
 import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
+import { listPostingOutcomes } from "@/lib/outcomes";
+import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { listPlaybookCards } from "@/lib/playbook-cards";
 import {
   buildPatternEffectivenessSummaries,
   findRelatedPatterns,
   indexPatternEffectivenessSummaries,
   listPatterns,
 } from "@/lib/patterns";
+import { listPostingLogEntries } from "@/lib/posting-log";
+import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 
 export const dynamic = "force-dynamic";
 
@@ -36,18 +43,48 @@ export default async function InterpretSignalPage({
   const initialInterpretation = buildInitialInterpretationFromSignal(result.signal);
   const feedbackEntries = await getFeedbackEntries(result.signal.recordId);
   const allSignalFeedbackEntries = await listFeedbackEntries();
+  const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
   const patterns = await listPatterns();
+  const playbookCards = await listPlaybookCards();
   const bundles = await listPatternBundles();
+  const postingEntries = await listPostingLogEntries();
+  const postingOutcomes = await listPostingOutcomes();
   const allAuditEvents = await listAuditEvents();
   const allPatternFeedbackEntries = await listPatternFeedbackEntries();
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const patternEffectivenessById = indexPatternEffectivenessSummaries(
     buildPatternEffectivenessSummaries(patterns, allAuditEvents, allPatternFeedbackEntries, allSignalFeedbackEntries),
   );
   const relatedPatterns = findRelatedPatterns(result.signal, patterns, { limit: 3 });
   const suggestedPatterns = findSuggestedPatterns(result.signal, patterns, {
     limit: 3,
-    bundleSummariesByPatternId: indexBundleSummariesByPatternId(bundles),
+    bundleSummariesByPatternId,
     effectivenessById: patternEffectivenessById,
+  });
+  const reuseMemoryCases = buildReuseMemoryCases({
+    signals: allSignals,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const playbookCoverageSummary = buildPlaybookCoverageSummary({
+    signals: allSignals,
+    playbookCards,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const guidance = assembleGuidanceForSignal({
+    signal: result.signal,
+    context: "interpretation",
+    allSignals,
+    feedbackEntries: allSignalFeedbackEntries,
+    patterns,
+    bundleSummariesByPatternId,
+    patternEffectivenessById,
+    playbookCards,
+    reuseMemoryCases,
+    playbookCoverageSummary,
   });
 
   return (
@@ -81,6 +118,13 @@ export default async function InterpretSignalPage({
           </div>
         </CardContent>
       </Card>
+
+      <GuidancePanel
+        guidance={guidance}
+        variant="compact"
+        title="Interpretation guidance"
+        description="Compact framing guidance pulled from co-pilot, reuse memory, playbook support, and any meaningful coverage gap."
+      />
 
       <InterpretationWorkbench
         signal={result.signal}

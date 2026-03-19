@@ -3,13 +3,15 @@ import { notFound } from "next/navigation";
 
 import { FeedbackPanel } from "@/components/signals/feedback-panel";
 import { GenerationWorkbench } from "@/components/signals/generation-workbench";
+import { GuidancePanel } from "@/components/signals/guidance-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAuditEvents, listAuditEvents } from "@/lib/audit";
-import { getSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { suggestEditorialMode } from "@/lib/editorial-modes";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { buildInitialGenerationFromSignal, toGenerationInputFromSignal } from "@/lib/generator";
+import { assembleGuidanceForSignal } from "@/lib/guidance";
 import { getBundlesForPattern, indexBundleSummariesByPatternId, listPatternBundles, type PatternBundleSummary } from "@/lib/pattern-bundles";
 import { findSuggestedPatterns } from "@/lib/pattern-match";
 import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
@@ -22,6 +24,11 @@ import {
   listPatterns,
   toPatternSummary,
 } from "@/lib/patterns";
+import { listPostingOutcomes } from "@/lib/outcomes";
+import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { listPlaybookCards } from "@/lib/playbook-cards";
+import { listPostingLogEntries } from "@/lib/posting-log";
+import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { EDITORIAL_MODES, type EditorialMode } from "@/types/signal";
 
 export const dynamic = "force-dynamic";
@@ -79,8 +86,13 @@ export default async function GenerateSignalPage({
   const initialGeneration = buildInitialGenerationFromSignal(result.signal);
   const feedbackEntries = await getFeedbackEntries(result.signal.recordId);
   const allSignalFeedbackEntries = await listFeedbackEntries();
+  const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
   const allPatterns = await listPatterns();
   const allBundles = await listPatternBundles();
+  const playbookCards = await listPlaybookCards();
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(allBundles);
+  const postingEntries = await listPostingLogEntries();
+  const postingOutcomes = await listPostingOutcomes();
   const relatedPatterns = findRelatedPatterns(result.signal, allPatterns, { limit: 3 });
   const auditEvents = await getAuditEvents(result.signal.recordId);
   const allAuditEvents = await listAuditEvents();
@@ -95,8 +107,21 @@ export default async function GenerateSignalPage({
   });
   const suggestedPatterns = findSuggestedPatterns(result.signal, allPatterns, {
     limit: 3,
-    bundleSummariesByPatternId: indexBundleSummariesByPatternId(allBundles),
+    bundleSummariesByPatternId,
     effectivenessById: patternEffectivenessById,
+  });
+  const reuseMemoryCases = buildReuseMemoryCases({
+    signals: allSignals,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const playbookCoverageSummary = buildPlaybookCoverageSummary({
+    signals: allSignals,
+    playbookCards,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
   });
   const patternParam = Array.isArray(resolvedSearchParams.pattern)
     ? resolvedSearchParams.pattern[0]
@@ -123,7 +148,19 @@ export default async function GenerateSignalPage({
           name: bundle.name,
           description: bundle.description,
         }))
-      : [];
+        : [];
+  const guidance = assembleGuidanceForSignal({
+    signal: result.signal,
+    context: "generation",
+    allSignals,
+    feedbackEntries: allSignalFeedbackEntries,
+    patterns: allPatterns,
+    bundleSummariesByPatternId,
+    patternEffectivenessById,
+    playbookCards,
+    reuseMemoryCases,
+    playbookCoverageSummary,
+  });
 
   return (
     <div className="space-y-6">
@@ -154,6 +191,13 @@ export default async function GenerateSignalPage({
         </CardContent>
       </Card>
 
+      <GuidancePanel
+        guidance={guidance}
+        variant="compact"
+        title="Generation guidance"
+        description="Compact next-step guidance that aligns reuse memory, playbook support, pattern support, and any meaningful gap warning."
+      />
+
       <GenerationWorkbench
         signal={result.signal}
         generationInput={generationInput}
@@ -168,7 +212,7 @@ export default async function GenerateSignalPage({
         initialSuggestedPatternId={initialSuggestedPatternId}
         initialSelectedEditorialMode={initialSelectedEditorialMode}
         suggestedEditorialMode={suggestedEditorialMode}
-        bundleSummariesByPatternId={indexBundleSummariesByPatternId(allBundles)}
+        bundleSummariesByPatternId={bundleSummariesByPatternId}
         initialSelectedPatternBundles={initialSelectedPatternBundles}
       />
 

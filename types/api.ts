@@ -37,6 +37,7 @@ import type { IngestionRunSummary, ManagedIngestionSource } from "@/lib/ingestio
 import type { PipelineRunSummary } from "@/lib/pipeline";
 import type { FeedbackCategory, FeedbackValue, SignalFeedback } from "@/lib/feedback-definitions";
 import type { PatternFeedbackEntry } from "@/lib/pattern-feedback-definitions";
+import type { PlaybookCard } from "@/lib/playbook-card-definitions";
 import type { PostingOutcome } from "@/lib/outcome-memory";
 import type { PostingLogEntry } from "@/lib/posting-memory";
 import type { PatternSummary, SignalPattern } from "@/lib/pattern-definitions";
@@ -498,6 +499,20 @@ export interface PatternFeedbackResponse {
   persisted: boolean;
   feedback: PatternFeedbackEntry | null;
   message: string;
+  error?: string;
+}
+
+export interface PlaybookCardResponse {
+  success: boolean;
+  persisted: boolean;
+  card: PlaybookCard | null;
+  message: string;
+  error?: string;
+}
+
+export interface PlaybookCardListResponse {
+  success: boolean;
+  cards: PlaybookCard[];
   error?: string;
 }
 

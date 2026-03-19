@@ -5,6 +5,14 @@ import type { PatternBundleSummary } from "@/lib/pattern-bundles";
 import { findSuggestedPatterns } from "@/lib/pattern-match";
 import type { PatternSummary, SignalPattern } from "@/lib/pattern-definitions";
 import { type PatternEffectivenessSummary, toPatternSummary } from "@/lib/patterns";
+import type { PlaybookCard, PlaybookCardMatch } from "@/lib/playbook-card-definitions";
+import { findRelatedPlaybookCards } from "@/lib/playbook-cards";
+import {
+  getPlaybookCoverageHint,
+  type PlaybookCoverageHint,
+  type PlaybookCoverageSummary,
+} from "@/lib/playbook-coverage";
+import { buildReuseMemorySummary, type ReuseMemoryCase, type ReuseMemorySummary } from "@/lib/reuse-memory";
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import { getSourceProfile } from "@/lib/source-profiles";
 import { assessTransformability } from "@/lib/transformability";
@@ -40,10 +48,13 @@ export interface CopilotGuidance {
     score: number;
     bundles: PatternBundleSummary[];
   }>;
+  playbookCards: PlaybookCardMatch[];
   suggestedEditorialMode: {
     mode: EditorialMode;
     reason: string;
   } | null;
+  reuseMemory: ReuseMemorySummary;
+  playbookCoverageHint: PlaybookCoverageHint | null;
 }
 
 function buildSignalHref(signal: SignalRecord, suffix?: string): string {
@@ -60,6 +71,23 @@ function highPotential(signal: SignalRecord): boolean {
 
 function emptyPatternSuggestions(): CopilotGuidance["patternSuggestions"] {
   return [];
+}
+
+function emptyPlaybookCards(): PlaybookCardMatch[] {
+  return [];
+}
+
+function emptyReuseMemory(): ReuseMemorySummary {
+  return {
+    highlights: [],
+    positiveCount: 0,
+    cautionCount: 0,
+    neutralCount: 0,
+  };
+}
+
+function emptyPlaybookCoverageHint(): PlaybookCoverageHint | null {
+  return null;
 }
 
 function buildSuggestedEditorialMode(signal: SignalRecord): CopilotGuidance["suggestedEditorialMode"] {
@@ -94,6 +122,30 @@ function toCopilotPatternSuggestions(
   }));
 }
 
+function toCopilotPlaybookCards(input: {
+  signal: SignalRecord;
+  cards?: PlaybookCard[];
+  editorialMode?: EditorialMode | null;
+  patternSuggestions: CopilotGuidance["patternSuggestions"];
+}): PlaybookCardMatch[] {
+  if (!input.cards || input.cards.length === 0) {
+    return emptyPlaybookCards();
+  }
+
+  return findRelatedPlaybookCards({
+    signal: input.signal,
+    cards: input.cards,
+    editorialMode: input.editorialMode,
+    patternIds: input.patternSuggestions.map((suggestion) => suggestion.pattern.id),
+    bundleIds: input.patternSuggestions.flatMap((suggestion) => suggestion.bundles.map((bundle) => bundle.id)),
+    familyLabels: [
+      input.signal.signalCategory?.toLowerCase() ?? "",
+      input.signal.signalSubtype?.toLowerCase() ?? "",
+    ].filter(Boolean),
+    limit: 2,
+  });
+}
+
 export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
   const scenarioAssessment = assessScenarioAngle({
     scenarioAngle: signal.scenarioAngle,
@@ -118,7 +170,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
       actionHref: buildSignalHref(signal),
       feedbackContext: [],
       patternSuggestions: emptyPatternSuggestions(),
+      playbookCards: emptyPlaybookCards(),
       suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+      reuseMemory: emptyReuseMemory(),
+      playbookCoverageHint: emptyPlaybookCoverageHint(),
     };
   }
 
@@ -134,7 +189,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
       actionHref: buildSignalHref(signal),
       feedbackContext: [],
       patternSuggestions: emptyPatternSuggestions(),
+      playbookCards: emptyPlaybookCards(),
       suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+      reuseMemory: emptyReuseMemory(),
+      playbookCoverageHint: emptyPlaybookCoverageHint(),
     };
   }
 
@@ -152,7 +210,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
       actionHref: buildSignalHref(signal),
       feedbackContext: [],
       patternSuggestions: emptyPatternSuggestions(),
+      playbookCards: emptyPlaybookCards(),
       suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+      reuseMemory: emptyReuseMemory(),
+      playbookCoverageHint: emptyPlaybookCoverageHint(),
     };
   }
 
@@ -168,7 +229,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
       actionHref: buildSignalHref(signal),
       feedbackContext: [],
       patternSuggestions: emptyPatternSuggestions(),
+      playbookCards: emptyPlaybookCards(),
       suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+      reuseMemory: emptyReuseMemory(),
+      playbookCoverageHint: emptyPlaybookCoverageHint(),
     };
   }
 
@@ -184,7 +248,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
       actionHref: buildSignalHref(signal),
       feedbackContext: [],
       patternSuggestions: emptyPatternSuggestions(),
+      playbookCards: emptyPlaybookCards(),
       suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+      reuseMemory: emptyReuseMemory(),
+      playbookCoverageHint: emptyPlaybookCoverageHint(),
     };
   }
 
@@ -202,7 +269,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
       actionHref: buildSignalHref(signal, "generate"),
       feedbackContext: [],
       patternSuggestions: emptyPatternSuggestions(),
+      playbookCards: emptyPlaybookCards(),
       suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+      reuseMemory: emptyReuseMemory(),
+      playbookCoverageHint: emptyPlaybookCoverageHint(),
     };
   }
 
@@ -220,7 +290,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
         actionHref: buildSignalHref(signal, "interpret"),
         feedbackContext: [],
         patternSuggestions: emptyPatternSuggestions(),
+        playbookCards: emptyPlaybookCards(),
         suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+        reuseMemory: emptyReuseMemory(),
+        playbookCoverageHint: emptyPlaybookCoverageHint(),
       };
     }
 
@@ -235,7 +308,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
       actionHref: buildSignalHref(signal, "generate"),
       feedbackContext: [],
       patternSuggestions: emptyPatternSuggestions(),
+      playbookCards: emptyPlaybookCards(),
       suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+      reuseMemory: emptyReuseMemory(),
+      playbookCoverageHint: emptyPlaybookCoverageHint(),
     };
   }
 
@@ -251,7 +327,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
       actionHref: buildSignalHref(signal),
       feedbackContext: [],
       patternSuggestions: emptyPatternSuggestions(),
+      playbookCards: emptyPlaybookCards(),
       suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+      reuseMemory: emptyReuseMemory(),
+      playbookCoverageHint: emptyPlaybookCoverageHint(),
     };
   }
 
@@ -272,7 +351,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
       actionHref: buildSignalHref(signal, "interpret"),
       feedbackContext: [],
       patternSuggestions: emptyPatternSuggestions(),
+      playbookCards: emptyPlaybookCards(),
       suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+      reuseMemory: emptyReuseMemory(),
+      playbookCoverageHint: emptyPlaybookCoverageHint(),
     };
   }
 
@@ -291,7 +373,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
       actionHref: buildSignalHref(signal, "interpret"),
       feedbackContext: [],
       patternSuggestions: emptyPatternSuggestions(),
+      playbookCards: emptyPlaybookCards(),
       suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+      reuseMemory: emptyReuseMemory(),
+      playbookCoverageHint: emptyPlaybookCoverageHint(),
     };
   }
 
@@ -311,7 +396,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
         actionHref: buildSignalHref(signal, "interpret"),
         feedbackContext: [],
         patternSuggestions: emptyPatternSuggestions(),
+        playbookCards: emptyPlaybookCards(),
         suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+        reuseMemory: emptyReuseMemory(),
+        playbookCoverageHint: emptyPlaybookCoverageHint(),
       };
     }
 
@@ -327,7 +415,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
       actionHref: buildSignalHref(signal),
       feedbackContext: [],
       patternSuggestions: emptyPatternSuggestions(),
+      playbookCards: emptyPlaybookCards(),
       suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+      reuseMemory: emptyReuseMemory(),
+      playbookCoverageHint: emptyPlaybookCoverageHint(),
     };
   }
 
@@ -342,7 +433,10 @@ export function getCopilotGuidance(signal: SignalRecord): CopilotGuidance {
     actionHref: buildSignalHref(signal),
     feedbackContext: [],
     patternSuggestions: emptyPatternSuggestions(),
+    playbookCards: emptyPlaybookCards(),
     suggestedEditorialMode: buildSuggestedEditorialMode(signal),
+    reuseMemory: emptyReuseMemory(),
+    playbookCoverageHint: emptyPlaybookCoverageHint(),
   };
 }
 
@@ -354,6 +448,9 @@ export function getFeedbackAwareCopilotGuidance(
     patterns?: SignalPattern[];
     bundleSummariesByPatternId?: Record<string, PatternBundleSummary[]>;
     patternEffectivenessById?: Record<string, PatternEffectivenessSummary>;
+    playbookCards?: PlaybookCard[];
+    reuseMemoryCases?: ReuseMemoryCase[];
+    playbookCoverageSummary?: PlaybookCoverageSummary;
   },
 ): CopilotGuidance {
   const guidance = getCopilotGuidance(signal);
@@ -369,11 +466,28 @@ export function getFeedbackAwareCopilotGuidance(
     options.bundleSummariesByPatternId,
     options.patternEffectivenessById,
   );
+  const reuseMemory = buildReuseMemorySummary({
+    signal,
+    cases: options.reuseMemoryCases ?? [],
+    editorialMode: signal.editorialMode ?? guidance.suggestedEditorialMode?.mode ?? null,
+  });
+  const playbookCards = toCopilotPlaybookCards({
+    signal,
+    cards: options.playbookCards,
+    editorialMode: signal.editorialMode ?? guidance.suggestedEditorialMode?.mode ?? null,
+    patternSuggestions,
+  });
+  const playbookCoverageHint = options.playbookCoverageSummary
+    ? getPlaybookCoverageHint(signal.recordId, options.playbookCoverageSummary)
+    : null;
 
   return {
     ...guidance,
     feedbackContext,
     patternSuggestions,
+    playbookCards,
+    reuseMemory,
+    playbookCoverageHint,
   };
 }
 
@@ -383,6 +497,9 @@ export function buildFeedbackAwareCopilotGuidanceMap(
   patterns?: SignalPattern[],
   bundleSummariesByPatternId?: Record<string, PatternBundleSummary[]>,
   patternEffectivenessById?: Record<string, PatternEffectivenessSummary>,
+  playbookCards?: PlaybookCard[],
+  reuseMemoryCases?: ReuseMemoryCase[],
+  playbookCoverageSummary?: PlaybookCoverageSummary,
 ): Record<string, CopilotGuidance> {
   return Object.fromEntries(
     signals.map((signal) => [
@@ -393,6 +510,9 @@ export function buildFeedbackAwareCopilotGuidanceMap(
         patterns,
         bundleSummariesByPatternId,
         patternEffectivenessById,
+        playbookCards,
+        reuseMemoryCases,
+        playbookCoverageSummary,
       }),
     ]),
   );

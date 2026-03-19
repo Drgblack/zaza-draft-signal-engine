@@ -10,7 +10,12 @@ import { listFeedbackEntries } from "@/lib/feedback";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { STATUS_DISPLAY_ORDER } from "@/lib/constants";
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { listPostingOutcomes } from "@/lib/outcomes";
+import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPatterns } from "@/lib/patterns";
+import { listPostingLogEntries } from "@/lib/posting-log";
+import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { formatDateTime } from "@/lib/utils";
 import { getScheduledSoonSignals, getWorkflowBuckets } from "@/lib/workflow";
 
@@ -20,12 +25,33 @@ export default async function DashboardPage() {
   const { signals, source, error } = await listSignalsWithFallback();
   const feedbackEntries = await listFeedbackEntries();
   const patterns = await listPatterns();
+  const playbookCards = await listPlaybookCards();
   const bundles = await listPatternBundles();
+  const postingEntries = await listPostingLogEntries();
+  const postingOutcomes = await listPostingOutcomes();
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
+  const reuseMemoryCases = buildReuseMemoryCases({
+    signals,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const playbookCoverageSummary = buildPlaybookCoverageSummary({
+    signals,
+    playbookCards,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
   const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
     signals,
     feedbackEntries,
     patterns,
-    indexBundleSummariesByPatternId(bundles),
+    bundleSummariesByPatternId,
+    undefined,
+    playbookCards,
+    reuseMemoryCases,
+    playbookCoverageSummary,
   );
   const workflowBuckets = getWorkflowBuckets(signals);
   const scheduledSoon = getScheduledSoonSignals(signals);
@@ -58,6 +84,9 @@ export default async function DashboardPage() {
             </Link>
             <Link href="/ingestion" className={buttonVariants({ variant: "secondary" })}>
               Run pipeline
+            </Link>
+            <Link href="/playbook" className={buttonVariants({ variant: "secondary" })}>
+              Open playbook
             </Link>
             <p className="text-sm text-slate-500">
               Data source: <span className="font-medium text-slate-700">{source === "airtable" ? "Airtable" : "Mock fallback"}</span>

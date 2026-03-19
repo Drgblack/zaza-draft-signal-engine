@@ -85,6 +85,9 @@ export default async function PatternBundleDetailPage({
           <Link href="/patterns" className="text-[color:var(--accent)] underline underline-offset-4">
             Open pattern library
           </Link>
+          <Link href={`/playbook?bundleId=${bundle.id}`} className="text-[color:var(--accent)] underline underline-offset-4">
+            Create playbook card
+          </Link>
         </CardContent>
       </Card>
 

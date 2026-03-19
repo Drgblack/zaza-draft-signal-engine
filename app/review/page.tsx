@@ -8,7 +8,11 @@ import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { listPatterns } from "@/lib/patterns";
+import { listPostingOutcomes } from "@/lib/outcomes";
+import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { listPlaybookCards } from "@/lib/playbook-cards";
 import { buildSignalPostingSummary, indexPostingEntriesBySignalId, listPostingLogEntries } from "@/lib/posting-log";
+import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { getScheduledSoonSignals, getWorkflowBuckets, sortSignals } from "@/lib/workflow";
 import { formatDateTime } from "@/lib/utils";
 
@@ -18,13 +22,33 @@ export default async function ReviewPage() {
   const { signals, source, error } = await listSignalsWithFallback();
   const feedbackEntries = await listFeedbackEntries();
   const patterns = await listPatterns();
+  const playbookCards = await listPlaybookCards();
   const bundles = await listPatternBundles();
   const postingEntries = await listPostingLogEntries();
+  const postingOutcomes = await listPostingOutcomes();
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
+  const reuseMemoryCases = buildReuseMemoryCases({
+    signals,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const playbookCoverageSummary = buildPlaybookCoverageSummary({
+    signals,
+    playbookCards,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
   const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
     signals,
     feedbackEntries,
     patterns,
-    indexBundleSummariesByPatternId(bundles),
+    bundleSummariesByPatternId,
+    undefined,
+    playbookCards,
+    reuseMemoryCases,
+    playbookCoverageSummary,
   );
   const sortedSignals = sortSignals(signals, "createdDate-desc");
   const postingEntriesBySignalId = indexPostingEntriesBySignalId(postingEntries);

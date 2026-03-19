@@ -112,6 +112,35 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - editable final draft fields separate from raw generated drafts
   - per-platform final decision states
   - lightweight final-review audit events
+- Reuse memory with:
+  - centralized heuristic matching in `lib/reuse-memory.ts`
+  - compact prior-outcome hints in co-pilot guidance
+  - light reuse-memory guidance on generation
+  - compact reuse-memory summaries on `/insights`
+  - no automatic reuse or ML similarity
+- Editorial playbook cards with:
+  - centralized storage and matching in `lib/playbook-cards.ts`
+  - `/playbook` library and `/playbook/[id]` detail view
+  - lightweight manual create/edit flow
+  - optional prefill from signal, pattern, or bundle context
+  - optional prefill from surfaced playbook coverage gaps
+  - compact workflow surfacing in co-pilot guidance and generation
+  - no auto-generated cards or hidden prompt behavior
+- Playbook coverage gaps with:
+  - centralized heuristic area detection in `lib/playbook-coverage.ts`
+  - compact deterministic areas built from structured dimensions such as platform, editorial mode, source family, and recurring situation family
+  - explicit status labels: covered, weakly covered, uncovered, low-signal
+  - surfaced gap types: uncovered, weak coverage, opportunity
+  - quick create-card actions from `/insights` and light co-pilot hints when a current signal sits inside a meaningful gap
+  - audit events only for surfaced gaps and cards explicitly created from a gap
+  - no embeddings, semantic clustering, or automatic playbook generation
+- Unified guidance convergence with:
+  - centralized assembly in `lib/guidance.ts`
+  - one structured guidance model for primary action, supporting context, reuse memory, playbook support, pattern support, bundle context, and meaningful gap warnings
+  - a single guidance panel on signal detail pages
+  - lighter reuse of the same model on interpretation, generation, and review pages
+  - explicit prioritisation of blocker first, then strongest reuse or support signal, then meaningful caution or gap note
+  - no autonomous decision-making or hidden ranking logic
 - Dashboard, signals index, signal detail, new signal, review, interpretation, and generation pages
 - Generation workbench page
 - Generation readiness and quality guidance with:
@@ -209,6 +238,44 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - shared communication-situation markers such as parent tension, documentation, incident communication, or planning reset
   - optional effectiveness hints based on existing pattern feedback and usage outcomes
   - no embeddings, semantic retrieval, or automatic application
+- Playbook cards stay distinct from patterns and bundles:
+  - patterns preserve reusable framing or output memory for generation
+  - bundles organise related patterns into small scenario families
+  - playbook cards surface compact operator guidance about what works, what to avoid, and which mode or family to consider
+  - playbook-card matching is heuristic only and uses explicit links, family labels, editorial mode, and wording overlap rather than ML summarisation
+
+## Unified Guidance Notes
+- Unified guidance is an assembly layer over existing bounded subsystems, not a replacement for them.
+- The central model currently supports compact fields such as:
+  - `primaryAction`
+  - `primaryReason`
+  - `supportingSignals`
+  - `reuseMemory`
+  - `relatedPlaybookCards`
+  - `relatedPatterns`
+  - `relatedBundles`
+  - `gapWarnings`
+  - `cautionNotes`
+  - `readinessState`
+- Current assembly combines:
+  - core co-pilot recommendation
+  - feedback-aware support context
+  - reuse-memory highlights
+  - strongest related playbook card
+  - strongest related pattern and bundle context
+  - meaningful playbook coverage-gap warnings
+- Prioritisation is intentionally explicit:
+  - blocker or main next action first
+  - strongest reuse-memory signal second
+  - strongest playbook or pattern support next
+  - gap warning or caution note only when it adds operator value
+- The purpose is to reduce fragmentation across guidance surfaces, not to add more advice.
+- Current limitations:
+  - heuristic only
+  - operator-facing only
+  - no hidden scoring or ranking layer
+  - no automatic pattern, bundle, or playbook selection
+  - some guidance surfaces still stay separate when they are action-heavy, such as full pattern suggestion lists on generation and interpretation
 
 ## Audit Trail Notes
 - The audit trail is a lightweight, append-only decision memory per signal.
@@ -254,6 +321,7 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - audited override counts and manual intervention concentration
   - pattern-candidate counts and saved-vs-unsaved candidate summaries
   - explicit pattern-suggestion interaction counts and suggested-pattern applications
+  - reuse-memory summaries based on prior judged posted outcomes
 - Current limitations:
   - suggestion adoption for Scenario Angle prompts is not explicitly tracked yet
   - pattern discovery is heuristic only and intentionally does not use similarity search, embeddings, or auto-creation
@@ -659,6 +727,37 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - one current outcome record per posting log entry
   - no external analytics import
   - no automatic judgement or success scoring
+
+## Reuse Memory Notes
+- Reuse memory is a bounded editorial-memory layer built on top of:
+  - manual posting logs
+  - manual qualitative outcome judgements
+- Its job is to answer questions such as:
+  - has something like this worked before?
+  - did a similar mode, platform, pattern, or bundle lead to a strong outcome?
+  - was a similar framing previously marked do not repeat?
+- Similar-enough matching is heuristic and inspectable. Current signals include:
+  - same editorial mode
+  - same platform
+  - same selected pattern
+  - shared bundle membership
+  - same source family
+  - same signal category
+  - overlapping Scenario Angle wording
+  - lightweight family matching through explicit keyword buckets
+- Reuse memory is surfaced lightly in:
+  - co-pilot guidance
+  - generation context
+  - `/insights`
+- Reuse memory is advisory only:
+  - it does not auto-apply past approaches
+  - it does not block new ideas
+  - it does not change scoring or generation rules
+  - it does not use embeddings, semantic retrieval, or ML ranking
+- Current limitations:
+  - the memory layer is only as good as the manually logged posting and outcome history
+  - matching is heuristic and intentionally conservative
+  - it surfaces a few stronger hints rather than a full historical search interface
 
 ## Source-Aware Prioritisation Notes
 - Teacher discussion and forum-style sources can score better when they contain direct teacher communication tension.

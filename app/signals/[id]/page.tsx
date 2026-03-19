@@ -3,13 +3,12 @@ import { notFound } from "next/navigation";
 
 import { AuditTrail } from "@/components/signals/audit-trail";
 import { CategoryBadge } from "@/components/signals/category-badge";
-import { CopilotGuidanceCard } from "@/components/signals/copilot-guidance";
 import { FeedbackPanel } from "@/components/signals/feedback-panel";
+import { GuidancePanel } from "@/components/signals/guidance-panel";
 import { PostingHistoryPanel } from "@/components/signals/posting-history-panel";
 import { PatternCandidatePanel } from "@/components/patterns/pattern-candidate-panel";
 import { PatternCoveragePanel } from "@/components/patterns/pattern-coverage-panel";
 import { PatternFormCard } from "@/components/patterns/pattern-form-card";
-import { RelatedPatternsPanel } from "@/components/patterns/related-patterns-panel";
 import { ScoringPanel } from "@/components/signals/scoring-panel";
 import { SeverityBadge } from "@/components/signals/severity-badge";
 import { SignalWorkflowPanel } from "@/components/signals/signal-workflow-panel";
@@ -21,22 +20,24 @@ import { deriveDisplayEngagementScore, getSignalWithFallback, listSignalsWithFal
 import { getAuditEvents, listAuditEvents } from "@/lib/audit";
 import { buildBundleCoverageSummary, getSignalBundleCoverageHint } from "@/lib/bundle-coverage";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
-import { getFeedbackAwareCopilotGuidance } from "@/lib/copilot";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { buildFinalReviewSummary } from "@/lib/final-review";
+import { assembleGuidanceForSignal } from "@/lib/guidance";
 import { indexOutcomesByPostingLogId, listPostingOutcomes } from "@/lib/outcomes";
+import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { buildPatternCoverageRecords, buildPatternDraftFromCoverageGap } from "@/lib/pattern-coverage";
 import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
 import { assessPatternCandidate } from "@/lib/pattern-discovery";
-import { buildSignalPostingSummary, getPostingLogEntries } from "@/lib/posting-log";
+import { buildSignalPostingSummary, getPostingLogEntries, listPostingLogEntries } from "@/lib/posting-log";
+import { listPlaybookCards } from "@/lib/playbook-cards";
 import {
   buildPatternDraftFromSignal,
   buildPatternEffectivenessSummaries,
-  findRelatedPatterns,
   indexPatternEffectivenessSummaries,
   listPatterns,
 } from "@/lib/patterns";
+import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import { buildInitialScoringFromSignal } from "@/lib/scoring";
 import { assessTransformability } from "@/lib/transformability";
@@ -86,10 +87,13 @@ export default async function SignalDetailPage({
   const feedbackEntries = await getFeedbackEntries(signal.recordId);
   const allFeedbackEntries = await listFeedbackEntries();
   const postingEntries = await getPostingLogEntries(signal.recordId);
+  const allPostingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes({ signalIds: [signal.recordId] });
+  const allPostingOutcomes = await listPostingOutcomes();
   const patterns = await listPatterns();
   const allPatterns = await listPatterns({ includeRetired: true });
   const bundles = await listPatternBundles();
+  const playbookCards = await listPlaybookCards();
   const allAuditEvents = await listAuditEvents();
   const allPatternFeedbackEntries = await listPatternFeedbackEntries();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
@@ -113,7 +117,6 @@ export default async function SignalDetailPage({
     coverageRecord: coverageAssessment,
     summary: bundleCoverageSummary,
   });
-  const relatedPatterns = findRelatedPatterns(signal, patterns, { limit: 3 });
   const patternCandidate = assessPatternCandidate(signal, {
     feedbackEntries,
     patterns,
@@ -133,12 +136,30 @@ export default async function SignalDetailPage({
     sourceTitle: signal.sourceTitle,
   });
   const transformability = assessTransformability(signal);
-  const copilotGuidance = getFeedbackAwareCopilotGuidance(signal, {
+  const playbookCoverageSummary = buildPlaybookCoverageSummary({
+    signals: allSignals,
+    playbookCards,
+    postingEntries: allPostingEntries,
+    postingOutcomes: allPostingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const reuseMemoryCases = buildReuseMemoryCases({
+    signals: allSignals,
+    postingEntries: allPostingEntries,
+    postingOutcomes: allPostingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const guidance = assembleGuidanceForSignal({
+    signal,
+    context: "detail",
     allSignals,
     feedbackEntries: allFeedbackEntries,
     patterns,
     bundleSummariesByPatternId,
     patternEffectivenessById,
+    playbookCards,
+    reuseMemoryCases,
+    playbookCoverageSummary,
   });
   const readinessTone =
     automationReadiness.tone === "success"
@@ -272,13 +293,10 @@ export default async function SignalDetailPage({
             </CardContent>
           </Card>
 
-          <CopilotGuidanceCard signalId={signal.recordId} guidance={copilotGuidance} suggestedPatterns={patterns} />
-
-          <RelatedPatternsPanel
-            title="Related patterns"
-            description="Saved examples that look relevant to this record. Use them as references, not automatic templates."
-            emptyCopy="No related patterns match this record yet."
-            patterns={relatedPatterns}
+          <GuidancePanel
+            guidance={guidance}
+            title="Guidance"
+            description="One compact view of the strongest next step, what has worked before, and whether support or coverage gaps already exist."
           />
 
           <PatternCandidatePanel
@@ -304,6 +322,19 @@ export default async function SignalDetailPage({
             suggestion={patternCandidate}
             coverageAssessment={coverageAssessment}
           />
+
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href={
+                guidance.gapWarnings[0]
+                  ? guidance.gapWarnings[0].href
+                  : `/playbook?signalId=${signal.recordId}`
+              }
+              className={buttonVariants({ variant: "secondary", size: "sm" })}
+            >
+              Create playbook card
+            </Link>
+          </div>
 
           <FeedbackPanel
             signalId={signal.recordId}

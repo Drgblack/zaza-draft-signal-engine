@@ -1,7 +1,107 @@
 # Codex Runs
 
 ## Current Run
-Run 35 adds Outcome Quality Tracking:
+Run 39 adds Playbook + Reuse Convergence:
+- new centralized guidance assembly in `lib/guidance.ts`
+- guidance now composes existing subsystems into one structured operator-facing model:
+  - primary action
+  - supporting signals
+  - reuse-memory highlights
+  - strongest related playbook card
+  - strongest related pattern and bundle
+  - meaningful gap warnings and caution notes
+- `/signals/[id]` now replaces the fragmented co-pilot card stack with a single `Guidance` panel
+- `/signals/[id]/interpret`, `/signals/[id]/generate`, and `/signals/[id]/review` now reuse lighter versions of the same guidance model
+- guidance prioritisation stays explicit:
+  - main blocker or next action first
+  - strongest reuse-memory insight next
+  - strongest playbook or pattern support after that
+  - gap warning only when genuinely useful
+- generation workbench no longer repeats separate reuse-memory and playbook panels when the converged guidance panel already covers that support
+- queue/table hints now use the same guidance assembly shape more coherently through the shared compact hint rendering
+- this run remains bounded:
+  - no chat UI
+  - no autonomous decision engine
+  - no hidden ranking system
+  - no major UI redesign
+
+## Previous Runs
+- Run 38 adds Playbook Coverage Gaps:
+- new centralized playbook-coverage module in `lib/playbook-coverage.ts`
+- coverage areas are compact, deterministic combinations of existing structured signals such as:
+  - platform
+  - editorial mode
+  - source family
+  - recurring situation family
+- coverage areas are classified as:
+  - covered
+  - weakly covered
+  - uncovered
+  - low-signal
+- surfaced playbook gaps are grouped as:
+  - uncovered
+  - weak coverage
+  - opportunity
+- `/insights` now includes a dedicated `Playbook Coverage Gaps` section with:
+  - 5-10 compact grouped gaps
+  - why each gap was flagged
+  - suggested action
+  - quick `Create playbook card` links
+- playbook creation now supports direct prefill from a surfaced gap:
+  - title
+  - situation
+  - suggested modes
+  - obvious related patterns / bundles / tags
+  - `what works` and `what to avoid` stay for operator input
+- co-pilot guidance can now surface a light playbook-coverage hint when a signal sits inside an uncovered or weakly covered area
+- signal detail `Create playbook card` now routes through the surfaced gap when one exists
+- audit logging now supports:
+  - `PLAYBOOK_GAP_DETECTED`
+  - `PLAYBOOK_CARD_CREATED_FROM_GAP`
+- mock mode now includes seeded examples for:
+  - covered playbook areas
+  - uncovered recurring areas
+  - weakly covered areas
+  - strong no-card opportunities
+- this run remains bounded:
+  - no embeddings
+  - no semantic clustering
+  - no automatic playbook generation
+  - no scoring changes based on gap state
+- Run 36 adds Reuse Memory:
+- new centralized heuristic helper in `lib/reuse-memory.ts`
+- reuse memory matches prior judged posted outcomes through explicit, bounded signals such as:
+  - same editorial mode
+  - same platform
+  - same selected pattern
+  - shared bundle
+  - same source family
+  - same signal category
+  - overlapping Scenario Angle wording
+- reuse memory stays advisory only:
+  - no automatic reuse
+  - no hidden ranking
+  - no prompt injection
+  - no ML similarity
+- co-pilot guidance can now surface a compact `Reuse memory` section with:
+  - what worked before
+  - what previously needed caution
+- generation workbench now shows a small reuse-memory panel based on the current selected editorial mode and optional pattern selection
+- queue and table hints can now carry a short prior-outcome memory line when relevant
+- `/insights` now includes a lightweight reuse-memory section covering:
+  - judged prior cases
+  - reusable vs cautionary cases
+  - top reusable combinations
+  - combinations most often marked do not repeat
+  - strongest and weakest platforms for reuse memory
+- mock mode now includes both positive and cautionary judged-post examples so the layer is visible without Airtable
+- this run remains bounded:
+  - no automatic reuse
+  - no cloning of prior content
+  - no embeddings or semantic retrieval
+  - no workflow automation changes
+
+- Run 35 adds Outcome Quality Tracking:
 - new qualitative outcome model split into:
   - pure outcome shape helpers in `lib/outcome-memory.ts`
   - file-backed persistence in `lib/outcomes.ts`
@@ -31,13 +131,11 @@ Run 35 adds Outcome Quality Tracking:
   - strongest linked pattern
   - mode most often marked do not repeat
 - mock mode now includes seeded posted outcomes and matching audit events
-- this run remains bounded:
+ - this run remains bounded:
   - no social API analytics
   - no automatic success scoring
   - no quantitative growth dashboard
   - no recommendation auto-updates
-
-## Previous Runs
 - Run 34 adds a Posting Log & External Publishing Memory layer:
 - new centralized posting-memory module in `lib/posting-memory.ts`
 - new file-backed posting-log store in `lib/posting-log.ts`

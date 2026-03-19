@@ -30,10 +30,18 @@ import {
   getOutcomeQualityLabel,
   type PostingOutcome,
 } from "@/lib/outcome-memory";
+import {
+  buildPlaybookCoverageSummary,
+  type PlaybookCoverageGap,
+  type PlaybookCoverageStatus,
+} from "@/lib/playbook-coverage";
 import type { PostingLogEntry } from "@/lib/posting-memory";
-import type { PatternBundle } from "@/lib/pattern-bundles";
+import { indexBundleSummariesByPatternId, type PatternBundle } from "@/lib/pattern-bundles";
 import type { PatternType, SignalPattern } from "@/lib/pattern-definitions";
 import { getPostingPlatformLabel, POSTING_PLATFORMS } from "@/lib/posting-log";
+import { buildReuseMemoryCases, buildReuseMemoryInsights } from "@/lib/reuse-memory";
+import type { PlaybookCard } from "@/lib/playbook-card-definitions";
+import { findRelatedPlaybookCards } from "@/lib/playbook-cards";
 import { hasGeneration, hasInterpretation, hasScoring, isFilteredOutSignal } from "@/lib/workflow";
 import { EDITORIAL_MODES, type EditorialMode, type SignalRecord } from "@/types/signal";
 
@@ -211,6 +219,43 @@ export interface OutcomePlatformInsightRow {
   weakCount: number;
 }
 
+export interface ReuseMemoryCombinationInsightRow {
+  label: string;
+  count: number;
+}
+
+export interface ReuseMemoryPlatformInsightRow {
+  platform: "x" | "linkedin" | "reddit";
+  label: string;
+  reusableCount: number;
+  cautionCount: number;
+}
+
+export interface PlaybookCardInsightRow {
+  cardId: string;
+  title: string;
+  count: number;
+}
+
+export interface PlaybookCoverageGapInsightRow {
+  key: string;
+  label: string;
+  kind: "uncovered" | "weak_coverage" | "opportunity";
+  flag: string;
+  status: PlaybookCoverageStatus;
+  summary: string;
+  whyFlagged: string;
+  suggestedAction: string;
+  signalCount: number;
+  strongOutcomeCount: number;
+  acceptableOutcomeCount: number;
+  weakOutcomeCount: number;
+  cautionCount: number;
+  adaptBeforeReuseCount: number;
+  cardCount: number;
+  signalIds: string[];
+}
+
 export interface SignalInsights {
   window: InsightWindow;
   windowLabel: string;
@@ -303,6 +348,18 @@ export interface SignalInsights {
     topStrongPatternName: string | null;
     topDoNotRepeatModeLabel: string | null;
   };
+  reuseMemory: {
+    totalCases: number;
+    reusableCount: number;
+    cautionCount: number;
+    topReusableCombinationLabel: string | null;
+    topDoNotRepeatCombinationLabel: string | null;
+    strongestPlatformLabel: string | null;
+    weakestPlatformLabel: string | null;
+    reusableRows: ReuseMemoryCombinationInsightRow[];
+    cautionRows: ReuseMemoryCombinationInsightRow[];
+    platformRows: ReuseMemoryPlatformInsightRow[];
+  };
   bundleCoverage: {
     bundleCount: number;
     strongCoverageCount: number;
@@ -311,6 +368,23 @@ export interface SignalInsights {
     inactiveBundleCount: number;
     bundles: BundleCoverageInsightRow[];
     missingKitCandidates: MissingKitInsightRow[];
+  };
+  playbook: {
+    cardCount: number;
+    activeCount: number;
+    retiredCount: number;
+    referencedCount: number;
+    coverageAreaCount: number;
+    coveredAreaCount: number;
+    weaklyCoveredAreaCount: number;
+    uncoveredAreaCount: number;
+    lowSignalAreaCount: number;
+    topCards: PlaybookCardInsightRow[];
+    topCoverageGaps: PlaybookCoverageGapInsightRow[];
+    uncoveredGaps: PlaybookCoverageGapInsightRow[];
+    weakCoverageGaps: PlaybookCoverageGapInsightRow[];
+    opportunityGaps: PlaybookCoverageGapInsightRow[];
+    uncoveredFamiliesWithoutCard: string[];
   };
   observations: InsightObservation[];
   limitations: string[];
@@ -646,6 +720,23 @@ function buildEditorialModeInsights(
   };
 }
 
+function buildReuseMemorySection(input: {
+  signals: SignalRecord[];
+  postingEntries: PostingLogEntry[];
+  postingOutcomes: PostingOutcome[];
+  bundles: PatternBundle[];
+}): SignalInsights["reuseMemory"] {
+  const cases = buildReuseMemoryCases({
+    signals: input.signals,
+    postingEntries: input.postingEntries,
+    postingOutcomes: input.postingOutcomes,
+    bundleSummariesByPatternId: indexBundleSummariesByPatternId(input.bundles),
+  });
+  const summary = buildReuseMemoryInsights(cases);
+
+  return summary;
+}
+
 function buildFinalReviewInsights(signals: SignalRecord[]): SignalInsights["finalReview"] {
   const platformRows: FinalReviewPlatformInsightRow[] = [
     { platform: "x", label: "X", readyCount: 0, needsEditCount: 0, skipCount: 0 },
@@ -912,6 +1003,103 @@ function buildBundleCoverageInsights(input: {
   };
 }
 
+function buildPlaybookInsights(input: {
+  signals: SignalRecord[];
+  cards: PlaybookCard[];
+  postingEntries: PostingLogEntry[];
+  postingOutcomes: PostingOutcome[];
+  bundles: PatternBundle[];
+  patternCoverage: SignalInsights["patternCoverage"];
+  bundleCoverage: SignalInsights["bundleCoverage"];
+}): SignalInsights["playbook"] {
+  const activeCards = input.cards.filter((card) => card.status === "active");
+  const counts = new Map<string, PlaybookCardInsightRow>();
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(input.bundles);
+  const coverageSummary = buildPlaybookCoverageSummary({
+    signals: input.signals,
+    playbookCards: input.cards,
+    postingEntries: input.postingEntries,
+    postingOutcomes: input.postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+
+  for (const signal of input.signals) {
+    const matches = findRelatedPlaybookCards({
+      signal,
+      cards: activeCards,
+      editorialMode: signal.editorialMode,
+      familyLabels: [
+        signal.signalCategory?.toLowerCase() ?? "",
+        signal.signalSubtype?.toLowerCase() ?? "",
+      ].filter(Boolean),
+      limit: 2,
+    });
+
+    for (const match of matches) {
+      const current = counts.get(match.card.id) ?? {
+        cardId: match.card.id,
+        title: match.card.title,
+        count: 0,
+      };
+      current.count += 1;
+      counts.set(match.card.id, current);
+    }
+  }
+
+  const toGapInsightRow = (gap: PlaybookCoverageGap): PlaybookCoverageGapInsightRow => ({
+    key: gap.key,
+    label: gap.label,
+    kind: gap.kind,
+    flag: gap.flag,
+    status: gap.status,
+    summary: gap.compactSummary,
+    whyFlagged: gap.whyFlagged,
+    suggestedAction: gap.suggestedAction,
+    signalCount: gap.signalCount,
+    strongOutcomeCount: gap.strongOutcomeCount,
+    acceptableOutcomeCount: gap.acceptableOutcomeCount,
+    weakOutcomeCount: gap.weakOutcomeCount,
+    cautionCount: gap.cautionCount,
+    adaptBeforeReuseCount: gap.adaptBeforeReuseCount,
+    cardCount: gap.cardCount,
+    signalIds: gap.signalIds,
+  });
+
+  const normalizedCardText = activeCards.map((card) => ({
+    id: card.id,
+    text: `${card.title} ${card.summary} ${card.situation} ${card.relatedTags.join(" ")}`.toLowerCase(),
+  }));
+  const uncoveredFamiliesWithoutCard = [
+    ...input.bundleCoverage.missingKitCandidates.map((candidate) => candidate.familyLabel),
+    ...input.patternCoverage.topGapTypes.map((gap) => gap.label),
+  ].filter((label, index, values) => values.indexOf(label) === index)
+    .filter((label) => {
+      const normalized = label.toLowerCase();
+      return !normalizedCardText.some((card) => card.text.includes(normalized));
+    })
+    .slice(0, 3);
+
+  return {
+    cardCount: input.cards.length,
+    activeCount: activeCards.length,
+    retiredCount: input.cards.filter((card) => card.status === "retired").length,
+    referencedCount: counts.size,
+    coverageAreaCount: coverageSummary.areaCount,
+    coveredAreaCount: coverageSummary.coveredCount,
+    weaklyCoveredAreaCount: coverageSummary.weaklyCoveredCount,
+    uncoveredAreaCount: coverageSummary.uncoveredCount,
+    lowSignalAreaCount: coverageSummary.lowSignalCount,
+    topCards: Array.from(counts.values())
+      .sort((left, right) => right.count - left.count || left.title.localeCompare(right.title))
+      .slice(0, 3),
+    topCoverageGaps: coverageSummary.gaps.slice(0, 10).map(toGapInsightRow),
+    uncoveredGaps: coverageSummary.groupedGaps.uncovered.slice(0, 5).map(toGapInsightRow),
+    weakCoverageGaps: coverageSummary.groupedGaps.weakCoverage.slice(0, 5).map(toGapInsightRow),
+    opportunityGaps: coverageSummary.groupedGaps.opportunity.slice(0, 5).map(toGapInsightRow),
+    uncoveredFamiliesWithoutCard,
+  };
+}
+
 function buildScenarioRows(signals: SignalRecord[]): ScenarioQualityInsightRow[] {
   const groups = new Map<ScenarioAngleQuality, ScenarioMetricAccumulator>();
 
@@ -1171,7 +1359,9 @@ function buildObservations(input: {
   finalReview: SignalInsights["finalReview"];
   posting: SignalInsights["posting"];
   outcomes: SignalInsights["outcomes"];
+  reuseMemory: SignalInsights["reuseMemory"];
   bundleCoverage: SignalInsights["bundleCoverage"];
+  playbook: SignalInsights["playbook"];
 }): InsightObservation[] {
   const observations: InsightObservation[] = [];
   const strongOrUsableRate = rateForQualities(input.scenarioRows, ["strong", "usable"]);
@@ -1311,6 +1501,34 @@ function buildObservations(input: {
     });
   }
 
+  if (input.reuseMemory.topReusableCombinationLabel) {
+    observations.push({
+      tone: "neutral",
+      text: `${input.reuseMemory.topReusableCombinationLabel} is the strongest current reuse-memory combination.`,
+    });
+  }
+
+  if (input.reuseMemory.topDoNotRepeatCombinationLabel) {
+    observations.push({
+      tone: "warning",
+      text: `${input.reuseMemory.topDoNotRepeatCombinationLabel} is the combination most often marked do not repeat.`,
+    });
+  }
+
+  if (input.playbook.topCards[0]) {
+    observations.push({
+      tone: "neutral",
+      text: `${input.playbook.topCards[0].title} is currently the most frequently surfaced playbook card in this window.`,
+    });
+  }
+
+  if (input.playbook.topCoverageGaps[0]) {
+    observations.push({
+      tone: input.playbook.topCoverageGaps[0].kind === "weak_coverage" ? "warning" : "neutral",
+      text: input.playbook.topCoverageGaps[0].summary,
+    });
+  }
+
   const topOverrideStage = input.operator.overrideStageRows[0];
   if (topOverrideStage) {
     observations.push({
@@ -1332,6 +1550,7 @@ export function buildSignalInsights(
     patterns?: SignalPattern[];
     allPatterns?: SignalPattern[];
     bundles?: PatternBundle[];
+    playbookCards?: PlaybookCard[];
     patternFeedbackEntries?: PatternFeedbackEntry[];
     postingEntries?: PostingLogEntry[];
     postingOutcomes?: PostingOutcome[];
@@ -1383,6 +1602,13 @@ export function buildSignalInsights(
     includedPostingEntries,
     (options?.postingOutcomes ?? []).filter((outcome) => includedSignalIds.has(outcome.signalId)),
   );
+  const includedPostingOutcomes = (options?.postingOutcomes ?? []).filter((outcome) => includedSignalIds.has(outcome.signalId));
+  const reuseMemory = buildReuseMemorySection({
+    signals: filteredSignals,
+    postingEntries: includedPostingEntries,
+    postingOutcomes: includedPostingOutcomes,
+    bundles: options?.bundles ?? [],
+  });
   const bundleCoverage = buildBundleCoverageInsights({
     signals: filteredSignals,
     auditEvents: includedAuditEvents,
@@ -1390,6 +1616,15 @@ export function buildSignalInsights(
     patternFeedbackEntries: options?.patternFeedbackEntries ?? [],
     patterns: options?.allPatterns ?? options?.patterns ?? [],
     bundles: options?.bundles ?? [],
+  });
+  const playbook = buildPlaybookInsights({
+    signals: filteredSignals,
+    cards: options?.playbookCards ?? [],
+    postingEntries: includedPostingEntries,
+    postingOutcomes: includedPostingOutcomes,
+    bundles: options?.bundles ?? [],
+    patternCoverage,
+    bundleCoverage,
   });
 
   return {
@@ -1432,7 +1667,9 @@ export function buildSignalInsights(
     finalReview,
     posting,
     outcomes,
+    reuseMemory,
     bundleCoverage,
+    playbook,
     observations: buildObservations({
       totalSignals: filteredSignals.length,
       sourceKinds,
@@ -1447,7 +1684,9 @@ export function buildSignalInsights(
       finalReview,
       posting,
       outcomes,
+      reuseMemory,
       bundleCoverage,
+      playbook,
     }),
     limitations: [
       "Time windows are based on signal created date. Audit-derived metrics follow the records in that window rather than filtering events by event timestamp.",
@@ -1455,6 +1694,9 @@ export function buildSignalInsights(
       "Pattern suggestion metrics currently track explicit suggestion interactions and suggested-pattern applications, not passive page impressions.",
       "Posting memory is manual only. It reflects what the operator logged after external publishing rather than direct platform integrations.",
       "Outcome quality is qualitative only. It reflects operator judgement after posting rather than external engagement or platform analytics.",
+      "Reuse memory is heuristic and advisory only. It matches prior judged outcomes through explicit fields such as mode, platform, pattern, bundle, source family, category, and scenario wording overlap rather than ML similarity.",
+      "Playbook cards are manual, compact guidance only. Surfacing is heuristic and based on explicit links, editorial mode, family labels, and wording overlap rather than ML summarisation.",
+      "Playbook coverage gaps are heuristic only. Coverage areas use explicit structured dimensions such as platform, editorial mode, source family, and recurring caution labels rather than clustering or semantic search.",
       "Pattern candidate suggestions are heuristic only. They do not auto-create patterns, perform similarity matching, or change workflow rules.",
       "Pattern coverage and gap typing are heuristic only. They use explicit keyword buckets and current pattern-match strength, not embeddings or clustering.",
       `Bundle coverage is heuristic only. Strength labels such as ${BUNDLE_COVERAGE_STRENGTH_LABELS.strong_coverage.toLowerCase()} or ${BUNDLE_COVERAGE_STRENGTH_LABELS.thin_bundle.toLowerCase()} come from explicit family matching and current usage signals, not ML or clustering.`,
