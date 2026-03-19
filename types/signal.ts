@@ -279,6 +279,7 @@ export interface SignalFinalReviewSavePayload {
   selectedImageAssetId?: string | null;
   selectedVideoConceptId?: string | null;
   generatedImageUrl?: string | null;
+  evergreenCandidateId?: string | null;
   finalReviewStartedAt?: string | null;
   finalReviewedAt?: string | null;
 }

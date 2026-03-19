@@ -22,6 +22,7 @@ import { getAuditEvents, listAuditEvents } from "@/lib/audit";
 import { getLatestAutoRepairEntry, getAutoRepairLabel } from "@/lib/auto-repair";
 import { buildBundleCoverageSummary, getSignalBundleCoverageHint } from "@/lib/bundle-coverage";
 import { buildCampaignCadenceSummary, getCampaignStrategy, getSignalContentContextSummary } from "@/lib/campaigns";
+import { buildEvergreenSummary } from "@/lib/evergreen";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
@@ -160,6 +161,17 @@ export default async function SignalDetailPage({
     postingOutcomes: allPostingOutcomes,
     bundleSummariesByPatternId,
   });
+  const evergreenSummary = buildEvergreenSummary({
+    signals: allSignals,
+    postingEntries: allPostingEntries,
+    postingOutcomes: allPostingOutcomes,
+    strategicOutcomes,
+    strategy,
+    cadence,
+    bundles,
+    maxCandidates: 10,
+  });
+  const evergreenContext = evergreenSummary.candidates.find((candidate) => candidate.signalId === signal.recordId) ?? null;
   const guidance = assembleGuidanceForSignal({
     signal,
     context: "detail",
@@ -339,6 +351,36 @@ export default async function SignalDetailPage({
               </div>
             </CardContent>
           </Card>
+
+          {evergreenContext ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Evergreen Resurfacing</CardTitle>
+                <CardDescription>
+                  This record is currently eligible for bounded reuse based on prior posted outcomes and current planning gaps.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm text-slate-600">
+                <p>
+                  Resurfaced from a prior {evergreenContext.surfacedPlatform === "linkedin" ? "LinkedIn" : evergreenContext.surfacedPlatform === "reddit" ? "Reddit" : "X"} post on {formatDate(evergreenContext.priorPostDate)}.
+                </p>
+                <p>
+                  {evergreenContext.reuseMode === "reuse_directly" ? "Direct reuse is recommended." : "Adapt before reuse is recommended."}
+                </p>
+                <p className="text-slate-500">
+                  {[...evergreenContext.reasons, ...evergreenContext.weeklyGapReasons].slice(0, 3).join(" · ")}
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <Link
+                    href={`/signals/${signal.recordId}/review?evergreenCandidateId=${encodeURIComponent(evergreenContext.id)}`}
+                    className={buttonVariants({ variant: "secondary", size: "sm" })}
+                  >
+                    Open final review for reuse
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <GuidancePanel
             guidance={guidance}

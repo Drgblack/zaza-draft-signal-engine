@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, buildRecommendationEvent, type AuditEventInput } from "@/lib/audit";
 import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { getCampaignStrategy } from "@/lib/campaigns";
+import { buildEvergreenSummary, getEvergreenCandidateById } from "@/lib/evergreen";
 import { buildFinalReviewSummary } from "@/lib/final-review";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
@@ -13,6 +15,7 @@ import { listPatterns } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { parsePublishPrepBundle } from "@/lib/publish-prep";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
 import {
   finalReviewUpdateRequestSchema,
@@ -83,6 +86,7 @@ export async function PATCH(
 
   const review = toFinalReviewSavePayload(parsed.data);
   const tuning = await getOperatorTuning();
+  const strategy = await getCampaignStrategy();
   const previousSignalResult = await getSignalWithFallback(id);
   if (!previousSignalResult.signal) {
     return NextResponse.json(
@@ -176,6 +180,7 @@ export async function PATCH(
   const previousSummary = buildFinalReviewSummary(previousSignal);
   const completedSummary = buildFinalReviewSummary(nextSignal);
   const auditEvents: AuditEventInput[] = [];
+  let evergreenCandidate = null;
 
   if (!previousSummary.started && completedSummary.started) {
     auditEvents.push({
@@ -192,8 +197,21 @@ export async function PATCH(
     const playbookCards = await listPlaybookCards();
     const postingEntries = await listPostingLogEntries();
     const postingOutcomes = await listPostingOutcomes();
+    const strategicOutcomes = await listStrategicOutcomes();
     const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
     const updatedSignals = allSignals.map((signal) => (signal.recordId === id ? nextSignal : signal));
+    evergreenCandidate = getEvergreenCandidateById(
+      buildEvergreenSummary({
+        signals: updatedSignals,
+        postingEntries,
+        postingOutcomes,
+        strategicOutcomes,
+        strategy,
+        bundles,
+        maxCandidates: 10,
+      }),
+      review.evergreenCandidateId,
+    );
     const reuseMemoryCases = buildReuseMemoryCases({
       signals: updatedSignals,
       postingEntries,
@@ -232,6 +250,27 @@ export async function PATCH(
         topUncertaintyFlag: confidenceSnapshot.confidence.uncertaintyFlags[0]?.code ?? null,
       },
     });
+  }
+
+  if (review.evergreenCandidateId && evergreenCandidate === null) {
+    const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
+    const postingEntries = await listPostingLogEntries();
+    const postingOutcomes = await listPostingOutcomes();
+    const strategicOutcomes = await listStrategicOutcomes();
+    const bundles = await listPatternBundles();
+    const updatedSignals = allSignals.map((signal) => (signal.recordId === id ? nextSignal : signal));
+    evergreenCandidate = getEvergreenCandidateById(
+      buildEvergreenSummary({
+        signals: updatedSignals,
+        postingEntries,
+        postingOutcomes,
+        strategicOutcomes,
+        strategy,
+        bundles,
+        maxCandidates: 10,
+      }),
+      review.evergreenCandidateId,
+    );
   }
 
   for (const platform of ["x", "linkedin", "reddit"] as const) {
@@ -275,6 +314,24 @@ export async function PATCH(
         },
       });
     }
+  }
+
+  if (review.evergreenCandidateId && evergreenCandidate && evergreenCandidate.signalId === id) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "EVERGREEN_APPROVED_FOR_REUSE",
+      actor: "operator",
+      summary:
+        evergreenCandidate.reuseMode === "reuse_directly"
+          ? "Approved evergreen candidate for direct reuse in final review."
+          : "Approved evergreen candidate for adaptation in final review.",
+      metadata: {
+        evergreenCandidateId: evergreenCandidate.id,
+        reuseMode: evergreenCandidate.reuseMode,
+        surfacedPlatform: evergreenCandidate.surfacedPlatform,
+        priorOutcomeQuality: evergreenCandidate.priorOutcomeQuality,
+      },
+    });
   }
 
   if (

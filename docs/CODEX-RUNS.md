@@ -1,7 +1,54 @@
 # Codex Runs
 
 ## Current Run
-Run 50 adds Site Link Registry + Real UTM Packaging:
+Run 51 adds Weekly Plan Auto-Draft:
+- new centralized proposal helper in `lib/weekly-plan-autodraft.ts`
+- `/plan` can now generate a bounded draft for next week using explicit structured state such as:
+  - active campaigns
+  - recent platform, funnel, and mode mix
+  - approval-ready queue supply and freshness
+  - strategic outcomes
+  - reusable winners and planning gaps
+- drafted plans stay structured and compact:
+  - proposed theme
+  - proposed goals
+  - proposed campaigns
+  - proposed target platforms
+  - proposed funnel mix
+  - proposed mode mix
+  - proposed fresh / evergreen / reused mix
+  - short proposal reasons
+  - identified gaps
+  - lightweight planning confidence
+- the operator can now:
+  - accept the draft as-is
+  - load the draft into the editor and save with edits
+  - dismiss the draft
+- saved plans now preserve bounded auto-draft metadata such as:
+  - manual vs auto-draft source
+  - proposal reasons
+  - identified gaps
+  - generated / accepted timestamps
+  - whether acceptance happened with edits
+- `/insights` now shows lightweight auto-draft visibility:
+  - whether the current plan is manual or auto-drafted
+  - auto-drafted week count
+  - accepted draft count
+  - edited-after-draft count
+  - common adjustment triggers
+- audit logging now supports:
+  - `WEEKLY_PLAN_AUTO_DRAFTED`
+  - `WEEKLY_PLAN_DRAFT_ACCEPTED`
+  - `WEEKLY_PLAN_DRAFT_EDITED`
+  - `WEEKLY_PLAN_DRAFT_DISMISSED`
+- this run remains bounded:
+  - no autonomous acceptance
+  - no scheduling engine
+  - no forecasting model
+  - no drag-and-drop calendar
+
+## Previous Runs
+- Run 50 adds Site Link Registry + Real UTM Packaging:
 - new centralized site-link registry in `lib/site-links.ts`
 - publish prep now selects real `zazadraft.com` destinations instead of generic placeholder links
 - the registry stays intentionally small and explicit:
@@ -38,8 +85,6 @@ Run 50 adds Site Link Registry + Real UTM Packaging:
   - no link shortener
   - no attribution model
   - no direct publishing
-
-## Previous Runs
 - Run 49 adds Auto-Repair Loop for Held Candidates:
 - new centralized repair helper in `lib/auto-repair.ts`
 - held candidates can now receive one bounded repair pass inside the autonomous queue when the hold reason looks fixable

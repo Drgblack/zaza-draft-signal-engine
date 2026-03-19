@@ -51,6 +51,7 @@ import type { PatternBundle } from "@/lib/pattern-bundles";
 import type { ScenarioAngleAssessment, ScenarioAngleSuggestion } from "@/lib/scenario-angle";
 import type { OperatorTuning } from "@/lib/tuning-definitions";
 import type { AudienceSegment, Campaign, CampaignStrategy, ContentPillar } from "@/lib/campaigns";
+import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
 import {
   TUNING_PRESETS,
@@ -298,6 +299,7 @@ export const finalReviewUpdateRequestSchema = z.object({
   selectedImageAssetId: optionalNullableString,
   selectedVideoConceptId: optionalNullableString,
   generatedImageUrl: optionalNullableString,
+  evergreenCandidateId: optionalNullableString,
 });
 
 export const ingestRequestSchema = z.object({
@@ -742,6 +744,7 @@ export interface WeeklyPlanResponse {
   plan: WeeklyPlan | null;
   templates: WeeklyPlanTemplate[];
   recentPlans?: WeeklyPlan[];
+  draft?: WeeklyPlanAutoDraft | null;
   message?: string;
   error?: string;
 }
@@ -956,6 +959,7 @@ export function toFinalReviewSavePayload(
     selectedImageAssetId: normalizeOptionalString(value.selectedImageAssetId),
     selectedVideoConceptId: normalizeOptionalString(value.selectedVideoConceptId),
     generatedImageUrl: normalizeOptionalString(value.generatedImageUrl),
+    evergreenCandidateId: normalizeOptionalString(value.evergreenCandidateId),
   };
 }
 

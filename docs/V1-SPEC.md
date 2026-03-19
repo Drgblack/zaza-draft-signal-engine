@@ -214,6 +214,13 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - lineage back to platform, editorial mode, pattern, bundle, source kind, asset posture, funnel stage, and campaign context where present
   - compact strategic comparison sections on `/insights`
   - no platform API sync, attribution modelling, or BI-style dashboard sprawl
+- Weekly plan auto-draft assistant with:
+  - centralized proposal logic in `lib/weekly-plan-autodraft.ts`
+  - bounded next-week plan drafting from active campaigns, recent mix, queue supply, strategic outcomes, reusable winners, and planning gaps
+  - short structured proposal reasons and identified gaps
+  - explicit accept, edit, and dismiss flow on `/plan`
+  - light auto-draft source and acceptance visibility on `/insights`
+  - no autonomous scheduling or autonomous draft adoption
 - Dashboard, signals index, signal detail, new signal, review, interpretation, and generation pages
 - Generation workbench page
 - Generation readiness and quality guidance with:
@@ -1065,6 +1072,7 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 
 ## Weekly Planning Notes
 - Weekly planning is centralized in `lib/weekly-plan.ts`.
+- Auto-draft proposal logic is centralized in `lib/weekly-plan-autodraft.ts`.
 - The current weekly plan stays intentionally light and advisory:
   - week start date
   - optional theme
@@ -1075,11 +1083,40 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - target editorial-mode mix
   - target fresh / evergreen / reused content mix
   - optional notes
+- Saved weekly plans can now also preserve bounded auto-draft metadata:
+  - `planSource`
+  - `proposalReasons`
+  - `identifiedGaps`
+  - `planningConfidence`
+  - `autoDraftGeneratedAt`
+  - `autoDraftAcceptedAt`
+  - `autoDraftAcceptedWithEdits`
 - `/plan` now provides a minimal operator surface for:
   - editing the current week
   - applying a few simple templates
+  - generating a draft for next week
+  - accepting a draft directly
+  - loading a draft into the editor before saving
+  - dismissing a draft without adoption
   - choosing campaign and platform emphasis
   - setting soft funnel and mode priorities
+- Auto-draft proposals are built from explicit structured state such as:
+  - active campaign coverage
+  - recent posted platform, funnel, and mode mix
+  - approval-ready queue quality and freshness
+  - strategic outcomes and reusable winners
+  - destination and CTA variety
+- Current auto-draft proposal outputs stay compact:
+  - proposed theme
+  - proposed goals
+  - proposed active campaigns
+  - proposed target platforms
+  - proposed funnel mix
+  - proposed mode mix
+  - proposed fresh / evergreen / reused mix
+  - short proposal reasons
+  - identified planning gaps
+  - lightweight planning confidence
 - Current plan influence is explicit and bounded:
   - approval-ready ranking gets small boosts for alignment
   - over-represented weekly categories can be slightly de-emphasised
@@ -1091,9 +1128,12 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - a planned campaign with no supporting posts
   - an editorial mode becoming over-represented
 - Limitations:
+  - auto-draft remains advisory and editable
+  - no autonomous adoption
   - no scheduler
   - no drag-and-drop calendar
   - no hard quotas
+  - no forecasting or ML planner
   - guidance only, not workflow enforcement
 
 ## Next Planned Runs

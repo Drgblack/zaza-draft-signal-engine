@@ -18,6 +18,8 @@ import {
 
 export const WEEKLY_PLAN_PRIORITY_VALUES = [0, 1, 2, 3] as const;
 export const WEEKLY_PLAN_CONTENT_SOURCES = ["freshSignals", "evergreen", "reusedHighPerformers"] as const;
+export const WEEKLY_PLAN_PLAN_SOURCES = ["manual", "auto_draft"] as const;
+export const WEEKLY_PLAN_PLANNING_CONFIDENCE_LEVELS = ["high", "moderate", "low"] as const;
 export const WEEKLY_PLAN_TEMPLATE_IDS = [
   "balanced_mix",
   "awareness_push",
@@ -27,6 +29,8 @@ export const WEEKLY_PLAN_TEMPLATE_IDS = [
 
 export type WeeklyPlanPriority = (typeof WEEKLY_PLAN_PRIORITY_VALUES)[number];
 export type WeeklyPlanContentSourceKey = (typeof WEEKLY_PLAN_CONTENT_SOURCES)[number];
+export type WeeklyPlanPlanSource = (typeof WEEKLY_PLAN_PLAN_SOURCES)[number];
+export type WeeklyPlanPlanningConfidence = (typeof WEEKLY_PLAN_PLANNING_CONFIDENCE_LEVELS)[number];
 export type WeeklyPlanTemplateId = (typeof WEEKLY_PLAN_TEMPLATE_IDS)[number];
 
 export const WEEKLY_PLAN_PRIORITY_LABELS: Record<WeeklyPlanPriority, string> = {
@@ -77,6 +81,8 @@ const contentSourceMixSchema = z.object({
   reusedHighPerformers: prioritySchema,
 });
 
+const planningConfidenceSchema = z.enum(WEEKLY_PLAN_PLANNING_CONFIDENCE_LEVELS);
+
 const weeklyPlanSchema = z.object({
   id: z.string().trim().min(1),
   weekStartDate: z.string().trim().min(1),
@@ -88,6 +94,13 @@ const weeklyPlanSchema = z.object({
   targetModeMix: modeMixSchema,
   targetContentSources: contentSourceMixSchema,
   notes: z.string().trim().nullable(),
+  planSource: z.enum(WEEKLY_PLAN_PLAN_SOURCES).default("manual"),
+  proposalReasons: z.array(z.string().trim().min(1)).max(8).default([]),
+  identifiedGaps: z.array(z.string().trim().min(1)).max(8).default([]),
+  planningConfidence: planningConfidenceSchema.nullable().default(null),
+  autoDraftGeneratedAt: z.string().trim().nullable().default(null),
+  autoDraftAcceptedAt: z.string().trim().nullable().default(null),
+  autoDraftAcceptedWithEdits: z.boolean().default(false),
   createdAt: z.string().trim().min(1),
   updatedAt: z.string().trim().min(1),
 });
@@ -107,6 +120,13 @@ export const weeklyPlanInputSchema = z.object({
   targetModeMix: modeMixSchema.optional(),
   targetContentSources: contentSourceMixSchema.optional(),
   notes: z.string().trim().nullable().optional(),
+  planSource: z.enum(WEEKLY_PLAN_PLAN_SOURCES).optional(),
+  proposalReasons: z.array(z.string().trim().min(1)).max(8).optional(),
+  identifiedGaps: z.array(z.string().trim().min(1)).max(8).optional(),
+  planningConfidence: planningConfidenceSchema.nullable().optional(),
+  autoDraftGeneratedAt: z.string().trim().nullable().optional(),
+  autoDraftAcceptedAt: z.string().trim().nullable().optional(),
+  autoDraftAcceptedWithEdits: z.boolean().optional(),
 });
 
 const WEEKLY_PLAN_STORE_PATH = path.join(process.cwd(), "data", "weekly-plan.json");
@@ -158,6 +178,11 @@ export interface WeeklyPlanState {
 export interface WeeklyPlanInsights {
   currentPlan: WeeklyPlan | null;
   currentState: WeeklyPlanState | null;
+  currentPlanSource: WeeklyPlanPlanSource | null;
+  autoDraftPlanCount: number;
+  acceptedAutoDraftCount: number;
+  editedAutoDraftCount: number;
+  commonAdjustmentTriggers: string[];
   effectivenessRows: Array<{
     weekLabel: string;
     theme: string | null;
@@ -314,6 +339,13 @@ function buildPlanFromTemplate(template: WeeklyPlanTemplate, strategy: CampaignS
     targetModeMix: template.targetModeMix,
     targetContentSources: template.targetContentSources,
     notes: null,
+    planSource: "manual",
+    proposalReasons: [],
+    identifiedGaps: [],
+    planningConfidence: null,
+    autoDraftGeneratedAt: null,
+    autoDraftAcceptedAt: null,
+    autoDraftAcceptedWithEdits: false,
     createdAt: timestamp,
     updatedAt: timestamp,
   });
@@ -388,6 +420,19 @@ export async function upsertWeeklyPlan(strategy: CampaignStrategy, input: Weekly
     targetModeMix: input.targetModeMix ?? base.targetModeMix,
     targetContentSources: input.targetContentSources ?? base.targetContentSources,
     notes: sanitizeOptionalText(input.notes ?? base.notes),
+    planSource: input.planSource ?? base.planSource,
+    proposalReasons: input.proposalReasons ?? base.proposalReasons,
+    identifiedGaps: input.identifiedGaps ?? base.identifiedGaps,
+    planningConfidence:
+      input.planningConfidence !== undefined ? input.planningConfidence : base.planningConfidence,
+    autoDraftGeneratedAt:
+      input.autoDraftGeneratedAt !== undefined ? input.autoDraftGeneratedAt : base.autoDraftGeneratedAt,
+    autoDraftAcceptedAt:
+      input.autoDraftAcceptedAt !== undefined ? input.autoDraftAcceptedAt : base.autoDraftAcceptedAt,
+    autoDraftAcceptedWithEdits:
+      input.autoDraftAcceptedWithEdits !== undefined
+        ? input.autoDraftAcceptedWithEdits
+        : base.autoDraftAcceptedWithEdits,
     updatedAt: timestamp,
   });
 
@@ -412,7 +457,7 @@ function isDateInWeek(value: string | null | undefined, weekStart: Date, weekEnd
   return Number.isFinite(parsed) && parsed >= weekStart.getTime() && parsed < weekEnd.getTime();
 }
 
-function classifySignalWeeklySource(signal: SignalRecord): WeeklyPlanContentSourceKey {
+export function classifySignalWeeklySource(signal: SignalRecord): WeeklyPlanContentSourceKey {
   const created = new Date(signal.createdDate).getTime();
   const ageDays = Number.isFinite(created) ? Math.floor((Date.now() - created) / (24 * 60 * 60 * 1000)) : 0;
   const evergreenHint = `${signal.sourceType ?? ""} ${signal.evergreenPotential ?? ""} ${signal.repurposeIdeas ?? ""}`.toLowerCase();
@@ -706,6 +751,13 @@ export function buildWeeklyPlanInsights(
   const currentWeekStart = formatWeekStart(now);
   const currentPlan = plans.find((plan) => plan.weekStartDate === currentWeekStart) ?? null;
   const currentState = currentPlan ? buildWeeklyPlanState(currentPlan, strategy, signals, postingEntries) : null;
+  const triggerCounts = new Map<string, number>();
+
+  for (const plan of plans.filter((item) => item.planSource === "auto_draft")) {
+    for (const trigger of [...plan.identifiedGaps, ...plan.proposalReasons].slice(0, 5)) {
+      triggerCounts.set(trigger, (triggerCounts.get(trigger) ?? 0) + 1);
+    }
+  }
 
   const effectivenessRows = plans
     .slice(0, 6)
@@ -732,6 +784,14 @@ export function buildWeeklyPlanInsights(
   return {
     currentPlan,
     currentState,
+    currentPlanSource: currentPlan?.planSource ?? null,
+    autoDraftPlanCount: plans.filter((plan) => plan.planSource === "auto_draft").length,
+    acceptedAutoDraftCount: plans.filter((plan) => plan.planSource === "auto_draft" && Boolean(plan.autoDraftAcceptedAt)).length,
+    editedAutoDraftCount: plans.filter((plan) => plan.planSource === "auto_draft" && plan.autoDraftAcceptedWithEdits).length,
+    commonAdjustmentTriggers: Array.from(triggerCounts.entries())
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .slice(0, 4)
+      .map(([label]) => label),
     effectivenessRows,
   };
 }

@@ -392,6 +392,21 @@ export default async function InsightsPage({
                 value={String(weeklyPlanStore.plans.length)}
                 detail="Light planning history for weekly comparison."
               />
+              <MetricCard
+                label="Plan source"
+                value={
+                  weeklyPlanInsights.currentPlanSource === "auto_draft"
+                    ? "Auto-draft"
+                    : weeklyPlanInsights.currentPlanSource === "manual"
+                      ? "Manual"
+                      : "None yet"
+                }
+                detail={
+                  weeklyPlanInsights.currentPlanSource === "auto_draft"
+                    ? "Current week came from an accepted weekly auto-draft."
+                    : "Current week is being driven manually."
+                }
+              />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -466,6 +481,30 @@ export default async function InsightsPage({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <MetricCard
+                label="Auto-drafted weeks"
+                value={String(weeklyPlanInsights.autoDraftPlanCount)}
+                detail="Stored weeks that originated from an accepted auto-draft."
+              />
+              <MetricCard
+                label="Accepted drafts"
+                value={String(weeklyPlanInsights.acceptedAutoDraftCount)}
+                detail="Accepted auto-drafts recorded in weekly plan history."
+              />
+              <MetricCard
+                label="Edited after draft"
+                value={String(weeklyPlanInsights.editedAutoDraftCount)}
+                detail="Accepted drafts that were adjusted before saving."
+              />
+            </div>
+
+            {weeklyPlanInsights.commonAdjustmentTriggers.length > 0 ? (
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                Common auto-draft triggers: {weeklyPlanInsights.commonAdjustmentTriggers.join(" · ")}
+              </div>
+            ) : null}
+
             {weeklyPlanInsights.effectivenessRows.length === 0 ? (
               <EmptyState copy="No weekly plan history is stable enough to compare yet." />
             ) : (

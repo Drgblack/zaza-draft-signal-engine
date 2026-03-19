@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { CampaignStrategy } from "@/lib/campaigns";
 import { getPostingPlatformLabel, POSTING_PLATFORMS, type PostingPlatform } from "@/lib/posting-memory";
 import { EDITORIAL_MODE_DEFINITIONS } from "@/lib/editorial-modes";
+import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import { EDITORIAL_MODES, FUNNEL_STAGES, type EditorialMode, type FunnelStage } from "@/types/signal";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
 
@@ -81,6 +82,43 @@ function createEditablePlan(plan: WeeklyPlan): WeeklyPlan {
   };
 }
 
+function createPlanFromDraft(draft: WeeklyPlanAutoDraft, existingPlan: WeeklyPlan): WeeklyPlan {
+  return {
+    ...existingPlan,
+    id: `weekly-plan-${draft.weekStartDate}`,
+    weekStartDate: draft.weekStartDate,
+    theme: draft.proposedTheme,
+    goals: [...draft.proposedGoals],
+    activeCampaignIds: [...draft.proposedActiveCampaignIds],
+    targetPlatforms: [...draft.proposedTargetPlatforms],
+    targetFunnelMix: { ...draft.proposedTargetFunnelMix },
+    targetModeMix: { ...draft.proposedTargetModeMix },
+    targetContentSources: { ...draft.proposedTargetContentSources },
+    notes: existingPlan.notes,
+    planSource: "auto_draft",
+    proposalReasons: [...draft.proposalReasons],
+    identifiedGaps: [...draft.identifiedGaps],
+    planningConfidence: draft.planningConfidence,
+    autoDraftGeneratedAt: draft.generatedAt,
+    autoDraftAcceptedAt: null,
+    autoDraftAcceptedWithEdits: false,
+  };
+}
+
+function comparablePlanShape(plan: WeeklyPlan) {
+  return JSON.stringify({
+    weekStartDate: plan.weekStartDate,
+    theme: plan.theme,
+    goals: plan.goals,
+    activeCampaignIds: plan.activeCampaignIds,
+    targetPlatforms: plan.targetPlatforms,
+    targetFunnelMix: plan.targetFunnelMix,
+    targetModeMix: plan.targetModeMix,
+    targetContentSources: plan.targetContentSources,
+    notes: plan.notes,
+  });
+}
+
 function buildPlanFromTemplate(template: WeeklyPlanTemplate, existing: WeeklyPlan, campaignIds: string[]): WeeklyPlan {
   return {
     ...existing,
@@ -102,6 +140,10 @@ export function WeeklyPlanManager({
   strategy,
 }: WeeklyPlanManagerProps) {
   const [plan, setPlan] = useState<WeeklyPlan>(() => createEditablePlan(initialPlan));
+  const [recentPlanRows, setRecentPlanRows] = useState<WeeklyPlan[]>(recentPlans);
+  const [draft, setDraft] = useState<WeeklyPlanAutoDraft | null>(null);
+  const [drafting, setDrafting] = useState(false);
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<WeeklyPlanTemplate["id"]>(templates[0]?.id ?? "balanced_mix");
   const [feedback, setFeedback] = useState<FeedbackState>(null);
@@ -178,8 +220,8 @@ export function WeeklyPlanManager({
     });
   }
 
-  async function handleSave() {
-    setSaving(true);
+  async function handleGenerateDraft() {
+    setDrafting(true);
     setFeedback(null);
 
     try {
@@ -189,34 +231,151 @@ export function WeeklyPlanManager({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          weekStartDate: plan.weekStartDate,
-          theme: plan.theme,
-          goals: plan.goals,
-          activeCampaignIds: plan.activeCampaignIds,
-          targetPlatforms: plan.targetPlatforms,
-          targetFunnelMix: plan.targetFunnelMix,
-          targetModeMix: plan.targetModeMix,
-          targetContentSources: plan.targetContentSources,
-          notes: plan.notes,
+          action: "auto_draft",
         }),
       });
       const data = (await response.json()) as {
         success: boolean;
-        plan?: WeeklyPlan | null;
+        draft?: WeeklyPlanAutoDraft | null;
         message?: string;
         error?: string;
       };
 
-      if (!response.ok || !data.success || !data.plan) {
-        throw new Error(data.error ?? "Unable to save weekly plan.");
+      if (!response.ok || !data.success || !data.draft) {
+        throw new Error(data.error ?? "Unable to generate the weekly draft.");
       }
 
-      setPlan(createEditablePlan(data.plan));
+      setDraft(data.draft);
+      setEditingDraftId(null);
       setFeedback({
         tone: "success",
-        title: "Weekly plan saved",
-        body: data.message ?? "The current week is now updated.",
+        title: "Next-week draft ready",
+        body: data.message ?? "Review the proposal, then accept it or load it into the editor.",
       });
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        title: "Unable to generate draft",
+        body: error instanceof Error ? error.message : "The weekly draft could not be generated.",
+      });
+    } finally {
+      setDrafting(false);
+    }
+  }
+
+  async function dismissDraft() {
+    if (!draft) {
+      return;
+    }
+
+    try {
+      await fetch("/api/weekly-plan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "dismiss_draft",
+          weekStartDate: draft.weekStartDate,
+          proposalReasons: draft.proposalReasons,
+        }),
+      });
+    } finally {
+      setDraft(null);
+      setEditingDraftId(null);
+      setFeedback({
+        tone: "warning",
+        title: "Draft dismissed",
+        body: "The auto-draft was discarded. The current editor state was left unchanged.",
+      });
+    }
+  }
+
+  function loadDraftIntoEditor() {
+    if (!draft) {
+      return;
+    }
+
+    setPlan(createPlanFromDraft(draft, plan));
+    setEditingDraftId(draft.id);
+    setFeedback({
+      tone: "success",
+      title: "Draft loaded into editor",
+      body: "You can now adjust the proposed plan before saving it.",
+    });
+  }
+
+  async function acceptDraftAsIs() {
+    if (!draft) {
+      return;
+    }
+
+    const nextPlan = createPlanFromDraft(draft, plan);
+    await savePlan(nextPlan, false);
+    setDraft(null);
+    setEditingDraftId(null);
+  }
+
+  async function savePlan(nextPlan: WeeklyPlan, acceptedWithEdits: boolean) {
+    const payload = {
+      weekStartDate: nextPlan.weekStartDate,
+      theme: nextPlan.theme,
+      goals: nextPlan.goals,
+      activeCampaignIds: nextPlan.activeCampaignIds,
+      targetPlatforms: nextPlan.targetPlatforms,
+      targetFunnelMix: nextPlan.targetFunnelMix,
+      targetModeMix: nextPlan.targetModeMix,
+      targetContentSources: nextPlan.targetContentSources,
+      notes: nextPlan.notes,
+      planSource: nextPlan.planSource,
+      proposalReasons: nextPlan.proposalReasons,
+      identifiedGaps: nextPlan.identifiedGaps,
+      planningConfidence: nextPlan.planningConfidence,
+      autoDraftGeneratedAt: nextPlan.autoDraftGeneratedAt,
+      autoDraftAcceptedAt: nextPlan.planSource === "auto_draft" ? new Date().toISOString() : null,
+      autoDraftAcceptedWithEdits: nextPlan.planSource === "auto_draft" ? acceptedWithEdits : false,
+    };
+
+    const response = await fetch("/api/weekly-plan", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = (await response.json()) as {
+      success: boolean;
+      plan?: WeeklyPlan | null;
+      recentPlans?: WeeklyPlan[];
+      message?: string;
+      error?: string;
+    };
+
+    if (!response.ok || !data.success || !data.plan) {
+      throw new Error(data.error ?? "Unable to save weekly plan.");
+    }
+
+    setPlan(createEditablePlan(data.plan));
+    setRecentPlanRows(data.recentPlans ?? [data.plan]);
+    setFeedback({
+      tone: "success",
+      title: "Weekly plan saved",
+      body: data.message ?? "The weekly plan is now updated.",
+    });
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setFeedback(null);
+
+    try {
+      const acceptedWithEdits =
+        Boolean(draft && editingDraftId === draft.id && comparablePlanShape(plan) !== comparablePlanShape(createPlanFromDraft(draft, initialPlan)));
+      await savePlan(plan, acceptedWithEdits);
+      if (draft && editingDraftId === draft.id) {
+        setDraft(null);
+        setEditingDraftId(null);
+      }
     } catch (error) {
       setFeedback({
         tone: "error",
@@ -335,6 +494,118 @@ export function WeeklyPlanManager({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Next Week Auto-Draft</CardTitle>
+          <CardDescription>
+            Generate a bounded proposal for next week using active campaigns, recent mix, queue quality, outcomes, and reusable winners.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" variant="secondary" onClick={handleGenerateDraft} disabled={drafting}>
+              {drafting ? "Generating..." : "Generate draft for next week"}
+            </Button>
+            <p className="text-sm text-slate-500">The draft is only a starting point. Nothing is adopted until you accept or save it.</p>
+          </div>
+
+          {draft ? (
+            <div className="space-y-4 rounded-2xl bg-white/80 p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="inline-flex rounded-full bg-slate-950 px-2.5 py-1 text-xs font-medium text-white">
+                  {draft.weekStartDate}
+                </span>
+                <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                  Confidence: {draft.planningConfidence}
+                </span>
+                <span className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+                  Template bias: {templates.find((template) => template.id === draft.suggestedTemplateId)?.label ?? draft.suggestedTemplateId}
+                </span>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Theme</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">{draft.proposedTheme ?? "No theme"}</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Approval-ready queue</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">{draft.queueSummary.approvalReadyCount}</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {draft.queueSummary.topReadyPlatformLabel ? `Best supplied on ${draft.queueSummary.topReadyPlatformLabel}.` : "No clear platform lead."}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Fresh vs evergreen</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">
+                    {draft.queueSummary.freshCandidateCount} / {draft.queueSummary.evergreenCandidateCount + draft.queueSummary.reusedCandidateCount}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">Fresh queue versus evergreen and reused stock.</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Campaigns</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">{draft.proposedActiveCampaignIds.length}</p>
+                  <p className="mt-1 text-sm text-slate-500">Campaigns proposed for next week.</p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+                  <p className="text-sm font-medium text-slate-900">Proposal reasons</p>
+                  <div className="mt-3 space-y-2 text-sm text-slate-600">
+                    {draft.proposalReasons.map((reason) => (
+                      <p key={reason}>{reason}</p>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+                  <p className="text-sm font-medium text-slate-900">Identified gaps</p>
+                  <div className="mt-3 space-y-2 text-sm text-slate-600">
+                    {draft.identifiedGaps.length > 0 ? draft.identifiedGaps.map((gap) => <p key={gap}>{gap}</p>) : <p>No major gaps triggered the draft.</p>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+                  <p className="text-sm font-medium text-slate-900">Platforms</p>
+                  <p className="mt-2 text-sm text-slate-600">{draft.proposedTargetPlatforms.map((platform) => getPostingPlatformLabel(platform)).join(" · ") || "None"}</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+                  <p className="text-sm font-medium text-slate-900">Funnel emphasis</p>
+                  <p className="mt-2 text-sm text-slate-600">
+                    {FUNNEL_STAGES.filter((stage) => draft.proposedTargetFunnelMix[stage] >= 2)
+                      .map((stage) => PLAN_FUNNEL_LABELS[stage])
+                      .join(" · ") || "Balanced"}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+                  <p className="text-sm font-medium text-slate-900">Mode emphasis</p>
+                  <p className="mt-2 text-sm text-slate-600">
+                    {EDITORIAL_MODES.filter((mode) => draft.proposedTargetModeMix[mode] >= 2)
+                      .slice(0, 4)
+                      .map((mode) => EDITORIAL_MODE_DEFINITIONS[mode].label)
+                      .join(" · ") || "Balanced"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button type="button" onClick={acceptDraftAsIs}>
+                  Accept draft
+                </Button>
+                <Button type="button" variant="secondary" onClick={loadDraftIntoEditor}>
+                  Edit draft in editor
+                </Button>
+                <Button type="button" variant="ghost" onClick={dismissDraft}>
+                  Dismiss draft
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <Card>
           <CardHeader>
@@ -425,6 +696,11 @@ export function WeeklyPlanManager({
             <Button type="button" onClick={handleSave} disabled={saving}>
               {saving ? "Saving..." : "Save weekly plan"}
             </Button>
+            {plan.planSource === "auto_draft" ? (
+              <p className="text-sm text-sky-700">
+                {editingDraftId ? "Editing an auto-draft for acceptance." : "This plan originated from an auto-draft."}
+              </p>
+            ) : null}
             <p className="text-sm text-slate-500">This plan nudges ranking and review context. It does not block strong candidates.</p>
           </div>
         </CardContent>
@@ -436,11 +712,13 @@ export function WeeklyPlanManager({
           <CardDescription>Simple history for quick comparison and reuse.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {recentPlans.map((item) => (
+          {recentPlanRows.map((item) => (
             <div key={item.id} className="rounded-2xl bg-white/80 px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="font-medium text-slate-950">{item.weekStartDate}</p>
-                <p className="text-sm text-slate-500">{item.theme ?? "No theme"}</p>
+                <p className="text-sm text-slate-500">
+                  {item.theme ?? "No theme"} · {item.planSource === "auto_draft" ? "Auto-drafted" : "Manual"}
+                </p>
               </div>
               <p className="mt-2 text-sm text-slate-600">
                 Goals: {item.goals.length > 0 ? item.goals.join(" · ") : "No goals saved."}

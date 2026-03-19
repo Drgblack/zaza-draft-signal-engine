@@ -35,6 +35,9 @@ import {
   type PublishPrepPackage,
 } from "@/lib/publish-prep";
 import { getAutoRepairLabel, getLatestAutoRepairEntry } from "@/lib/auto-repair";
+import type { EvergreenCandidate } from "@/lib/evergreen";
+import { getOutcomeQualityLabel, getReuseRecommendationLabel } from "@/lib/outcomes";
+import { getStrategicValueLabel } from "@/lib/strategic-outcome-memory";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -216,6 +219,7 @@ export function FinalReviewWorkspace({
   appliedPatternName,
   initialPostingEntries,
   weeklyPlanContext,
+  evergreenContext,
 }: {
   signal: SignalRecord;
   source: SignalDataSource;
@@ -228,6 +232,7 @@ export function FinalReviewWorkspace({
     boosts: string[];
     cautions: string[];
   } | null;
+  evergreenContext?: EvergreenCandidate | null;
 }) {
   const [currentSignal, setCurrentSignal] = useState(signal);
   const [formState, setFormState] = useState<ReviewFormState>(() => createFormState(signal));
@@ -592,6 +597,7 @@ export function FinalReviewWorkspace({
           repurposingBundleJson: formState.repurposingBundleJson || null,
           publishPrepBundleJson: formState.publishPrepBundleJson || null,
           selectedRepurposedOutputIdsJson: formState.selectedRepurposedOutputIdsJson || null,
+          evergreenCandidateId: evergreenContext?.id ?? null,
         }),
       });
 
@@ -734,6 +740,26 @@ export function FinalReviewWorkspace({
               {weeklyPlanContext.cautions.length > 0 ? (
                 <p className="mt-2 text-slate-500">Watch: {weeklyPlanContext.cautions.join(" · ")}</p>
               ) : null}
+            </div>
+          ) : null}
+
+          {evergreenContext ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Evergreen resurfacing</p>
+              <p className="mt-2">
+                Resurfaced from a prior {evergreenContext.surfacedPlatform === "linkedin" ? "LinkedIn" : evergreenContext.surfacedPlatform === "reddit" ? "Reddit" : "X"} post on{" "}
+                {formatDateTime(evergreenContext.priorPostDate)}.
+              </p>
+              <p className="mt-2 text-slate-500">
+                {evergreenContext.reuseMode === "reuse_directly" ? "Direct reuse is recommended." : "Adapt before reuse is recommended."}
+              </p>
+              <p className="mt-2 text-slate-500">
+                {getOutcomeQualityLabel(evergreenContext.priorOutcomeQuality)} · {getReuseRecommendationLabel(evergreenContext.priorReuseRecommendation)}
+                {evergreenContext.strategicValue ? ` · ${getStrategicValueLabel(evergreenContext.strategicValue)}` : ""}
+              </p>
+              <p className="mt-2 text-slate-500">
+                {[...evergreenContext.reasons, ...evergreenContext.weeklyGapReasons].slice(0, 3).join(" · ")}
+              </p>
             </div>
           ) : null}
 

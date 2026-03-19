@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { getAuditEvents } from "@/lib/audit";
 import { getCampaignStrategy } from "@/lib/campaigns";
+import { buildEvergreenSummary, getEvergreenCandidateById } from "@/lib/evergreen";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { buildFinalReviewSummary } from "@/lib/final-review";
@@ -34,10 +35,19 @@ function getLastAppliedPatternName(auditEvents: Awaited<ReturnType<typeof getAud
 
 export default async function FinalReviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
+  const resolvedSearchParams = await searchParams;
+  const evergreenCandidateId =
+    typeof resolvedSearchParams.evergreenCandidateId === "string"
+      ? resolvedSearchParams.evergreenCandidateId
+      : Array.isArray(resolvedSearchParams.evergreenCandidateId)
+        ? resolvedSearchParams.evergreenCandidateId[0]
+        : null;
   const result = await getSignalWithFallback(id);
 
   if (!result.signal) {
@@ -75,6 +85,18 @@ export default async function FinalReviewPage({
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
   const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, allSignals, allPostingEntries);
   const weeklyPlanAlignment = getWeeklyPlanAlignment(signal, weeklyPlan, strategy, weeklyPlanState);
+  const evergreenSummary = buildEvergreenSummary({
+    signals: allSignals,
+    postingEntries: allPostingEntries,
+    postingOutcomes,
+    strategicOutcomes: [],
+    strategy,
+    weeklyPlan,
+    weeklyPlanState,
+    bundles,
+    maxCandidates: 10,
+  });
+  const evergreenContext = getEvergreenCandidateById(evergreenSummary, evergreenCandidateId);
   const guidance = assembleGuidanceForSignal({
     signal,
     context: "review",
@@ -160,6 +182,7 @@ export default async function FinalReviewPage({
         source={result.source}
         appliedPatternName={appliedPatternName}
         initialPostingEntries={postingEntries}
+        evergreenContext={evergreenContext?.signalId === signal.recordId ? evergreenContext : null}
         weeklyPlanContext={{
           weekLabel: weeklyPlanState.weekLabel,
           theme: weeklyPlan.theme,

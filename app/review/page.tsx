@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { ApprovalQueueSection, AutoHeldSection } from "@/components/signals/approval-queue-section";
+import { ApprovalQueueSection, AutoHeldSection, EvergreenResurfacingSection } from "@/components/signals/approval-queue-section";
 import { WorkflowQueueSection } from "@/components/signals/workflow-queue-section";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
+import { buildEvergreenSummary } from "@/lib/evergreen";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
@@ -19,6 +20,7 @@ import { listPlaybookCards } from "@/lib/playbook-cards";
 import { buildSignalPostingSummary, indexPostingEntriesBySignalId, listPostingLogEntries } from "@/lib/posting-log";
 import { getPostingPlatformLabel } from "@/lib/posting-memory";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
 import { getScheduledSoonSignals, getWorkflowBuckets, sortSignals } from "@/lib/workflow";
@@ -34,6 +36,7 @@ export default async function ReviewPage() {
   const bundles = await listPatternBundles();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const strategicOutcomes = await listStrategicOutcomes();
   const strategy = await getCampaignStrategy();
   const tuning = await getOperatorTuning();
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
@@ -53,6 +56,18 @@ export default async function ReviewPage() {
   });
   const cadence = buildCampaignCadenceSummary(signals, strategy, postingEntries);
   const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, signals, postingEntries);
+  const evergreenSummary = buildEvergreenSummary({
+    signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    strategy,
+    cadence,
+    weeklyPlan,
+    weeklyPlanState,
+    bundles,
+    maxCandidates: 5,
+  });
   const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
     signals,
     feedbackEntries,
@@ -104,6 +119,7 @@ export default async function ReviewPage() {
 
   const queueSummary = [
     { label: "Approval-ready", count: approvalReadyCandidates.length, href: "#approval-ready" },
+    { label: "Evergreen", count: evergreenSummary.surfacedCount, href: "#evergreen-resurfacing" },
     { label: "Auto-held", count: heldCases.length, href: "#auto-held" },
     { label: "Needs interpretation", count: buckets.needsInterpretation.length, href: "#needs-interpretation" },
     { label: "Ready for generation", count: buckets.readyForGeneration.length, href: "#ready-for-generation" },
@@ -224,6 +240,8 @@ export default async function ReviewPage() {
         weeklyPlan={weeklyPlan}
         weeklyPlanState={weeklyPlanState}
       />
+
+      <EvergreenResurfacingSection candidates={evergreenSummary.candidates} />
 
       <AutoHeldSection items={heldCases} strategy={strategy} />
 

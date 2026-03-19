@@ -35,6 +35,7 @@ Convert selected teacher-relevant signals into structured, platform-specific dra
 - Repurposing engine that expands stronger signals into a small multi-platform bundle instead of one isolated primary output
 - Publish prep layer that packages approval-ready drafts with hooks, CTAs, timing, alt text, comment prompts, and optional UTM-ready links for faster manual posting
 - Strategic outcome loop that records business-facing post results and ties them back to source, mode, pattern, platform, asset, and campaign context
+- Weekly plan auto-draft assistant that proposes next week's plan from active campaigns, recent mix, queue supply, strategic outcomes, reusable winners, and current planning gaps
 - Auto-repair loop that gives promising held candidates one explicit repair pass before leaving them for human intervention
 - Signal interpretation
 - Fixed-template content generation
@@ -42,7 +43,7 @@ Convert selected teacher-relevant signals into structured, platform-specific dra
 - Internal review workflow
 
 ## Status
-Active internal workflow with ingestion, scoring, scenario framing, generation, audit memory, operator-facing insights, a lightweight reusable pattern library, bounded pattern discovery suggestions, heuristic pattern-aware co-pilot assists, inspectable pattern coverage-gap visibility, a manual lifecycle layer for retiring weak or outdated patterns, manual pattern bundles for organising related approaches into small kits, bundle-level coverage visibility for spotting thin or missing kits, a bounded editorial-mode layer for shaping draft intent more explicitly, explicit platform intent profiles for X, LinkedIn, and Reddit, a final review workspace for last-mile manual editing decisions, a manual posting-memory layer for preserving what was actually published externally, a manual qualitative outcome layer for capturing whether those published outputs were worth repeating, a bounded reuse-memory layer that brings those judged outcomes back into new editorial decisions without auto-applying them, a manual editorial playbook-card layer for compact reusable operator guidance, a heuristic playbook-coverage layer that highlights which recurring situations still need clearer playbook support, a unified guidance layer that presents the strongest next action, relevant memory, and support context in one place, a bounded operator-tuning layer for adjusting strictness and guidance posture without code edits, an autonomous approval queue layer that prepares stronger signals for review while still keeping final posting manual, a bounded auto-repair layer that gives held near-miss candidates one inspectable repair pass, a bounded campaign strategy layer that helps the system balance campaigns, pillars, audiences, funnel stages, CTA goals, and recent cadence, a lightweight weekly planning layer that steers queue balance across campaigns, funnels, platforms, modes, and fresh-versus-evergreen mix, a structured asset pipeline that packages visual and short-form video execution guidance with approval-ready drafts, a bounded repurposing engine that turns one strong idea into a few differentiated platform-ready variants, a manual publish-prep layer that packages those outputs with hooks, CTAs, timing, alt text, comment prompts, and optional trackable links for faster posting, and a strategic outcome layer that records business-facing post results without needing direct platform API integrations.
+Active internal workflow with ingestion, scoring, scenario framing, generation, audit memory, operator-facing insights, a lightweight reusable pattern library, bounded pattern discovery suggestions, heuristic pattern-aware co-pilot assists, inspectable pattern coverage-gap visibility, a manual lifecycle layer for retiring weak or outdated patterns, manual pattern bundles for organising related approaches into small kits, bundle-level coverage visibility for spotting thin or missing kits, a bounded editorial-mode layer for shaping draft intent more explicitly, explicit platform intent profiles for X, LinkedIn, and Reddit, a final review workspace for last-mile manual editing decisions, a manual posting-memory layer for preserving what was actually published externally, a manual qualitative outcome layer for capturing whether those published outputs were worth repeating, a bounded reuse-memory layer that brings those judged outcomes back into new editorial decisions without auto-applying them, a manual editorial playbook-card layer for compact reusable operator guidance, a heuristic playbook-coverage layer that highlights which recurring situations still need clearer playbook support, a unified guidance layer that presents the strongest next action, relevant memory, and support context in one place, a bounded operator-tuning layer for adjusting strictness and guidance posture without code edits, an autonomous approval queue layer that prepares stronger signals for review while still keeping final posting manual, a bounded auto-repair layer that gives held near-miss candidates one inspectable repair pass, a bounded campaign strategy layer that helps the system balance campaigns, pillars, audiences, funnel stages, CTA goals, and recent cadence, a lightweight weekly planning layer that steers queue balance across campaigns, funnels, platforms, modes, and fresh-versus-evergreen mix, a bounded weekly-plan auto-draft assistant that proposes next week priorities from active campaigns, recent output mix, queue quality, reusable winners, and strategic gaps, a structured asset pipeline that packages visual and short-form video execution guidance with approval-ready drafts, a bounded repurposing engine that turns one strong idea into a few differentiated platform-ready variants, a manual publish-prep layer that packages those outputs with hooks, CTAs, timing, alt text, comment prompts, and optional trackable links for faster posting, and a strategic outcome layer that records business-facing post results without needing direct platform API integrations.
 
 ## Campaign Strategy Layer
 - Campaign strategy is centralized in `lib/campaigns.ts`.
@@ -273,6 +274,7 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
 
 ## Weekly Planning Layer
 - Weekly planning is centralized in `lib/weekly-plan.ts`.
+- Weekly plan auto-drafting is centralized in `lib/weekly-plan-autodraft.ts`.
 - The current plan model stays intentionally light:
   - week start date
   - optional theme
@@ -286,22 +288,41 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
 - `/plan` now lets the operator:
   - edit the current week quickly
   - apply simple planning templates
+  - generate a draft for next week
+  - accept the draft as-is
+  - load the draft into the editor and accept it with edits
+  - dismiss a draft without adopting it
   - choose campaign and platform emphasis
   - set soft funnel and mode priorities
+- Auto-draft proposals are built from explicit structured inputs such as:
+  - active campaigns and their status
+  - recent platform, funnel, and editorial-mode mix
+  - approval-ready queue supply and freshness
+  - strategic outcome history
+  - reusable winners and weak areas
+  - destination-link and CTA variety
 - The weekly plan now influences:
   - approval-ready ranking
   - plan-gap visibility on `/review`
   - light plan context in final review
   - weekly alignment summaries in `/insights`
+- Auto-draft reasons stay short and traceable, for example:
+  - awareness was over-represented recently
+  - an active campaign is under-supported
+  - LinkedIn or Reddit produced stronger strategic value lately
+  - fresh queue supply is thin, so evergreen content should increase
 - Gaps stay advisory only, such as:
   - missing conversion coverage
   - no Reddit output prepared
   - over-represented editorial modes
   - active campaigns with no supporting posts
 - Limitations:
+  - auto-draft is advisory and editable
+  - no autonomous acceptance
   - no scheduling engine
   - no drag-and-drop calendar
   - no hard blocking
+  - no forecasting or ML planner
   - soft guidance only
 
 ## Unified Guidance

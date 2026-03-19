@@ -6,11 +6,15 @@ import { getAutoRepairLabel, getLatestAutoRepairEntry } from "@/lib/auto-repair"
 import { buildAssetBundleSummary, buildSignalAssetBundle, getAssetPrimaryImage, getAssetPrimaryVideo } from "@/lib/assets";
 import type { CampaignCadenceSummary, CampaignStrategy } from "@/lib/campaigns";
 import { getSignalContentContextSummary } from "@/lib/campaigns";
+import type { EvergreenCandidate } from "@/lib/evergreen";
 import { getEditorialConfidenceLabel } from "@/lib/editorial-confidence";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import type { UnifiedGuidance } from "@/lib/guidance";
+import { getOutcomeQualityLabel, getReuseRecommendationLabel } from "@/lib/outcomes";
 import { buildPublishPrepBundleSummary, buildSignalPublishPrepBundle } from "@/lib/publish-prep";
 import { buildRepurposingBundleSummary, buildSignalRepurposingBundle } from "@/lib/repurposing";
+import { getStrategicValueLabel } from "@/lib/strategic-outcome-memory";
+import { formatDate } from "@/lib/utils";
 import { getWeeklyPlanAlignment, type WeeklyPlan, type WeeklyPlanState } from "@/lib/weekly-plan";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -333,6 +337,106 @@ export function AutoHeldSection({
                 assessment={item.assessment}
                 strategy={strategy}
               />
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export function EvergreenResurfacingSection({
+  candidates,
+}: {
+  candidates: EvergreenCandidate[];
+}) {
+  return (
+    <div id="evergreen-resurfacing">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between gap-4">
+            <span>Evergreen Resurfacing</span>
+            <span className="text-sm font-medium text-slate-500">{candidates.length}</span>
+          </CardTitle>
+          <CardDescription>
+            Previously successful content families that can be reused or adapted to fill current weekly gaps without depending only on fresh signals.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {candidates.length === 0 ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-5 text-sm text-slate-500">
+              No evergreen candidates are currently strong enough to surface.
+            </div>
+          ) : (
+            candidates.map((candidate) => (
+              <div key={candidate.id} className="rounded-2xl bg-white/80 p-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                        Evergreen resurfaced
+                      </span>
+                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200">
+                        {candidate.reuseMode === "reuse_directly" ? "Direct reuse" : "Adapt before reuse"}
+                      </span>
+                    </div>
+                    <div>
+                      <Link href={`/signals/${candidate.signalId}`} className="text-lg font-semibold text-slate-950 hover:text-[color:var(--accent)]">
+                        {candidate.signal.sourceTitle}
+                      </Link>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                        {candidate.reasons[0] ?? "Evergreen winner surfaced for bounded reuse."}
+                      </p>
+                    </div>
+                    <div className="grid gap-2 text-sm text-slate-600 md:grid-cols-2">
+                      <p><span className="font-medium text-slate-900">Prior platform:</span> {candidate.surfacedPlatform ? candidate.surfacedPlatform.toUpperCase() === "X" ? "X" : candidate.surfacedPlatform : "Not set"}</p>
+                      <p><span className="font-medium text-slate-900">Prior post date:</span> {formatDate(candidate.priorPostDate)}</p>
+                      <p><span className="font-medium text-slate-900">Outcome quality:</span> {getOutcomeQualityLabel(candidate.priorOutcomeQuality)}</p>
+                      <p><span className="font-medium text-slate-900">Reuse recommendation:</span> {getReuseRecommendationLabel(candidate.priorReuseRecommendation)}</p>
+                      <p><span className="font-medium text-slate-900">Strategic value:</span> {candidate.strategicValue ? getStrategicValueLabel(candidate.strategicValue) : "Not recorded"}</p>
+                      <p><span className="font-medium text-slate-900">Mode / funnel:</span> {candidate.editorialModeLabel ?? "Not set"} · {candidate.funnelStage ?? "Not set"}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-sm text-slate-500">
+                      {[...candidate.reasons, ...candidate.weeklyGapReasons].slice(0, 4).map((reason) => (
+                        <span key={reason} className="rounded-full bg-slate-100 px-3 py-1">
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Link
+                        href={`/signals/${candidate.signalId}/review?evergreenCandidateId=${encodeURIComponent(candidate.id)}`}
+                        className={buttonVariants({ variant: "secondary", size: "sm" })}
+                      >
+                        Open final review for reuse
+                      </Link>
+                      <Link href={`/signals/${candidate.signalId}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                        Open original record
+                      </Link>
+                    </div>
+                  </div>
+                  <div className="min-w-72 space-y-3 rounded-2xl bg-slate-50/80 p-4 text-sm text-slate-600">
+                    <div>
+                      <p className="font-medium text-slate-900">Lineage</p>
+                      <p className="mt-2">{candidate.sourceLineageLabel}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-900">Campaign / pillar</p>
+                      <p className="mt-2">{candidate.campaignLabel ?? "No campaign"} · {candidate.pillarLabel ?? "No pillar"}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-900">Destination</p>
+                      <p className="mt-2">{candidate.destinationLabel ?? "Not set"}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-900">Pattern / bundle</p>
+                      <p className="mt-2">
+                        {candidate.patternName ?? "No pattern"}{candidate.bundleNames.length > 0 ? ` · ${candidate.bundleNames.join(" · ")}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             ))
           )}
         </CardContent>
