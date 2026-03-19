@@ -24,6 +24,13 @@ export const postingLogEntrySchema = z.object({
   selectedHookText: z.union([z.string().trim().min(1), z.null()]).optional(),
   selectedCtaText: z.union([z.string().trim().min(1), z.null()]).optional(),
   suggestedPostingTime: z.union([z.string().trim().min(1), z.null()]).optional(),
+  selectedSiteLinkId: z.union([z.string().trim().min(1), z.null()]).optional(),
+  destinationUrl: z.union([z.string().trim().min(1), z.null()]).optional(),
+  destinationLabel: z.union([z.string().trim().min(1), z.null()]).optional(),
+  utmSource: z.union([z.string().trim().min(1), z.null()]).optional(),
+  utmMedium: z.union([z.string().trim().min(1), z.null()]).optional(),
+  utmCampaign: z.union([z.string().trim().min(1), z.null()]).optional(),
+  utmContent: z.union([z.string().trim().min(1), z.null()]).optional(),
 });
 
 export type PostingLogEntry = z.infer<typeof postingLogEntrySchema>;
@@ -45,6 +52,13 @@ export interface CreatePostingLogInput {
   selectedHookText?: string | null;
   selectedCtaText?: string | null;
   suggestedPostingTime?: string | null;
+  selectedSiteLinkId?: string | null;
+  destinationUrl?: string | null;
+  destinationLabel?: string | null;
+  utmSource?: string | null;
+  utmMedium?: string | null;
+  utmCampaign?: string | null;
+  utmContent?: string | null;
 }
 
 export interface SignalPostingSummaryRow {

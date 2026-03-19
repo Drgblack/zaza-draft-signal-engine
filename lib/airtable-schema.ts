@@ -132,6 +132,7 @@ export const AIRTABLE_SIGNAL_FIELD_DEFINITIONS: Record<SignalFieldKey, AirtableS
   repurposingBundleJson: { label: "Repurposing Bundle JSON", kind: "text" },
   publishPrepBundleJson: { label: "Publish Prep Bundle JSON", kind: "text" },
   selectedRepurposedOutputIdsJson: { label: "Selected Repurposed Output IDs JSON", kind: "text" },
+  autoRepairHistoryJson: { label: "Auto Repair History JSON", kind: "text" },
   preferredAssetType: { label: "Preferred Asset Type", kind: "select", allowedValues: ["image", "video", "text_first"] },
   selectedImageAssetId: { label: "Selected Image Asset ID", kind: "text" },
   selectedVideoConceptId: { label: "Selected Video Concept ID", kind: "text" },

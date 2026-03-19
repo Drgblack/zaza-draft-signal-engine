@@ -381,6 +381,7 @@ function mapRecordFromAirtable(record: AirtableRecord<AirtableFields>): SignalRe
     repurposingBundleJson: parseText(getFieldValue(fields, "repurposingBundleJson")),
     publishPrepBundleJson: parseText(getFieldValue(fields, "publishPrepBundleJson")),
     selectedRepurposedOutputIdsJson: parseText(getFieldValue(fields, "selectedRepurposedOutputIdsJson")),
+    autoRepairHistoryJson: parseText(getFieldValue(fields, "autoRepairHistoryJson")),
     preferredAssetType: parseSelect(
       getFieldValue(fields, "preferredAssetType"),
       AIRTABLE_SIGNAL_FIELD_DEFINITIONS.preferredAssetType.allowedValues ?? [],

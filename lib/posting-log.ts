@@ -89,6 +89,13 @@ function buildPostingLogEntry(input: CreatePostingLogInput): PostingLogEntry {
     selectedHookText: normalizeOptionalPostingText(input.selectedHookText),
     selectedCtaText: normalizeOptionalPostingText(input.selectedCtaText),
     suggestedPostingTime: normalizeOptionalPostingText(input.suggestedPostingTime),
+    selectedSiteLinkId: normalizeOptionalPostingText(input.selectedSiteLinkId),
+    destinationUrl: normalizeOptionalPostingText(input.destinationUrl),
+    destinationLabel: normalizeOptionalPostingText(input.destinationLabel),
+    utmSource: normalizeOptionalPostingText(input.utmSource),
+    utmMedium: normalizeOptionalPostingText(input.utmMedium),
+    utmCampaign: normalizeOptionalPostingText(input.utmCampaign),
+    utmContent: normalizeOptionalPostingText(input.utmContent),
   });
 }
 

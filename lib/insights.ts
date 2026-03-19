@@ -53,7 +53,7 @@ import {
   type RepurposingFormatType,
   type RepurposingPlatform,
 } from "@/lib/repurposing";
-import { buildSignalPublishPrepBundle } from "@/lib/publish-prep";
+import { buildSignalPublishPrepBundle, parsePublishPrepBundle } from "@/lib/publish-prep";
 import type { PostingLogEntry } from "@/lib/posting-memory";
 import { indexBundleSummariesByPatternId, type PatternBundle } from "@/lib/pattern-bundles";
 import type { PatternType, SignalPattern } from "@/lib/pattern-definitions";
@@ -274,6 +274,13 @@ export interface PublishPrepStyleInsightRow {
   count: number;
 }
 
+export interface PublishPrepDestinationInsightRow {
+  key: string;
+  label: string;
+  count: number;
+  highValueCount: number;
+}
+
 export interface StrategicValueInsightRow {
   value: StrategicValue;
   label: string;
@@ -462,9 +469,13 @@ export interface SignalInsights {
     platformRows: PublishPrepPlatformInsightRow[];
     hookStyleRows: PublishPrepStyleInsightRow[];
     ctaStyleRows: PublishPrepStyleInsightRow[];
+    destinationRows: PublishPrepDestinationInsightRow[];
+    ctaGoalDestinationRows: PublishPrepStyleInsightRow[];
     topPlatformLabel: string | null;
     topHookStyleLabel: string | null;
     topCtaStyleLabel: string | null;
+    topDestinationLabel: string | null;
+    topHighValueDestinationLabel: string | null;
   };
   strategicOutcomes: {
     recordedCount: number;
@@ -1299,10 +1310,17 @@ function buildRepurposingInsights(
   };
 }
 
-function buildPublishPrepInsights(signals: SignalRecord[]): SignalInsights["publishPrep"] {
+function buildPublishPrepInsights(
+  signals: SignalRecord[],
+  postingEntries: PostingLogEntry[],
+  strategicOutcomes: StrategicOutcome[],
+): SignalInsights["publishPrep"] {
   const platformMap = new Map<string, PublishPrepPlatformInsightRow>();
   const hookStyleMap = new Map<string, PublishPrepStyleInsightRow>();
   const ctaStyleMap = new Map<string, PublishPrepStyleInsightRow>();
+  const destinationMap = new Map<string, PublishPrepDestinationInsightRow>();
+  const ctaGoalDestinationMap = new Map<string, PublishPrepStyleInsightRow>();
+  const postingEntryById = new Map(postingEntries.map((entry) => [entry.id, entry]));
   let totalPackages = 0;
 
   const getPlatformLabel = (platform: string) => {
@@ -1326,7 +1344,7 @@ function buildPublishPrepInsights(signals: SignalRecord[]): SignalInsights["publ
   };
 
   for (const signal of signals) {
-    const bundle = buildSignalPublishPrepBundle(signal);
+    const bundle = parsePublishPrepBundle(signal.publishPrepBundleJson) ?? buildSignalPublishPrepBundle(signal);
     if (!bundle) {
       continue;
     }
@@ -1366,7 +1384,50 @@ function buildPublishPrepInsights(signals: SignalRecord[]): SignalInsights["publ
         ctaRow.count += 1;
         ctaStyleMap.set(selectedCta.goalLabel, ctaRow);
       }
+
+      if (pkg.siteLinkId || pkg.siteLinkLabel) {
+        const key = pkg.siteLinkId ?? pkg.siteLinkLabel ?? "site_link";
+        const destinationRow = destinationMap.get(key) ?? {
+          key,
+          label: pkg.siteLinkLabel ?? pkg.siteLinkId ?? "Site link",
+          count: 0,
+          highValueCount: 0,
+        };
+        destinationRow.count += 1;
+        destinationMap.set(key, destinationRow);
+
+        if (signal.ctaGoal) {
+          const ctaGoalKey = `${signal.ctaGoal} -> ${destinationRow.label}`;
+          const ctaGoalRow = ctaGoalDestinationMap.get(ctaGoalKey) ?? {
+            label: ctaGoalKey,
+            count: 0,
+          };
+          ctaGoalRow.count += 1;
+          ctaGoalDestinationMap.set(ctaGoalKey, ctaGoalRow);
+        }
+      }
     }
+  }
+
+  for (const outcome of strategicOutcomes) {
+    if (outcome.strategicValue !== "high") {
+      continue;
+    }
+
+    const entry = postingEntryById.get(outcome.postingLogId);
+    const key = entry?.selectedSiteLinkId ?? entry?.destinationLabel;
+    if (!key) {
+      continue;
+    }
+
+    const destinationRow = destinationMap.get(key) ?? {
+      key,
+      label: entry?.destinationLabel ?? entry?.selectedSiteLinkId ?? "Site link",
+      count: 0,
+      highValueCount: 0,
+    };
+    destinationRow.highValueCount += 1;
+    destinationMap.set(key, destinationRow);
   }
 
   const platformRows = Array.from(platformMap.values()).sort(
@@ -1378,15 +1439,31 @@ function buildPublishPrepInsights(signals: SignalRecord[]): SignalInsights["publ
   const ctaStyleRows = Array.from(ctaStyleMap.values()).sort(
     (left, right) => right.count - left.count || left.label.localeCompare(right.label),
   );
+  const destinationRows = Array.from(destinationMap.values()).sort(
+    (left, right) =>
+      right.count - left.count ||
+      right.highValueCount - left.highValueCount ||
+      left.label.localeCompare(right.label),
+  );
+  const ctaGoalDestinationRows = Array.from(ctaGoalDestinationMap.values()).sort(
+    (left, right) => right.count - left.count || left.label.localeCompare(right.label),
+  );
+  const topHighValueDestination = [...destinationRows]
+    .sort((left, right) => right.highValueCount - left.highValueCount || right.count - left.count || left.label.localeCompare(right.label))
+    .find((row) => row.highValueCount > 0) ?? null;
 
   return {
     totalPackages,
     platformRows,
     hookStyleRows,
     ctaStyleRows,
+    destinationRows,
+    ctaGoalDestinationRows,
     topPlatformLabel: platformRows[0]?.label ?? null,
     topHookStyleLabel: hookStyleRows[0]?.label ?? null,
     topCtaStyleLabel: ctaStyleRows[0]?.label ?? null,
+    topDestinationLabel: destinationRows[0]?.label ?? null,
+    topHighValueDestinationLabel: topHighValueDestination?.label ?? null,
   };
 }
 
@@ -2242,9 +2319,11 @@ function buildObservations(input: {
   if (input.publishPrep.totalPackages > 0) {
     observations.push({
       tone: "neutral",
-      text: input.publishPrep.topPlatformLabel
-        ? `${input.publishPrep.totalPackages} publish-prep packages are currently attached, with ${input.publishPrep.topPlatformLabel} receiving the most last-mile support.`
-        : `${input.publishPrep.totalPackages} publish-prep packages are currently attached to approval-ready content.`,
+      text: input.publishPrep.topDestinationLabel
+        ? `${input.publishPrep.totalPackages} publish-prep packages are currently attached, with ${input.publishPrep.topDestinationLabel} used most often as the destination link.`
+        : input.publishPrep.topPlatformLabel
+          ? `${input.publishPrep.totalPackages} publish-prep packages are currently attached, with ${input.publishPrep.topPlatformLabel} receiving the most last-mile support.`
+          : `${input.publishPrep.totalPackages} publish-prep packages are currently attached to approval-ready content.`,
     });
   }
 
@@ -2369,7 +2448,7 @@ export function buildSignalInsights(
   const includedPostingOutcomes = (options?.postingOutcomes ?? []).filter((outcome) => includedSignalIds.has(outcome.signalId));
   const includedStrategicOutcomes = (options?.strategicOutcomes ?? []).filter((outcome) => includedSignalIds.has(outcome.signalId));
   const assets = buildAssetInsights(filteredSignals, includedPostingOutcomes);
-  const publishPrep = buildPublishPrepInsights(filteredSignals);
+  const publishPrep = buildPublishPrepInsights(filteredSignals, includedPostingEntries, includedStrategicOutcomes);
   const strategicOutcomes = buildStrategicOutcomeInsights({
     signals: filteredSignals,
     postingEntries: includedPostingEntries,

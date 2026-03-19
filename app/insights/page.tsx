@@ -1749,9 +1749,18 @@ export default async function InsightsPage({
                 value={insights.publishPrep.topCtaStyleLabel ?? "None yet"}
                 detail="Most common selected CTA posture across packages."
               />
+              <MetricCard
+                label="Top destination"
+                value={insights.publishPrep.topDestinationLabel ?? "None yet"}
+                detail={
+                  insights.publishPrep.topHighValueDestinationLabel
+                    ? `${insights.publishPrep.topHighValueDestinationLabel} currently has the strongest high-value outcome linkage.`
+                    : "No destination-outcome pattern is stable enough yet."
+                }
+              />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-400">By platform</p>
                 <div className="mt-3 space-y-3">
@@ -1762,6 +1771,24 @@ export default async function InsightsPage({
                       <div key={row.platform} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
                         <span className="text-sm text-slate-600">{row.label}</span>
                         <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Site destinations</p>
+                <div className="mt-3 space-y-3">
+                  {insights.publishPrep.destinationRows.length === 0 ? (
+                    <EmptyState copy="No site-link destination usage is stable enough to summarize yet." />
+                  ) : (
+                    insights.publishPrep.destinationRows.slice(0, 5).map((row) => (
+                      <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm text-slate-600">{row.label}</span>
+                          <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-500">{row.highValueCount} high-value strategic outcomes linked.</p>
                       </div>
                     ))
                   )}
@@ -1789,6 +1816,21 @@ export default async function InsightsPage({
                     <EmptyState copy="No selected CTA patterns are visible yet." />
                   ) : (
                     insights.publishPrep.ctaStyleRows.map((row) => (
+                      <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                        <span className="text-sm text-slate-600">{row.label}</span>
+                        <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">CTA goal to destination</p>
+                <div className="mt-3 space-y-3">
+                  {insights.publishPrep.ctaGoalDestinationRows.length === 0 ? (
+                    <EmptyState copy="No CTA-to-destination pairing is stable enough to summarize yet." />
+                  ) : (
+                    insights.publishPrep.ctaGoalDestinationRows.slice(0, 5).map((row) => (
                       <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
                         <span className="text-sm text-slate-600">{row.label}</span>
                         <span className="text-lg font-semibold text-slate-950">{row.count}</span>

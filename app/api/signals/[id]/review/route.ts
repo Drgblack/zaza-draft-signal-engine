@@ -345,12 +345,27 @@ export async function PATCH(
   const nextCtaSelections = new Map(
     (nextPublishPrep?.packages ?? []).map((pkg) => [pkg.id, pkg.selectedCtaId ?? pkg.primaryCta ?? null]),
   );
+  const previousLinks = new Map(
+    (previousPublishPrep?.packages ?? []).map((pkg) => [
+      pkg.id,
+      `${pkg.siteLinkId ?? ""}|${pkg.linkVariants[0]?.url ?? ""}|${pkg.linkVariants[0]?.label ?? ""}`,
+    ]),
+  );
+  const nextLinks = new Map(
+    (nextPublishPrep?.packages ?? []).map((pkg) => [
+      pkg.id,
+      `${pkg.siteLinkId ?? ""}|${pkg.linkVariants[0]?.url ?? ""}|${pkg.linkVariants[0]?.label ?? ""}`,
+    ]),
+  );
 
   const hookSelectionChanged = Array.from(nextHookSelections.entries()).some(
     ([packageId, selected]) => previousHookSelections.get(packageId) !== selected,
   );
   const ctaSelectionChanged = Array.from(nextCtaSelections.entries()).some(
     ([packageId, selected]) => previousCtaSelections.get(packageId) !== selected,
+  );
+  const linkSelectionChanged = Array.from(nextLinks.entries()).some(
+    ([packageId, selected]) => previousLinks.get(packageId) !== selected,
   );
 
   if (hookSelectionChanged) {
@@ -368,6 +383,20 @@ export async function PATCH(
       eventType: "CTA_SELECTED",
       actor: "operator",
       summary: "Updated a preferred publish CTA during final review.",
+    });
+  }
+
+  if (linkSelectionChanged) {
+    const leadPackage = nextPublishPrep?.packages.find((pkg) => pkg.linkVariants.length > 0) ?? null;
+    auditEvents.push({
+      signalId: id,
+      eventType: "PUBLISH_LINK_UPDATED",
+      actor: "operator",
+      summary: "Updated a publish destination link during final review.",
+      metadata: {
+        packageId: leadPackage?.id ?? null,
+        siteLinkId: leadPackage?.siteLinkId ?? null,
+      },
     });
   }
 

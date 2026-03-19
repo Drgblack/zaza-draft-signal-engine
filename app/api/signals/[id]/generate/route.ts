@@ -310,6 +310,7 @@ export async function PATCH(
   });
   if (publishPrepSave.signal) {
     nextSignal = publishPrepSave.signal;
+    const primaryPackage = publishPrepBundle?.packages[0] ?? null;
     auditEvents.push({
       signalId: id,
       eventType: "PUBLISH_PREP_GENERATED",
@@ -320,6 +321,19 @@ export async function PATCH(
         primaryPlatform: publishPrepBundle?.primaryPlatform ?? null,
       },
     });
+    if (primaryPackage?.siteLinkId) {
+      auditEvents.push({
+        signalId: id,
+        eventType: "SITE_LINK_SELECTED",
+        actor: "system",
+        summary: `Selected ${primaryPackage.siteLinkLabel ?? primaryPackage.siteLinkId} as the lead site destination for publish prep.`,
+        metadata: {
+          siteLinkId: primaryPackage.siteLinkId,
+          usedFallback: primaryPackage.siteLinkUsedFallback ?? false,
+          primaryPlatform: primaryPackage.platform,
+        },
+      });
+    }
   }
   await appendAuditEventsSafe(auditEvents);
 

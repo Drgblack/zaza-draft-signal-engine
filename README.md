@@ -35,13 +35,14 @@ Convert selected teacher-relevant signals into structured, platform-specific dra
 - Repurposing engine that expands stronger signals into a small multi-platform bundle instead of one isolated primary output
 - Publish prep layer that packages approval-ready drafts with hooks, CTAs, timing, alt text, comment prompts, and optional UTM-ready links for faster manual posting
 - Strategic outcome loop that records business-facing post results and ties them back to source, mode, pattern, platform, asset, and campaign context
+- Auto-repair loop that gives promising held candidates one explicit repair pass before leaving them for human intervention
 - Signal interpretation
 - Fixed-template content generation
 - Airtable storage
 - Internal review workflow
 
 ## Status
-Active internal workflow with ingestion, scoring, scenario framing, generation, audit memory, operator-facing insights, a lightweight reusable pattern library, bounded pattern discovery suggestions, heuristic pattern-aware co-pilot assists, inspectable pattern coverage-gap visibility, a manual lifecycle layer for retiring weak or outdated patterns, manual pattern bundles for organising related approaches into small kits, bundle-level coverage visibility for spotting thin or missing kits, a bounded editorial-mode layer for shaping draft intent more explicitly, explicit platform intent profiles for X, LinkedIn, and Reddit, a final review workspace for last-mile manual editing decisions, a manual posting-memory layer for preserving what was actually published externally, a manual qualitative outcome layer for capturing whether those published outputs were worth repeating, a bounded reuse-memory layer that brings those judged outcomes back into new editorial decisions without auto-applying them, a manual editorial playbook-card layer for compact reusable operator guidance, a heuristic playbook-coverage layer that highlights which recurring situations still need clearer playbook support, a unified guidance layer that presents the strongest next action, relevant memory, and support context in one place, a bounded operator-tuning layer for adjusting strictness and guidance posture without code edits, an autonomous approval queue layer that prepares stronger signals for review while still keeping final posting manual, a bounded campaign strategy layer that helps the system balance campaigns, pillars, audiences, funnel stages, CTA goals, and recent cadence, a lightweight weekly planning layer that steers queue balance across campaigns, funnels, platforms, modes, and fresh-versus-evergreen mix, a structured asset pipeline that packages visual and short-form video execution guidance with approval-ready drafts, a bounded repurposing engine that turns one strong idea into a few differentiated platform-ready variants, a manual publish-prep layer that packages those outputs with hooks, CTAs, timing, alt text, comment prompts, and optional trackable links for faster posting, and a strategic outcome layer that records business-facing post results without needing direct platform API integrations.
+Active internal workflow with ingestion, scoring, scenario framing, generation, audit memory, operator-facing insights, a lightweight reusable pattern library, bounded pattern discovery suggestions, heuristic pattern-aware co-pilot assists, inspectable pattern coverage-gap visibility, a manual lifecycle layer for retiring weak or outdated patterns, manual pattern bundles for organising related approaches into small kits, bundle-level coverage visibility for spotting thin or missing kits, a bounded editorial-mode layer for shaping draft intent more explicitly, explicit platform intent profiles for X, LinkedIn, and Reddit, a final review workspace for last-mile manual editing decisions, a manual posting-memory layer for preserving what was actually published externally, a manual qualitative outcome layer for capturing whether those published outputs were worth repeating, a bounded reuse-memory layer that brings those judged outcomes back into new editorial decisions without auto-applying them, a manual editorial playbook-card layer for compact reusable operator guidance, a heuristic playbook-coverage layer that highlights which recurring situations still need clearer playbook support, a unified guidance layer that presents the strongest next action, relevant memory, and support context in one place, a bounded operator-tuning layer for adjusting strictness and guidance posture without code edits, an autonomous approval queue layer that prepares stronger signals for review while still keeping final posting manual, a bounded auto-repair layer that gives held near-miss candidates one inspectable repair pass, a bounded campaign strategy layer that helps the system balance campaigns, pillars, audiences, funnel stages, CTA goals, and recent cadence, a lightweight weekly planning layer that steers queue balance across campaigns, funnels, platforms, modes, and fresh-versus-evergreen mix, a structured asset pipeline that packages visual and short-form video execution guidance with approval-ready drafts, a bounded repurposing engine that turns one strong idea into a few differentiated platform-ready variants, a manual publish-prep layer that packages those outputs with hooks, CTAs, timing, alt text, comment prompts, and optional trackable links for faster posting, and a strategic outcome layer that records business-facing post results without needing direct platform API integrations.
 
 ## Campaign Strategy Layer
 - Campaign strategy is centralized in `lib/campaigns.ts`.
@@ -103,6 +104,34 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - no video rendering engine
   - no full campaign calendar UI
   - no large job orchestration system
+
+## Auto-Repair Loop
+- Auto-repair is centralized in `lib/auto-repair.ts`.
+- The layer only runs inside the autonomous queue after a candidate is explicitly held.
+- It stays bounded on purpose:
+  - one repair pass per autonomous run
+  - no retry loops
+  - no auto-posting
+  - no hidden recovery logic
+- Current repair actions are explicit:
+  - stronger Scenario Angle reframe
+  - editorial mode shift
+  - pattern-guided fallback
+  - playbook-guided reframe
+  - one generation retry when framing already looks usable
+- Current outcomes stay inspectable:
+  - repaired and promoted
+  - repaired but still held
+  - not repairable
+- Repair history is stored on the signal record and surfaced lightly on:
+  - `/review`
+  - `/signals/[id]`
+  - `/signals/[id]/review`
+- Limitations:
+  - advisory only
+  - no multi-step repair chains
+  - no automatic approval bypass
+  - no auto-posting
 
 ## Asset Pipeline
 - Asset packaging is centralized in `lib/assets.ts`.
@@ -181,20 +210,33 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - alt text when relevant
   - follow-up comment or reply prompt
   - suggested posting time
-  - optional UTM-ready link variant
+  - real `zazadraft.com` destination links plus UTM-ready variants
+- Site-link selection is centralized in `lib/site-links.ts`.
+- The current registry stays small and explicit on purpose:
+  - homepage
+  - `/get-started`
+  - pricing
+  - a few fallback thematic destinations such as teacher protection, planning support, product education, newsletter, and resources
+- Destination selection uses explicit context such as:
+  - campaign
+  - funnel stage
+  - CTA goal
+  - editorial mode
+  - signal wording
 - Packages are generated for:
   - primary X, LinkedIn, and Reddit drafts
   - distinct repurposed outputs such as email, video, carousel, and founder-thought variants
 - Final review now supports:
   - choosing the preferred hook and CTA
-  - editing the hook, CTA, tags, alt text, timing note, comment prompt, and link label or URL
+  - editing the hook, CTA, tags, alt text, timing note, comment prompt, and destination link label or URL
   - carrying the same package forward into manual posting logs as low-risk metadata
-- `/review` surfaces a light “publish prep ready” summary and `/insights` shows lightweight package, hook-style, CTA-style, and platform mix visibility.
+- `/review` surfaces a light “publish prep ready” summary and `/insights` shows lightweight package, hook-style, CTA-style, destination-link, and platform mix visibility.
 - Limitations:
   - manual only
   - no direct publishing
   - no scheduler
-  - UTM links use a bounded base-URL fallback when no site URL is configured
+  - destination routing is registry-based rather than synced from the website repo
+  - no attribution model beyond stored UTM and destination metadata
 
 ## Strategic Outcome Loop
 - Strategic outcomes are split into two bounded layers:

@@ -1,7 +1,84 @@
 # Codex Runs
 
 ## Current Run
-Run 42 adds Autonomous Approval Queue + Auto-Advance Pipeline:
+Run 50 adds Site Link Registry + Real UTM Packaging:
+- new centralized site-link registry in `lib/site-links.ts`
+- publish prep now selects real `zazadraft.com` destinations instead of generic placeholder links
+- the registry stays intentionally small and explicit:
+  - homepage
+  - `/get-started`
+  - pricing
+  - fallback thematic destinations such as teacher protection, planning support, product education, newsletter, and resources
+- destination selection now uses bounded context such as:
+  - campaign
+  - funnel stage
+  - CTA goal
+  - editorial mode
+  - signal wording
+- CTA text is now aligned to the chosen destination so link intent and copy do not contradict each other
+- final review now shows:
+  - chosen destination label
+  - fallback-route note when relevant
+  - editable final destination URL and label
+- posting-log entries now preserve:
+  - selected site-link id
+  - destination URL
+  - destination label
+  - UTM source, medium, campaign, and content
+- `/insights` now includes lightweight destination usage visibility:
+  - most-used destinations
+  - CTA goal to destination pairings
+  - destinations linked to high-value strategic outcomes
+- audit logging now supports:
+  - `SITE_LINK_SELECTED`
+  - `PUBLISH_LINK_UPDATED`
+- this run remains bounded:
+  - no website crawling
+  - no CMS sync
+  - no link shortener
+  - no attribution model
+  - no direct publishing
+
+## Previous Runs
+- Run 49 adds Auto-Repair Loop for Held Candidates:
+- new centralized repair helper in `lib/auto-repair.ts`
+- held candidates can now receive one bounded repair pass inside the autonomous queue when the hold reason looks fixable
+- current repair paths are explicit and inspectable:
+  - stronger Scenario Angle reframe
+  - editorial mode shift
+  - pattern-guided fallback
+  - playbook-guided reframe
+  - one generation retry
+- repair stays bounded on purpose:
+  - one pass only
+  - no retry loops
+  - no auto-posting
+  - no human-approval bypass
+- repaired outcomes now stay explicit:
+  - repaired and promoted
+  - repaired but still held
+  - not repairable
+- autonomous run summaries now surface:
+  - auto-repaired promoted count
+  - auto-repaired still-held count
+  - repaired-promoted records
+  - repaired-held records
+- `/review` now shows repair notes directly on approval-ready and held cards when repair history exists
+- `/signals/[id]` and `/signals/[id]/review` now show a compact latest auto-repair note when applicable
+- audit logging now supports:
+  - `AUTO_REPAIR_ATTEMPTED`
+  - `AUTO_REPAIR_PROMOTED`
+  - `AUTO_REPAIR_FAILED`
+- mock mode now includes:
+  - repaired-promoted example
+  - repaired-but-still-held example
+  - not-repairable example
+- this run remains bounded:
+  - no multi-step repair chains
+  - no auto-posting
+  - no hidden recovery loops
+  - no autonomous approval bypass
+- Run 42 adds Autonomous Approval Queue + Auto-Advance Pipeline:
 - new centralized automation rules in `lib/auto-advance.ts`
 - new bounded approval ranking in `lib/approval-ranking.ts`
 - new cron-compatible autonomous runner at:
@@ -38,8 +115,6 @@ Run 42 adds Autonomous Approval Queue + Auto-Advance Pipeline:
   - no scheduling automation
   - no image or video generation APIs
   - no large worker orchestration system
-
-## Previous Runs
 - Run 41 adds Operator Tuning Controls:
 - new centralized persistent tuning layer in `lib/tuning.ts`
 - pure shared tuning definitions now live in `lib/tuning-definitions.ts`

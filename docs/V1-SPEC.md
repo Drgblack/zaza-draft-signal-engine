@@ -38,6 +38,7 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - centralized ranking in `lib/approval-ranking.ts`
   - cron-compatible runner at `GET` or `POST /api/autonomous/run`
   - bounded auto-interpret, auto-generate, and approval-ready promotion rules
+  - bounded one-pass auto-repair for promising held candidates
   - explicit auto-hold reasons for weak or uncertain cases
   - approval-ready queue visibility on `/review`
   - no auto-posting
@@ -196,13 +197,15 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - no auto-posting, scheduling, or content-spinning behavior
 - Publish prep layer with:
   - centralized packaging logic in `lib/publish-prep.ts`
-  - structured hook variants, CTA variants, hashtags or keywords, alt text, comment prompts, suggested posting times, and optional UTM-ready links
+  - structured hook variants, CTA variants, hashtags or keywords, alt text, comment prompts, suggested posting times, and real `zazadraft.com` UTM-ready destination links
   - package generation for primary platform drafts plus distinct repurposed outputs
   - persisted `publishPrepBundleJson` on the signal record
+  - centralized site-link registry in `lib/site-links.ts`
+  - explicit destination selection based on campaign, funnel stage, CTA goal, editorial mode, and bounded signal wording
   - lightweight editing in final review and compact readiness visibility in the approval-ready queue
-  - low-risk posting-log metadata capture for selected hook, CTA, and timing context
-  - compact package mix visibility on `/insights`
-  - no direct publishing, scheduler, or social-platform API integration
+  - low-risk posting-log metadata capture for selected hook, CTA, timing, destination, and UTM context
+  - compact package mix visibility on `/insights`, including destination usage
+  - no direct publishing, scheduler, social-platform API integration, or attribution model
 - Strategic outcome loop with:
   - centralized manual business-outcome storage in `lib/strategic-outcomes.ts`
   - one strategic outcome record per posting-log entry
@@ -257,6 +260,7 @@ Build a private internal dashboard for manually submitting signals, lightly clas
    - scores missing candidates
    - auto-interprets stronger candidates
    - auto-generates stronger interpreted candidates
+   - attempts one bounded repair pass on promising held candidates
    - auto-promotes near-finished records into an approval-ready queue
    - auto-holds weak or uncertain cases with explicit reasons
 10. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
@@ -933,6 +937,7 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - score missing candidates
   - auto-interpret stronger signals
   - auto-generate stronger interpreted signals
+  - attempt one bounded repair pass on promising held candidates
   - classify generated records as approval-ready or held
 - Approval-ready is currently a derived queue classification, not a new canonical record status.
 - Current auto-advance stages are explicit:
@@ -945,6 +950,22 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - indirect source still needs judgement
   - no reliable playbook or pattern support
   - weak draft quality
+- Auto-repair is intentionally narrow:
+  - only one repair attempt per run
+  - no retry loops
+  - no hidden multi-step rescue chain
+  - no automatic approval bypass
+- Current repair actions may include:
+  - stronger Scenario Angle reframe
+  - editorial mode shift
+  - pattern-guided fallback
+  - playbook-guided reframe
+  - one generation retry when framing already looks usable
+- Current repair outcomes are:
+  - repaired and promoted
+  - repaired but still held
+  - not repairable
+- Repair history is persisted on the signal and surfaced lightly in review and detail views.
 - Approval ranking is heuristic and inspectable. Current inputs include:
   - editorial confidence
   - reuse memory
@@ -958,6 +979,9 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - `AUTO_GENERATED`
   - `AUTO_HELD_FOR_REVIEW`
   - `AUTO_PROMOTED_TO_APPROVAL_QUEUE`
+  - `AUTO_REPAIR_ATTEMPTED`
+  - `AUTO_REPAIR_PROMOTED`
+  - `AUTO_REPAIR_FAILED`
 - Current limitations:
   - final review remains manual
   - scheduling and posting remain manual

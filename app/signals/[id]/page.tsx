@@ -19,6 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { deriveDisplayEngagementScore, getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { getAuditEvents, listAuditEvents } from "@/lib/audit";
+import { getLatestAutoRepairEntry, getAutoRepairLabel } from "@/lib/auto-repair";
 import { buildBundleCoverageSummary, getSignalBundleCoverageHint } from "@/lib/bundle-coverage";
 import { buildCampaignCadenceSummary, getCampaignStrategy, getSignalContentContextSummary } from "@/lib/campaigns";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
@@ -173,6 +174,7 @@ export default async function SignalDetailPage({
     tuning: tuning.settings,
   });
   const autonomousAssessment = assessAutonomousSignal(signal, guidance);
+  const latestAutoRepair = getLatestAutoRepairEntry(signal);
   const readinessTone =
     automationReadiness.tone === "success"
       ? "bg-emerald-50 text-emerald-700"
@@ -367,6 +369,13 @@ export default async function SignalDetailPage({
                 ) : null}
               </div>
               <p className="text-sm leading-6 text-slate-700">{autonomousAssessment.summary}</p>
+              {latestAutoRepair ? (
+                <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+                  <p className="font-medium text-slate-900">Latest auto-repair</p>
+                  <p className="mt-2 leading-6">{getAutoRepairLabel(latestAutoRepair)}</p>
+                  {latestAutoRepair.notes[0] ? <p className="mt-2 text-slate-500">{latestAutoRepair.notes.join(" · ")}</p> : null}
+                </div>
+              ) : null}
               {autonomousAssessment.reasons.length > 0 ? (
                 <div className="flex flex-wrap gap-2 text-sm text-slate-500">
                   {autonomousAssessment.reasons.map((reason) => (

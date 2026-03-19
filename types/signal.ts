@@ -91,6 +91,18 @@ export const CTA_GOALS = [
 ] as const;
 
 export const ASSET_PRIMARY_TYPES = ["image", "video", "text_first"] as const;
+export const AUTO_REPAIR_TYPES = [
+  "scenario_angle_reframe",
+  "editorial_mode_shift",
+  "pattern_fallback",
+  "playbook_supported_reframe",
+  "generation_retry",
+] as const;
+export const AUTO_REPAIR_OUTCOMES = [
+  "repaired_promoted",
+  "repaired_still_held",
+  "not_repairable",
+] as const;
 
 export const FINAL_DRAFT_REVIEW_STATUSES = ["ready", "needs_edit", "skip"] as const;
 
@@ -114,6 +126,8 @@ export type EditorialMode = (typeof EDITORIAL_MODES)[number];
 export type FunnelStage = (typeof FUNNEL_STAGES)[number];
 export type CtaGoal = (typeof CTA_GOALS)[number];
 export type AssetPrimaryType = (typeof ASSET_PRIMARY_TYPES)[number];
+export type AutoRepairType = (typeof AUTO_REPAIR_TYPES)[number];
+export type AutoRepairOutcome = (typeof AUTO_REPAIR_OUTCOMES)[number];
 export type FinalDraftReviewStatus = (typeof FINAL_DRAFT_REVIEW_STATUSES)[number];
 export type InterpretationConfidence = (typeof INTERPRETATION_CONFIDENCE_LEVELS)[number];
 export type InterpretationSource = (typeof INTERPRETATION_SOURCES)[number];
@@ -387,6 +401,7 @@ export interface SignalRecord extends SignalAutomationEvaluationFields {
   repurposingBundleJson: string | null;
   publishPrepBundleJson: string | null;
   selectedRepurposedOutputIdsJson: string | null;
+  autoRepairHistoryJson: string | null;
   preferredAssetType: AssetPrimaryType | null;
   selectedImageAssetId: string | null;
   selectedVideoConceptId: string | null;

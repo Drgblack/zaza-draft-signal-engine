@@ -371,6 +371,19 @@ export function PostingHistoryPanel({
 
                   <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{entry.finalPostedText}</p>
                   {entry.note ? <p className="mt-3 text-sm text-slate-500">{entry.note}</p> : null}
+                  {entry.destinationUrl ? (
+                    <div className="mt-3 rounded-2xl bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
+                      <p className="font-medium text-slate-900">
+                        Destination: {entry.destinationLabel ?? entry.selectedSiteLinkId ?? "Site link"}
+                      </p>
+                      <p className="mt-2 break-all">{entry.destinationUrl}</p>
+                      {entry.utmSource || entry.utmMedium || entry.utmCampaign || entry.utmContent ? (
+                        <p className="mt-2 text-xs text-slate-500">
+                          UTM: {entry.utmSource ?? "n/a"} / {entry.utmMedium ?? "n/a"} / {entry.utmCampaign ?? "n/a"} / {entry.utmContent ?? "n/a"}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {outcome?.note ? <p className="mt-3 text-sm text-slate-600">Outcome note: {outcome.note}</p> : null}
                   {strategicOutcome ? (
                     <div className="mt-3 rounded-2xl bg-slate-50/80 px-4 py-3 text-sm text-slate-600">

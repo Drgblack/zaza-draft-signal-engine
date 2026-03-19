@@ -3,7 +3,13 @@ import { NextResponse } from "next/server";
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
 import { getSignalWithFallback, saveSignalWithFallback } from "@/lib/airtable";
 import { getAuditEvents } from "@/lib/audit";
-import { getPublishPrepPackageForPlatform, getSelectedCtaText, getSelectedHookText, parsePublishPrepBundle } from "@/lib/publish-prep";
+import {
+  getPrimaryLinkVariant,
+  getPublishPrepPackageForPlatform,
+  getSelectedCtaText,
+  getSelectedHookText,
+  parsePublishPrepBundle,
+} from "@/lib/publish-prep";
 import {
   appendPostingLogEntry,
   buildSignalPostingSummary,
@@ -96,6 +102,7 @@ export async function POST(
   const latestAppliedPattern = getLatestAppliedPattern(signal.recordId, auditEvents);
   const publishPrepBundle = parsePublishPrepBundle(signal.publishPrepBundleJson);
   const publishPrepPackage = getPublishPrepPackageForPlatform(publishPrepBundle, parsed.data.platform);
+  const primaryLink = publishPrepPackage ? getPrimaryLinkVariant(publishPrepPackage) : null;
 
   let entry;
   try {
@@ -116,6 +123,13 @@ export async function POST(
       selectedHookText: publishPrepPackage ? getSelectedHookText(publishPrepPackage) : null,
       selectedCtaText: publishPrepPackage ? getSelectedCtaText(publishPrepPackage) : null,
       suggestedPostingTime: publishPrepPackage?.suggestedPostingTime ?? null,
+      selectedSiteLinkId: publishPrepPackage?.siteLinkId ?? primaryLink?.siteLinkId ?? null,
+      destinationUrl: primaryLink?.url ?? null,
+      destinationLabel: primaryLink?.destinationLabel ?? publishPrepPackage?.siteLinkLabel ?? null,
+      utmSource: primaryLink?.utmParameters?.utm_source ?? null,
+      utmMedium: primaryLink?.utmParameters?.utm_medium ?? null,
+      utmCampaign: primaryLink?.utmParameters?.utm_campaign ?? null,
+      utmContent: primaryLink?.utmParameters?.utm_content ?? null,
     });
   } catch (error) {
     return NextResponse.json<PostingLogResponse>(
@@ -155,6 +169,7 @@ export async function POST(
       metadata: {
         platform: entry.platform,
         postedAt: entry.postedAt,
+        selectedSiteLinkId: entry.selectedSiteLinkId ?? null,
       },
     },
   ];

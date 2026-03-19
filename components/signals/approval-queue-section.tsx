@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import type { ApprovalQueueCandidate } from "@/lib/approval-ranking";
 import type { AutoAdvanceAssessment } from "@/lib/auto-advance";
+import { getAutoRepairLabel, getLatestAutoRepairEntry } from "@/lib/auto-repair";
 import { buildAssetBundleSummary, buildSignalAssetBundle, getAssetPrimaryImage, getAssetPrimaryVideo } from "@/lib/assets";
 import type { CampaignCadenceSummary, CampaignStrategy } from "@/lib/campaigns";
 import { getSignalContentContextSummary } from "@/lib/campaigns";
@@ -52,6 +53,7 @@ function HoldCard({
   strategy: CampaignStrategy;
 }) {
   const context = getSignalContentContextSummary(signal, strategy);
+  const latestRepair = getLatestAutoRepairEntry(signal);
 
   return (
     <div className="rounded-2xl bg-white/80 p-4">
@@ -78,6 +80,9 @@ function HoldCard({
               </span>
             ))}
           </div>
+          {latestRepair ? (
+            <p className="text-sm text-slate-600">{getAutoRepairLabel(latestRepair)}</p>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Link href={`/signals/${signal.recordId}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
               Open record
@@ -150,6 +155,7 @@ export function ApprovalQueueSection({
               const publishPrepBundle = buildSignalPublishPrepBundle(candidate.signal);
               const publishPrepSummary = buildPublishPrepBundleSummary(publishPrepBundle);
               const planAlignment = getWeeklyPlanAlignment(candidate.signal, weeklyPlan, strategy, weeklyPlanState);
+              const latestRepair = getLatestAutoRepairEntry(candidate.signal);
 
               return (
                 <div key={candidate.signal.recordId} className="rounded-2xl bg-white/80 p-4">
@@ -195,6 +201,9 @@ export function ApprovalQueueSection({
                         </span>
                       ))}
                     </div>
+                    {latestRepair ? (
+                      <p className="text-sm text-slate-600">{getAutoRepairLabel(latestRepair)}</p>
+                    ) : null}
                     <div className="flex flex-wrap gap-2">
                       <Link href={`/signals/${candidate.signal.recordId}/review`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
                         Open final review

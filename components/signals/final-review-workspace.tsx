@@ -34,6 +34,7 @@ import {
   type PublishPrepBundle,
   type PublishPrepPackage,
 } from "@/lib/publish-prep";
+import { getAutoRepairLabel, getLatestAutoRepairEntry } from "@/lib/auto-repair";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -346,6 +347,7 @@ export function FinalReviewWorkspace({
     () => buildPublishPrepBundleSummary(publishPrepBundle),
     [publishPrepBundle],
   );
+  const latestAutoRepair = useMemo(() => getLatestAutoRepairEntry(currentSignal), [currentSignal]);
 
   function updateField<K extends keyof ReviewFormState>(key: K, value: ReviewFormState[K]) {
     setFormState((current) => ({ ...current, [key]: value }));
@@ -731,6 +733,16 @@ export function FinalReviewWorkspace({
               ) : null}
               {weeklyPlanContext.cautions.length > 0 ? (
                 <p className="mt-2 text-slate-500">Watch: {weeklyPlanContext.cautions.join(" · ")}</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {latestAutoRepair ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Auto-repair note</p>
+              <p className="mt-2">{getAutoRepairLabel(latestAutoRepair)}</p>
+              {latestAutoRepair.notes.length > 0 ? (
+                <p className="mt-2 text-slate-500">{latestAutoRepair.notes.join(" · ")}</p>
               ) : null}
             </div>
           ) : null}
@@ -1371,6 +1383,17 @@ export function FinalReviewWorkspace({
                     {pkg.linkVariants.length > 0 ? (
                       pkg.linkVariants.map((link, index) => (
                         <div key={`${pkg.id}-link-${index}`} className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+                          <div className="mb-3 flex flex-wrap items-center gap-2">
+                            <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                              Destination: {link.destinationLabel ?? pkg.siteLinkLabel ?? "Site link"}
+                            </span>
+                            {link.usedFallback || pkg.siteLinkUsedFallback ? (
+                              <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                Fallback route
+                              </span>
+                            ) : null}
+                          </div>
+                          {pkg.siteLinkReason ? <p className="mb-3 text-xs text-slate-500">{pkg.siteLinkReason}</p> : null}
                           <div className="grid gap-3 xl:grid-cols-[1fr_220px]">
                             <div className="grid gap-2">
                               <Label htmlFor={`${pkg.id}-link-url-${index}`}>Link URL</Label>

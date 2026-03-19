@@ -5,6 +5,7 @@ import {
   buildSignalRepurposingBundle,
   type RepurposedOutput,
 } from "@/lib/repurposing";
+import { selectBestSiteLink, type SiteLinkDefinition } from "@/lib/site-links";
 import type { SignalRecord } from "@/types/signal";
 
 const PUBLISH_PREP_PLATFORMS = [
@@ -54,6 +55,9 @@ const utmParametersSchema = z.object({
 const linkVariantSchema = z.object({
   url: z.string().trim().min(1),
   label: z.string().trim().min(1),
+  siteLinkId: z.string().trim().nullable().optional(),
+  destinationLabel: z.string().trim().nullable().optional(),
+  usedFallback: z.boolean().optional(),
   utmParameters: utmParametersSchema.optional(),
 });
 
@@ -73,6 +77,10 @@ const publishPrepPackageSchema = z.object({
   altText: altTextSchema.nullable(),
   commentPrompt: commentPromptSchema.nullable(),
   suggestedPostingTime: z.string().trim().nullable(),
+  siteLinkId: z.string().trim().nullable(),
+  siteLinkLabel: z.string().trim().nullable(),
+  siteLinkReason: z.string().trim().nullable(),
+  siteLinkUsedFallback: z.boolean().optional(),
   linkVariants: z.array(linkVariantSchema).max(3),
   notes: z.string().trim().nullable(),
 });
@@ -167,16 +175,6 @@ function getPlatformLabel(platform: PublishPrepPlatform): string {
     default:
       return "Founder thought";
   }
-}
-
-function getBaseUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_ZAZA_SITE_URL ??
-    process.env.ZAZA_SITE_URL ??
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    process.env.SITE_URL ??
-    "https://zazadraft.example"
-  ).replace(/\/+$/, "");
 }
 
 function parseKeywords(value: string | null | undefined): string[] {
@@ -289,30 +287,70 @@ function buildHookVariants(signal: SignalRecord, platform: PublishPrepPlatform, 
     .filter((variant) => Boolean(variant.text));
 }
 
-function buildCtaText(signal: SignalRecord, platform: PublishPrepPlatform, variant: "primary" | "soft"): string {
+function buildDestinationAlignedCta(
+  siteLink: SiteLinkDefinition,
+  platform: PublishPrepPlatform,
+  variant: "primary" | "soft",
+): string {
+  switch (siteLink.id) {
+    case "get_started":
+      if (platform === "linkedin") {
+        return variant === "primary" ? "If useful, try it free and see how the workflow holds up in practice." : "If this pattern keeps showing up, get started and test it in a calmer workflow.";
+      }
+      if (platform === "email") {
+        return variant === "primary" ? "Get started and try the workflow in your own context." : "Start here if you want a practical first step.";
+      }
+      return variant === "primary" ? "Try it free." : "Get started if you want the calmer version of this workflow.";
+    case "pricing":
+      return variant === "primary" ? "See pricing." : "Review the pricing and decide whether it fits your team.";
+    case "product_overview":
+    case "product_education":
+      return variant === "primary" ? "See how it works." : "Read the fuller breakdown if you want the structure behind this.";
+    case "teacher_protection":
+      return variant === "primary" ? "Read the full teacher-protection breakdown." : "This is worth keeping as a calmer teacher-protection reference.";
+    case "planning_support":
+      return variant === "primary" ? "Read the full planning-support breakdown." : "Keep the fuller planning structure nearby for the next hard week.";
+    case "newsletter":
+      return variant === "primary" ? "Join for calmer teacher-facing updates." : "Keep following for more practical teacher-safe examples.";
+    case "resources":
+      return variant === "primary" ? "Read the full breakdown." : "Save this and use the fuller resource when the situation comes up again.";
+    case "home":
+    default:
+      return variant === "primary" ? "See how it works." : "Read more if you want the fuller context behind this.";
+  }
+}
+
+function buildCtaText(
+  signal: SignalRecord,
+  platform: PublishPrepPlatform,
+  variant: "primary" | "soft",
+  siteLink: SiteLinkDefinition,
+): string {
   const goal = signal.ctaGoal;
   const funnel = signal.funnelStage;
 
   if (platform === "reddit") {
+    if (goal === "Visit site" || goal === "Sign up" || goal === "Try product" || funnel === "Consideration" || funnel === "Conversion") {
+      return variant === "primary"
+        ? `If relevant, the fuller ${siteLink.label.toLowerCase()} link is there for context.`
+        : "Mainly curious how others would handle this in practice before clicking away.";
+    }
+
     return variant === "primary"
       ? "How would you phrase this without making it colder or more defensive?"
       : "Interested in how others would handle this in practice.";
   }
 
-  if (platform === "x") {
-    if (goal === "Visit site" || goal === "Sign up" || goal === "Try product" || funnel === "Conversion") {
-      return variant === "primary" ? "If this is familiar, the fuller breakdown is worth a look." : "Worth saving before the next version of this lands.";
-    }
-
-    return variant === "primary" ? "Worth keeping in mind before your next reply." : "This is the kind of wording shift that changes the whole exchange.";
+  if (goal === "Visit site" || goal === "Sign up" || goal === "Try product" || funnel === "Consideration" || funnel === "Conversion") {
+    return buildDestinationAlignedCta(siteLink, platform, variant);
   }
 
   if (platform === "linkedin") {
-    if (goal === "Visit site" || goal === "Sign up" || goal === "Try product" || funnel === "Consideration" || funnel === "Conversion") {
-      return variant === "primary" ? "If helpful, the fuller breakdown can turn this into a calmer repeatable approach." : "This is exactly where better teacher-facing support should reduce friction.";
-    }
-
     return variant === "primary" ? "It is worth slowing this kind of wording down before it escalates." : "This is a good example of where practical judgement matters more than sounding polished.";
+  }
+
+  if (platform === "x") {
+    return variant === "primary" ? "Worth keeping in mind before your next reply." : "This is the kind of wording shift that changes the whole exchange.";
   }
 
   if (platform === "email") {
@@ -334,9 +372,9 @@ function buildCtaText(signal: SignalRecord, platform: PublishPrepPlatform, varia
     : "I keep coming back to this because it shows how much judgment lives inside small wording choices.";
 }
 
-function buildCtaVariants(signal: SignalRecord, platform: PublishPrepPlatform): CtaVariant[] {
-  const primary = buildCtaText(signal, platform, "primary");
-  const soft = buildCtaText(signal, platform, "soft");
+function buildCtaVariants(signal: SignalRecord, platform: PublishPrepPlatform, siteLink: SiteLinkDefinition): CtaVariant[] {
+  const primary = buildCtaText(signal, platform, "primary", siteLink);
+  const soft = buildCtaText(signal, platform, "soft", siteLink);
   const goalLabel =
     signal.ctaGoal === "Share / engage"
       ? "discussion"
@@ -458,30 +496,52 @@ function isLinkRelevant(signal: SignalRecord): boolean {
   );
 }
 
+function buildMedium(platform: PublishPrepPlatform): string {
+  if (platform === "email") {
+    return "newsletter_manual";
+  }
+
+  if (platform === "reddit") {
+    return "community_manual";
+  }
+
+  return "organic_social_manual";
+}
+
+function buildTrackedUrl(url: string, utmParameters: UtmParameters): string {
+  const trackedUrl = new URL(url);
+  Object.entries(utmParameters).forEach(([key, value]) => {
+    trackedUrl.searchParams.set(key, value);
+  });
+  return trackedUrl.toString();
+}
+
 function buildLinkVariants(signal: SignalRecord, platform: PublishPrepPlatform, targetId: string): LinkVariant[] {
-  if (!isLinkRelevant(signal) || platform === "reddit") {
+  if (!isLinkRelevant(signal)) {
     return [];
   }
 
-  const baseUrl = getBaseUrl();
+  const selection = selectBestSiteLink({
+    signal,
+    platform,
+    targetId,
+  });
   const campaignSlug = slugify(signal.campaignId ?? "evergreen");
-  const contentSlug = slugify(targetId);
-  const medium = platform === "email" ? "email_manual" : "social_manual";
+  const contentSlug = slugify(`${signal.editorialMode ?? "content"}-${platform}-${targetId}`);
   const utmParameters: UtmParameters = {
     utm_source: platform,
-    utm_medium: medium,
+    utm_medium: buildMedium(platform),
     utm_campaign: campaignSlug || "evergreen",
     utm_content: contentSlug || slugify(signal.recordId),
   };
-  const url = new URL(baseUrl);
-  Object.entries(utmParameters).forEach(([key, value]) => {
-    url.searchParams.set(key, value);
-  });
 
   return [
     {
-      url: url.toString(),
-      label: signal.ctaGoal === "Try product" ? "Trackable try-product link" : "Trackable site link",
+      url: buildTrackedUrl(selection.siteLink.url, utmParameters),
+      label: buildDestinationAlignedCta(selection.siteLink, platform, "primary"),
+      siteLinkId: selection.siteLink.id,
+      destinationLabel: selection.siteLink.label,
+      usedFallback: selection.usedFallback,
       utmParameters,
     },
   ];
@@ -514,7 +574,9 @@ function buildDraftPackage(
   assetBundle: AssetBundle | null,
 ): PublishPrepPackage {
   const hookVariants = buildHookVariants(signal, platform, draft);
-  const ctaVariants = buildCtaVariants(signal, platform);
+  const linkVariants = buildLinkVariants(signal, platform, platform);
+  const selectedSiteLink = linkVariants[0]?.siteLinkId ? selectBestSiteLink({ signal, platform, targetId: platform, preferredSiteLinkId: linkVariants[0].siteLinkId }) : selectBestSiteLink({ signal, platform, targetId: platform });
+  const ctaVariants = buildCtaVariants(signal, platform, selectedSiteLink.siteLink);
 
   return {
     id: `publish-prep-${slugify(signal.recordId)}-${platform}`,
@@ -532,7 +594,11 @@ function buildDraftPackage(
     altText: buildAltText(signal, platform, assetBundle),
     commentPrompt: buildCommentPrompt(signal, platform),
     suggestedPostingTime: buildSuggestedPostingTime(signal, platform),
-    linkVariants: buildLinkVariants(signal, platform, platform),
+    siteLinkId: linkVariants.length > 0 ? selectedSiteLink.siteLink.id : null,
+    siteLinkLabel: linkVariants.length > 0 ? selectedSiteLink.siteLink.label : null,
+    siteLinkReason: linkVariants.length > 0 ? selectedSiteLink.reason : null,
+    siteLinkUsedFallback: linkVariants.length > 0 ? selectedSiteLink.usedFallback : false,
+    linkVariants,
     notes: buildNotes(platform),
   };
 }
@@ -547,6 +613,19 @@ function shouldIncludeRepurposedOutput(output: RepurposedOutput): boolean {
 
 function buildRepurposedPackage(signal: SignalRecord, output: RepurposedOutput, assetBundle: AssetBundle | null): PublishPrepPackage {
   const hookVariants = buildHookVariants(signal, output.platform as PublishPrepPlatform, output.content, output.title);
+  const linkVariants = buildLinkVariants(signal, output.platform as PublishPrepPlatform, output.id);
+  const selectedSiteLink = linkVariants[0]?.siteLinkId
+    ? selectBestSiteLink({
+        signal,
+        platform: output.platform,
+        targetId: output.id,
+        preferredSiteLinkId: linkVariants[0].siteLinkId,
+      })
+    : selectBestSiteLink({
+        signal,
+        platform: output.platform,
+        targetId: output.id,
+      });
   const ctaVariants =
     output.CTA?.trim()
       ? [
@@ -555,12 +634,12 @@ function buildRepurposedPackage(signal: SignalRecord, output: RepurposedOutput, 
             text: output.CTA.trim(),
             goalLabel: signal.ctaGoal?.toLowerCase() ?? "platform",
           },
-          ...buildCtaVariants(signal, output.platform as PublishPrepPlatform).slice(0, 1).map((variant, index) => ({
+          ...buildCtaVariants(signal, output.platform as PublishPrepPlatform, selectedSiteLink.siteLink).slice(0, 1).map((variant, index) => ({
             ...variant,
             id: `cta-${slugify(output.id)}-${index + 2}`,
           })),
         ]
-      : buildCtaVariants(signal, output.platform as PublishPrepPlatform);
+      : buildCtaVariants(signal, output.platform as PublishPrepPlatform, selectedSiteLink.siteLink);
 
   return {
     id: `publish-prep-${slugify(output.id)}`,
@@ -578,7 +657,11 @@ function buildRepurposedPackage(signal: SignalRecord, output: RepurposedOutput, 
     altText: buildAltText(signal, output.platform as PublishPrepPlatform, assetBundle),
     commentPrompt: buildCommentPrompt(signal, output.platform as PublishPrepPlatform),
     suggestedPostingTime: buildSuggestedPostingTime(signal, output.platform as PublishPrepPlatform),
-    linkVariants: buildLinkVariants(signal, output.platform as PublishPrepPlatform, output.id),
+    siteLinkId: linkVariants.length > 0 ? selectedSiteLink.siteLink.id : null,
+    siteLinkLabel: linkVariants.length > 0 ? selectedSiteLink.siteLink.label : null,
+    siteLinkReason: linkVariants.length > 0 ? selectedSiteLink.reason : null,
+    siteLinkUsedFallback: linkVariants.length > 0 ? selectedSiteLink.usedFallback : false,
+    linkVariants,
     notes: output.notes ?? buildNotes(output.platform as PublishPrepPlatform),
   };
 }
@@ -627,6 +710,10 @@ export function getSelectedCtaText(pkg: PublishPrepPackage): string | null {
   }
 
   return pkg.primaryCta;
+}
+
+export function getPrimaryLinkVariant(pkg: PublishPrepPackage): LinkVariant | null {
+  return pkg.linkVariants[0] ?? null;
 }
 
 export function getPublishPrepPackageForPlatform(

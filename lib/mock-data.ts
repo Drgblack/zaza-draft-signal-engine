@@ -98,6 +98,7 @@ function createSignalRecord(
     repurposingBundleJson: overrides.repurposingBundleJson ?? null,
     publishPrepBundleJson: overrides.publishPrepBundleJson ?? null,
     selectedRepurposedOutputIdsJson: overrides.selectedRepurposedOutputIdsJson ?? null,
+    autoRepairHistoryJson: overrides.autoRepairHistoryJson ?? null,
     preferredAssetType: overrides.preferredAssetType ?? null,
     selectedImageAssetId: overrides.selectedImageAssetId ?? null,
     selectedVideoConceptId: overrides.selectedVideoConceptId ?? null,
@@ -341,6 +342,8 @@ export const mockSignalRecords: SignalRecord[] = [
     ctaGoal: "Share / engage",
     finalLinkedInDraft:
       "A lot of teacher stress sits inside documentation tone.\n\nThe issue is not only whether something gets recorded. It is whether the wording stays factual enough to protect the next conversation.\n\nThat is often the real professional judgement call.",
+    autoRepairHistoryJson:
+      '[{"id":"repair_mock_001","timestamp":"2026-03-18T08:38:00.000Z","priorHoldStage":"auto_prepare_for_review","repairType":"scenario_angle_reframe","outcome":"repaired_promoted","summary":"Stronger Scenario Angle added. Candidate moved past the held stage.","whyAttempted":"The hold reason looked fixable through clearer framing.","changedFields":["scenarioAngle","editorialMode"],"changedTo":{"scenarioAngle":"How should a teacher document repeated low-level behaviour clearly without sounding accusatory or vague?","editorialMode":"professional_guidance"},"notes":["Stronger Scenario Angle added.","Shifted to Professional guidance mode."]}]',
     xReviewStatus: "needs_edit",
     linkedInReviewStatus: "ready",
     redditReviewStatus: "needs_edit",
@@ -384,6 +387,8 @@ export const mockSignalRecords: SignalRecord[] = [
     audienceSegmentId: "audience_new-teachers",
     funnelStage: "Trust",
     ctaGoal: "Share / engage",
+    autoRepairHistoryJson:
+      '[{"id":"repair_mock_002","timestamp":"2026-03-17T09:20:00.000Z","priorHoldStage":"auto_generate","repairType":"playbook_supported_reframe","outcome":"repaired_still_held","summary":"Used playbook support from Neutral factual documentation. Held before generation: low confidence and generation input incomplete.","whyAttempted":"A relevant playbook card suggested a safer framing for this case.","changedFields":["editorialMode"],"changedTo":{"editorialMode":"professional_guidance"},"notes":["Used playbook support from Neutral factual documentation."]}]',
   }),
   createSignalRecord({
     recordId: "mock_sig_008",
@@ -590,6 +595,8 @@ export const mockSignalRecords: SignalRecord[] = [
     finalReviewNotes: "LinkedIn version posted, but the final framing still felt too abstract.",
     finalReviewStartedAt: "2026-03-13T09:55:00.000Z",
     finalReviewedAt: "2026-03-13T10:00:00.000Z",
+    autoRepairHistoryJson:
+      '[{"id":"repair_mock_003","timestamp":"2026-03-13T09:48:00.000Z","priorHoldStage":"auto_prepare_for_review","repairType":"generation_retry","outcome":"not_repairable","summary":"The hold reason looked fundamentally weak rather than fixable in one bounded pass.","whyAttempted":"The hold reason looks fundamentally weak rather than fixable in one bounded pass.","changedFields":["xDraft"],"notes":["No bounded repair path looked trustworthy enough to apply."]}]',
     posted: true,
     postedDate: "2026-03-13T10:20:00.000Z",
     platformPostedTo: "LinkedIn",
@@ -1957,6 +1964,13 @@ export const mockPostingLogSeed = [
     scenarioAngle:
       "Responding to a parent complaint about delayed replies without escalating tension or promising constant availability.",
     sourceDraftStatus: "ready",
+    selectedSiteLinkId: "teacher_protection",
+    destinationUrl: "https://www.zazadraft.com/?utm_source=x&utm_medium=organic_social_manual&utm_campaign=teacher-protection&utm_content=reassurance-deescalation-x",
+    destinationLabel: "Teacher Protection",
+    utmSource: "x",
+    utmMedium: "organic_social_manual",
+    utmCampaign: "teacher-protection",
+    utmContent: "reassurance-deescalation-x",
   },
   {
     id: "mock_post_002",
@@ -1974,6 +1988,13 @@ export const mockPostingLogSeed = [
     scenarioAngle:
       "Explaining a simple first-week planning structure to a teacher who feels behind and overloaded.",
     sourceDraftStatus: "ready",
+    selectedSiteLinkId: "planning_support",
+    destinationUrl: "https://www.zazadraft.com/?utm_source=linkedin&utm_medium=organic_social_manual&utm_campaign=planning-support&utm_content=helpful-tip-linkedin",
+    destinationLabel: "Planning Support",
+    utmSource: "linkedin",
+    utmMedium: "organic_social_manual",
+    utmCampaign: "planning-support",
+    utmContent: "helpful-tip-linkedin",
   },
   {
     id: "mock_post_003",
@@ -1991,6 +2012,13 @@ export const mockPostingLogSeed = [
     scenarioAngle:
       "Showing teachers how a calmer weekly planning message can set expectations before workload spirals.",
     sourceDraftStatus: null,
+    selectedSiteLinkId: "get_started",
+    destinationUrl: "https://www.zazadraft.com/get-started?utm_source=linkedin&utm_medium=organic_social_manual&utm_campaign=evergreen&utm_content=thought-leadership-linkedin",
+    destinationLabel: "Get Started",
+    utmSource: "linkedin",
+    utmMedium: "organic_social_manual",
+    utmCampaign: "evergreen",
+    utmContent: "thought-leadership-linkedin",
   },
   {
     id: "mock_post_004",
@@ -2001,6 +2029,13 @@ export const mockPostingLogSeed = [
       "Documentation gets risky when the wording sounds emotional instead of factual.",
     postUrl: null,
     note: "Posted, but it ended up feeling too broad for the actual behaviour-documentation scenario.",
+    selectedSiteLinkId: "resources",
+    destinationUrl: "https://www.zazadraft.com/?utm_source=x&utm_medium=organic_social_manual&utm_campaign=documentation-risk&utm_content=risk-warning-x",
+    destinationLabel: "Resources",
+    utmSource: "x",
+    utmMedium: "organic_social_manual",
+    utmCampaign: "documentation-risk",
+    utmContent: "risk-warning-x",
     createdBy: "operator",
     editorialMode: "professional_guidance",
     patternId: null,
