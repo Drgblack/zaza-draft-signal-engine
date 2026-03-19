@@ -51,6 +51,7 @@ import type { PatternBundle } from "@/lib/pattern-bundles";
 import type { ScenarioAngleAssessment, ScenarioAngleSuggestion } from "@/lib/scenario-angle";
 import type { OperatorTuning } from "@/lib/tuning-definitions";
 import type { AudienceSegment, Campaign, CampaignStrategy, ContentPillar } from "@/lib/campaigns";
+import type { DuplicateCluster } from "@/lib/duplicate-clusters";
 import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
 import {
@@ -368,6 +369,28 @@ export const autonomousRunRequestSchema = z.object({
 });
 
 export const tuningPresetSchema = z.enum(TUNING_PRESETS);
+export const duplicateClusterSimilarityTypeSchema = z.enum(["same_story", "same_angle", "different_angle"]);
+export const duplicateClusterConfidenceSchema = z.enum(["high", "moderate", "low"]);
+export const duplicateClusterActionSchema = z.enum([
+  "confirm_cluster",
+  "reject_cluster",
+  "suppress_duplicate",
+  "restore_duplicate",
+  "reopen_cluster",
+]);
+export const duplicateClusterInputSchema = z.object({
+  clusterId: z.string().trim().min(1),
+  signalIds: z.array(z.string().trim().min(1)).min(2).max(12),
+  canonicalSignalId: z.string().trim().min(1),
+  similarityType: duplicateClusterSimilarityTypeSchema,
+  clusterConfidence: duplicateClusterConfidenceSchema,
+  clusterReason: z.string().trim().min(1),
+});
+export const duplicateClusterActionRequestSchema = z.object({
+  action: duplicateClusterActionSchema,
+  cluster: duplicateClusterInputSchema,
+  targetSignalId: optionalNullableString,
+});
 
 export const campaignStatusSchema = z.enum(["active", "inactive"]);
 
@@ -746,6 +769,15 @@ export interface WeeklyPlanResponse {
   recentPlans?: WeeklyPlan[];
   draft?: WeeklyPlanAutoDraft | null;
   message?: string;
+  error?: string;
+}
+
+export interface DuplicateClusterActionResponse {
+  success: boolean;
+  persisted: boolean;
+  source: SignalDataSource;
+  cluster: DuplicateCluster | null;
+  message: string;
   error?: string;
 }
 

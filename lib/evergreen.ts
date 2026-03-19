@@ -195,7 +195,7 @@ function scoreStrategicValue(value: StrategicOutcome["strategicValue"] | null): 
   }
 }
 
-function buildBundleNames(patternId: string | null, bundles: PatternBundle[]): string[] {
+function buildBundleNames(patternId: string | null | undefined, bundles: PatternBundle[]): string[] {
   if (!patternId) {
     return [];
   }
@@ -447,8 +447,8 @@ export function buildEvergreenSummary(input: {
       editorialMode: signal.editorialMode,
       editorialModeLabel: signal.editorialMode ? getEditorialModeDefinition(signal.editorialMode).label : null,
       destinationLabel: latestEntry.destinationLabel ?? latestEntry.selectedSiteLinkId ?? buildSignalPublishPrepBundle(signal)?.packages[0]?.siteLinkLabel ?? null,
-      destinationUrl: latestEntry.destinationUrl,
-      patternName: latestEntry.patternName,
+      destinationUrl: latestEntry.destinationUrl ?? null,
+      patternName: latestEntry.patternName ?? null,
       bundleNames,
       sourceLineageLabel: buildSignalLineageLabel(signal, latestEntry),
     };

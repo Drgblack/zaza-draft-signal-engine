@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { ApprovalQueueSection, AutoHeldSection, EvergreenResurfacingSection } from "@/components/signals/approval-queue-section";
+import { DuplicateClusterReviewSection } from "@/components/signals/duplicate-cluster-review-section";
 import { WorkflowQueueSection } from "@/components/signals/workflow-queue-section";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +12,13 @@ import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaign
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { buildEvergreenSummary } from "@/lib/evergreen";
 import { listFeedbackEntries } from "@/lib/feedback";
+import {
+  buildDuplicateClusterDifferenceNotes,
+  buildSuggestedDuplicateClusters,
+  filterSignalsForActiveReviewQueue,
+  indexConfirmedClusterByCanonicalSignalId,
+  listDuplicateClusters,
+} from "@/lib/duplicate-clusters";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { listPatterns } from "@/lib/patterns";
@@ -37,6 +45,7 @@ export default async function ReviewPage() {
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
   const strategicOutcomes = await listStrategicOutcomes();
+  const duplicateClusters = await listDuplicateClusters();
   const strategy = await getCampaignStrategy();
   const tuning = await getOperatorTuning();
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
@@ -80,6 +89,10 @@ export default async function ReviewPage() {
     tuning.settings,
   );
   const sortedSignals = sortSignals(signals, "createdDate-desc");
+  const suggestedDuplicateClusters = buildSuggestedDuplicateClusters(sortedSignals, duplicateClusters);
+  const confirmedClustersByCanonicalSignalId = indexConfirmedClusterByCanonicalSignalId(duplicateClusters);
+  const visibleSignals = filterSignalsForActiveReviewQueue(sortedSignals, duplicateClusters);
+  const signalById = new Map(sortedSignals.map((signal) => [signal.recordId, signal]));
   const unifiedGuidanceBySignalId = Object.fromEntries(
     sortedSignals.map((signal) => [
       signal.recordId,
@@ -91,7 +104,7 @@ export default async function ReviewPage() {
       }),
     ]),
   );
-  const autonomousAssessments = sortedSignals.map((signal) => ({
+  const autonomousAssessments = visibleSignals.map((signal) => ({
     signal,
     guidance: unifiedGuidanceBySignalId[signal.recordId],
     assessment: assessAutonomousSignal(signal, unifiedGuidanceBySignalId[signal.recordId]),
@@ -104,21 +117,69 @@ export default async function ReviewPage() {
       cadence,
       weeklyPlan,
       weeklyPlanState,
+      confirmedClustersByCanonicalSignalId,
     },
   );
   const heldCases = autonomousAssessments.filter((item) => item.assessment.decision === "hold");
   const postingEntriesBySignalId = indexPostingEntriesBySignalId(postingEntries);
   const postingSummaryBySignalId = Object.fromEntries(
-    sortedSignals.map((signal) => [
+    visibleSignals.map((signal) => [
       signal.recordId,
       buildSignalPostingSummary(signal, postingEntriesBySignalId[signal.recordId] ?? []),
     ]),
   );
-  const buckets = getWorkflowBuckets(sortedSignals);
-  const scheduledSoon = getScheduledSoonSignals(sortedSignals);
+  const buckets = getWorkflowBuckets(visibleSignals);
+  const scheduledSoon = getScheduledSoonSignals(visibleSignals);
+  const duplicateClusterRows = duplicateClusters
+    .filter((cluster) => cluster.status === "confirmed")
+    .map((cluster) => ({
+      clusterId: cluster.clusterId,
+      similarityType: cluster.similarityType,
+      clusterConfidence: cluster.clusterConfidence,
+      clusterReason: cluster.clusterReason,
+      canonicalSignalId: cluster.canonicalSignalId,
+      signalIds: cluster.signalIds,
+      suppressedSignalIds: cluster.suppressedSignalIds,
+      differenceNotes: buildDuplicateClusterDifferenceNotes(cluster, signalById),
+      members: cluster.signalIds
+        .map((signalId) => signalById.get(signalId))
+        .filter((signal): signal is (typeof signals)[number] => Boolean(signal))
+        .map((signal) => ({
+          recordId: signal.recordId,
+          sourceTitle: signal.sourceTitle,
+          status: signal.status,
+          reviewPriority: signal.reviewPriority,
+          sourcePublisher: signal.sourcePublisher,
+          scenarioAngle: signal.scenarioAngle,
+          createdDate: signal.createdDate,
+        })),
+    }));
+  const suggestedDuplicateClusterRows = suggestedDuplicateClusters.map((cluster) => ({
+    clusterId: cluster.clusterId,
+    similarityType: cluster.similarityType,
+    clusterConfidence: cluster.clusterConfidence,
+    clusterReason: cluster.clusterReason,
+    canonicalSignalId: cluster.canonicalSignalId,
+    signalIds: cluster.signalIds,
+    suppressedSignalIds: cluster.suppressedSignalIds,
+    differenceNotes: buildDuplicateClusterDifferenceNotes(cluster, signalById),
+    members: cluster.signalIds
+      .map((signalId) => signalById.get(signalId))
+      .filter((signal): signal is (typeof signals)[number] => Boolean(signal))
+      .map((signal) => ({
+        recordId: signal.recordId,
+        sourceTitle: signal.sourceTitle,
+        status: signal.status,
+        reviewPriority: signal.reviewPriority,
+        sourcePublisher: signal.sourcePublisher,
+        scenarioAngle: signal.scenarioAngle,
+        createdDate: signal.createdDate,
+      })),
+  }));
 
   const queueSummary = [
     { label: "Approval-ready", count: approvalReadyCandidates.length, href: "#approval-ready" },
+    { label: "Duplicate clusters", count: duplicateClusterRows.length + suggestedDuplicateClusterRows.length, href: "#duplicate-clusters" },
     { label: "Evergreen", count: evergreenSummary.surfacedCount, href: "#evergreen-resurfacing" },
     { label: "Auto-held", count: heldCases.length, href: "#auto-held" },
     { label: "Needs interpretation", count: buckets.needsInterpretation.length, href: "#needs-interpretation" },
@@ -232,6 +293,11 @@ export default async function ReviewPage() {
           </div>
         </CardContent>
       </Card>
+
+      <DuplicateClusterReviewSection
+        suggestedClusters={suggestedDuplicateClusterRows}
+        confirmedClusters={duplicateClusterRows}
+      />
 
       <ApprovalQueueSection
         candidates={approvalReadyCandidates}

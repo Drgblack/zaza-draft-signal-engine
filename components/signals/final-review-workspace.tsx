@@ -36,7 +36,7 @@ import {
 } from "@/lib/publish-prep";
 import { getAutoRepairLabel, getLatestAutoRepairEntry } from "@/lib/auto-repair";
 import type { EvergreenCandidate } from "@/lib/evergreen";
-import { getOutcomeQualityLabel, getReuseRecommendationLabel } from "@/lib/outcomes";
+import { getOutcomeQualityLabel, getReuseRecommendationLabel } from "@/lib/outcome-memory";
 import { getStrategicValueLabel } from "@/lib/strategic-outcome-memory";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

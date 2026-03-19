@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 
 import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
 import { appendAuditEventsSafe, buildRecommendationEvent, buildScoredEvent, type AuditEventInput } from "@/lib/audit";
-import { scoreSignal } from "@/lib/scoring";
+import {
+  filterSignalsForActiveReviewQueue,
+  getCanonicalSignalForCluster,
+  listDuplicateClusters,
+} from "@/lib/duplicate-clusters";
+import { buildInitialScoringFromSignal, scoreSignal } from "@/lib/scoring";
 import { getOperatorTuning } from "@/lib/tuning";
 import { hasScoring } from "@/lib/workflow";
 import {
@@ -34,6 +39,8 @@ export async function POST(request: Request) {
 
   const save = parsed.data.save ?? false;
   const allSignalsResult = await listSignalsWithFallback({ limit: 500 });
+  const duplicateClusters = await listDuplicateClusters();
+  const signalById = new Map(allSignalsResult.signals.map((signal) => [signal.recordId, signal]));
   const tuning = await getOperatorTuning();
 
   if (parsed.data.signalId) {
@@ -51,8 +58,17 @@ export async function POST(request: Request) {
       );
     }
 
+    const signal = signalResult.signal;
+    const scoringSource =
+      getCanonicalSignalForCluster(signal.recordId, signalById, duplicateClusters) ?? signal;
+    const canonicalCluster = duplicateClusters.find(
+      (cluster) => cluster.status === "confirmed" && cluster.signalIds.includes(signal.recordId),
+    );
     const scoring = toScoringSavePayload(
-      scoringResultSchema.parse(scoreSignal(signalResult.signal, allSignalsResult.signals, tuning.settings)),
+      scoringResultSchema.parse({
+        ...(buildInitialScoringFromSignal(scoringSource) ?? scoreSignal(scoringSource, allSignalsResult.signals, tuning.settings)),
+        duplicateClusterId: canonicalCluster?.clusterId ?? signal.duplicateClusterId ?? scoringSource.duplicateClusterId,
+      }),
     );
 
     if (!save) {
@@ -60,7 +76,7 @@ export async function POST(request: Request) {
         success: true,
         persisted: false,
         source: signalResult.source,
-        signal: signalResult.signal,
+        signal,
         scoring,
         message: "Scoring preview completed. Review the recommendation before saving.",
       });
@@ -114,7 +130,7 @@ export async function POST(request: Request) {
   }
 
   const limit = parsed.data.batch?.limit ?? 20;
-  const targetSignals = allSignalsResult.signals
+  const targetSignals = filterSignalsForActiveReviewQueue(allSignalsResult.signals, duplicateClusters)
     .filter((signal) => (parsed.data.batch?.status ? signal.status === parsed.data.batch.status : true))
     .filter((signal) => (parsed.data.batch?.onlyMissingScores ? !hasScoring(signal) : true))
     .slice(0, limit);

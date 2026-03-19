@@ -6,6 +6,7 @@ import { buildSignalRepurposingBundle } from "@/lib/repurposing";
 import type { WeeklyPlan, WeeklyPlanState } from "@/lib/weekly-plan";
 import { getWeeklyPlanAlignment } from "@/lib/weekly-plan";
 import type { SignalRecord } from "@/types/signal";
+import type { DuplicateCluster } from "@/lib/duplicate-clusters";
 
 export interface ApprovalQueueCandidate {
   signal: SignalRecord;
@@ -48,6 +49,7 @@ export function rankApprovalCandidates(
     cadence?: CampaignCadenceSummary;
     weeklyPlan?: WeeklyPlan | null;
     weeklyPlanState?: WeeklyPlanState | null;
+    confirmedClustersByCanonicalSignalId?: Record<string, DuplicateCluster>;
   },
 ): ApprovalQueueCandidate[] {
   return candidates
@@ -57,6 +59,7 @@ export function rankApprovalCandidates(
       const resolvedContext =
         options?.strategy ? getSignalContentContextSummary(candidate.signal, options.strategy) : null;
       const repurposingBundle = buildSignalRepurposingBundle(candidate.signal);
+      const confirmedCluster = options?.confirmedClustersByCanonicalSignalId?.[candidate.signal.recordId] ?? null;
 
       rankScore += scoreConfidence(candidate.guidance.confidence.confidenceLevel);
       if (candidate.guidance.confidence.confidenceLevel === "high") {
@@ -108,6 +111,10 @@ export function rankApprovalCandidates(
       if ((repurposingBundle?.outputs.length ?? 0) >= 4) {
         rankScore += 1;
         uniquePush(rankReasons, "Repurposes well across formats");
+      }
+
+      if ((confirmedCluster?.signalIds.length ?? 0) > 1) {
+        uniquePush(rankReasons, `Represents ${confirmedCluster!.signalIds.length} similar signals`);
       }
 
       if (options?.strategy && options?.weeklyPlan) {

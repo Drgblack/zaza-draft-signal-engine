@@ -9,6 +9,11 @@ import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
+import {
+  filterSignalsForActiveReviewQueue,
+  indexConfirmedClusterByCanonicalSignalId,
+  listDuplicateClusters,
+} from "@/lib/duplicate-clusters";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
@@ -35,6 +40,7 @@ export default async function DashboardPage() {
   const bundles = await listPatternBundles();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const duplicateClusters = await listDuplicateClusters();
   const strategy = await getCampaignStrategy();
   const tuning = await getOperatorTuning();
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
@@ -54,6 +60,8 @@ export default async function DashboardPage() {
   });
   const cadence = buildCampaignCadenceSummary(signals, strategy, postingEntries);
   const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, signals, postingEntries);
+  const confirmedClustersByCanonicalSignalId = indexConfirmedClusterByCanonicalSignalId(duplicateClusters);
+  const visibleSignals = filterSignalsForActiveReviewQueue(signals, duplicateClusters);
   const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
     signals,
     feedbackEntries,
@@ -67,6 +75,7 @@ export default async function DashboardPage() {
   );
   const approvalReadyCandidates = rankApprovalCandidates(
     signals
+      .filter((signal) => visibleSignals.some((item) => item.recordId === signal.recordId))
       .map((signal) => {
         const guidance = buildUnifiedGuidanceModel({
           signal,
@@ -88,10 +97,11 @@ export default async function DashboardPage() {
       cadence,
       weeklyPlan,
       weeklyPlanState,
+      confirmedClustersByCanonicalSignalId,
     },
   );
-  const workflowBuckets = getWorkflowBuckets(signals);
-  const scheduledSoon = getScheduledSoonSignals(signals);
+  const workflowBuckets = getWorkflowBuckets(visibleSignals);
+  const scheduledSoon = getScheduledSoonSignals(visibleSignals);
   const statusCounts = STATUS_DISPLAY_ORDER.map((status) => ({
     status,
     count: signals.filter((signal) => signal.status === status).length,

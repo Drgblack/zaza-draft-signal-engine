@@ -12,6 +12,11 @@ import { appendAuditEventsSafe, buildRecommendationEvent, buildScoredEvent, type
 import { listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
 import { assignSignalContentContext, buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildSignalAssetBundle } from "@/lib/assets";
+import {
+  filterSignalsForActiveReviewQueue,
+  indexConfirmedClusterByCanonicalSignalId,
+  listDuplicateClusters,
+} from "@/lib/duplicate-clusters";
 import { buildEvergreenSummary } from "@/lib/evergreen";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { generateDrafts, toGenerationInputFromSignal } from "@/lib/generator";
@@ -1456,7 +1461,10 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
   }
 
   const approvalCandidates = sortAutonomousTargets(
-    workingSignals.filter((signal) => hasGeneration(signal) && !isFilteredOutSignal(signal)),
+    filterSignalsForActiveReviewQueue(
+      workingSignals.filter((signal) => hasGeneration(signal) && !isFilteredOutSignal(signal)),
+      await listDuplicateClusters(),
+    ),
   );
   const approvalReadyCandidates: Array<{
     signal: SignalRecord;
@@ -1553,6 +1561,7 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
   const cadence = buildCampaignCadenceSummary(workingSignals, strategy, postingEntries);
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
   const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, workingSignals, postingEntries);
+  const confirmedClustersByCanonicalSignalId = indexConfirmedClusterByCanonicalSignalId(await listDuplicateClusters());
   const evergreenSummary = buildEvergreenSummary({
     signals: workingSignals,
     postingEntries,
@@ -1573,6 +1582,7 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
       cadence,
       weeklyPlan,
       weeklyPlanState,
+      confirmedClustersByCanonicalSignalId,
     },
   );
   const approvalReadyRecords = rankedApprovalCandidates.map((candidate) =>
