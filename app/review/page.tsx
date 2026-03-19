@@ -17,8 +17,10 @@ import { listPostingOutcomes } from "@/lib/outcomes";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { buildSignalPostingSummary, indexPostingEntriesBySignalId, listPostingLogEntries } from "@/lib/posting-log";
+import { getPostingPlatformLabel } from "@/lib/posting-memory";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { getOperatorTuning } from "@/lib/tuning";
+import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
 import { getScheduledSoonSignals, getWorkflowBuckets, sortSignals } from "@/lib/workflow";
 import { formatDateTime } from "@/lib/utils";
 
@@ -34,6 +36,7 @@ export default async function ReviewPage() {
   const postingOutcomes = await listPostingOutcomes();
   const strategy = await getCampaignStrategy();
   const tuning = await getOperatorTuning();
+  const weeklyPlan = await getCurrentWeeklyPlan(strategy);
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
     signals,
@@ -49,6 +52,7 @@ export default async function ReviewPage() {
     bundleSummariesByPatternId,
   });
   const cadence = buildCampaignCadenceSummary(signals, strategy, postingEntries);
+  const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, signals, postingEntries);
   const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
     signals,
     feedbackEntries,
@@ -83,6 +87,8 @@ export default async function ReviewPage() {
     {
       strategy,
       cadence,
+      weeklyPlan,
+      weeklyPlanState,
     },
   );
   const heldCases = autonomousAssessments.filter((item) => item.assessment.decision === "hold");
@@ -162,7 +168,62 @@ export default async function ReviewPage() {
         </CardContent>
       </Card>
 
-      <ApprovalQueueSection candidates={approvalReadyCandidates} strategy={strategy} cadence={cadence} />
+      <Card>
+        <CardHeader>
+          <CardTitle>Weekly Plan</CardTitle>
+          <CardDescription>
+            Soft planning guidance for this week. It nudges ranking and highlights mix gaps without blocking strong candidates.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Week</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{weeklyPlanState.weekLabel}</p>
+              <p className="mt-1 text-sm text-slate-500">{weeklyPlan.theme ?? "No weekly theme set."}</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Campaigns</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{weeklyPlan.activeCampaignIds.length}</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {weeklyPlanState.activeCampaignNames.length > 0 ? weeklyPlanState.activeCampaignNames.join(" · ") : "No campaign emphasis set."}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Platforms</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{weeklyPlan.targetPlatforms.length}</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {weeklyPlan.targetPlatforms.length > 0
+                  ? weeklyPlan.targetPlatforms.map((platform) => getPostingPlatformLabel(platform)).join(" · ")
+                  : "No platform emphasis set."}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current gaps</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{weeklyPlanState.gaps.length}</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {weeklyPlanState.summaries[0] ?? "Current queue looks broadly aligned."}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            {(weeklyPlanState.gaps.length > 0 ? weeklyPlanState.gaps : weeklyPlanState.summaries).slice(0, 4).map((note) => (
+              <div key={note} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {note}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <ApprovalQueueSection
+        candidates={approvalReadyCandidates}
+        strategy={strategy}
+        cadence={cadence}
+        weeklyPlan={weeklyPlan}
+        weeklyPlanState={weeklyPlanState}
+      />
 
       <AutoHeldSection items={heldCases} strategy={strategy} />
 

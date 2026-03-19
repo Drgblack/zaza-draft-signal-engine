@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
 import { getSignalWithFallback, saveSignalWithFallback } from "@/lib/airtable";
 import { getAuditEvents } from "@/lib/audit";
+import { getPublishPrepPackageForPlatform, getSelectedCtaText, getSelectedHookText, parsePublishPrepBundle } from "@/lib/publish-prep";
 import {
   appendPostingLogEntry,
   buildSignalPostingSummary,
@@ -93,6 +94,8 @@ export async function POST(
   const signal = signalResult.signal;
   const auditEvents = await getAuditEvents(signal.recordId);
   const latestAppliedPattern = getLatestAppliedPattern(signal.recordId, auditEvents);
+  const publishPrepBundle = parsePublishPrepBundle(signal.publishPrepBundleJson);
+  const publishPrepPackage = getPublishPrepPackageForPlatform(publishPrepBundle, parsed.data.platform);
 
   let entry;
   try {
@@ -109,6 +112,10 @@ export async function POST(
       patternName: latestAppliedPattern.patternName,
       scenarioAngle: signal.scenarioAngle,
       sourceDraftStatus: getSourceDraftStatus(signal, parsed.data.platform),
+      publishPrepPackageId: publishPrepPackage?.id ?? null,
+      selectedHookText: publishPrepPackage ? getSelectedHookText(publishPrepPackage) : null,
+      selectedCtaText: publishPrepPackage ? getSelectedCtaText(publishPrepPackage) : null,
+      suggestedPostingTime: publishPrepPackage?.suggestedPostingTime ?? null,
     });
   } catch (error) {
     return NextResponse.json<PostingLogResponse>(

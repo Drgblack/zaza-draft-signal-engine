@@ -194,6 +194,23 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - compact approval-queue summaries and editable final-review controls
   - lightweight repurposing visibility on `/insights`
   - no auto-posting, scheduling, or content-spinning behavior
+- Publish prep layer with:
+  - centralized packaging logic in `lib/publish-prep.ts`
+  - structured hook variants, CTA variants, hashtags or keywords, alt text, comment prompts, suggested posting times, and optional UTM-ready links
+  - package generation for primary platform drafts plus distinct repurposed outputs
+  - persisted `publishPrepBundleJson` on the signal record
+  - lightweight editing in final review and compact readiness visibility in the approval-ready queue
+  - low-risk posting-log metadata capture for selected hook, CTA, and timing context
+  - compact package mix visibility on `/insights`
+  - no direct publishing, scheduler, or social-platform API integration
+- Strategic outcome loop with:
+  - centralized manual business-outcome storage in `lib/strategic-outcomes.ts`
+  - one strategic outcome record per posting-log entry
+  - bounded fields for reach, saves, shares, comments, clicks, leads, trials, strategic value, and operator note
+  - compact strategic outcome entry directly from posting history on the signal detail page
+  - lineage back to platform, editorial mode, pattern, bundle, source kind, asset posture, funnel stage, and campaign context where present
+  - compact strategic comparison sections on `/insights`
+  - no platform API sync, attribution modelling, or BI-style dashboard sprawl
 - Dashboard, signals index, signal detail, new signal, review, interpretation, and generation pages
 - Generation workbench page
 - Generation readiness and quality guidance with:
@@ -257,6 +274,8 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 19. The app records a bounded audit trail of key decisions and transitions for each signal.
 20. Operator mainly works from the approval-ready queue, then reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
 21. Campaign, pillar, audience, funnel, and CTA context can be saved or inferred so candidates do not queue in isolation from the current strategy mix.
+22. Publish prep packages give each platform draft or distinct repurposed output a last-mile posting kit with hooks, CTAs, timing guidance, alt text, and optional trackable links.
+23. Strategic outcomes let the operator record what happened after posting in business-facing terms so the system can compare which combinations are actually creating value.
 
 ## Campaign Strategy Notes
 - Strategic context is optional and does not block interpretation, generation, or approval readiness.
@@ -1019,6 +1038,39 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - no scheduling
   - no A/B testing system
   - no large-scale content expansion
+
+## Weekly Planning Notes
+- Weekly planning is centralized in `lib/weekly-plan.ts`.
+- The current weekly plan stays intentionally light and advisory:
+  - week start date
+  - optional theme
+  - short goals
+  - active campaign ids
+  - target platforms
+  - target funnel mix
+  - target editorial-mode mix
+  - target fresh / evergreen / reused content mix
+  - optional notes
+- `/plan` now provides a minimal operator surface for:
+  - editing the current week
+  - applying a few simple templates
+  - choosing campaign and platform emphasis
+  - setting soft funnel and mode priorities
+- Current plan influence is explicit and bounded:
+  - approval-ready ranking gets small boosts for alignment
+  - over-represented weekly categories can be slightly de-emphasised
+  - review surfaces show plan gaps and alignment notes
+  - `/insights` compares current output against the weekly plan
+- Current gap detection remains lightweight and descriptive. Common examples include:
+  - no conversion-oriented content this week
+  - no Reddit content prepared
+  - a planned campaign with no supporting posts
+  - an editorial mode becoming over-represented
+- Limitations:
+  - no scheduler
+  - no drag-and-drop calendar
+  - no hard quotas
+  - guidance only, not workflow enforcement
 
 ## Next Planned Runs
 - Improve duplicate handling and better borderline-review tooling

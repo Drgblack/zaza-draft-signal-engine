@@ -23,6 +23,17 @@ import {
   type RepurposedOutput,
   type RepurposingBundle,
 } from "@/lib/repurposing";
+import {
+  buildPublishPrepBundleSummary,
+  buildSignalPublishPrepBundle,
+  getPublishPrepPackageLabel,
+  getSelectedCtaText,
+  getSelectedHookText,
+  parsePublishPrepBundle,
+  stringifyPublishPrepBundle,
+  type PublishPrepBundle,
+  type PublishPrepPackage,
+} from "@/lib/publish-prep";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -57,6 +68,7 @@ type ReviewFormState = {
   selectedVideoConceptId: string;
   generatedImageUrl: string;
   repurposingBundleJson: string;
+  publishPrepBundleJson: string;
   selectedRepurposedOutputIdsJson: string;
 };
 
@@ -83,6 +95,8 @@ function createFormState(signal: SignalRecord): ReviewFormState {
   const assetBundleJson = signal.assetBundleJson ?? stringifyAssetBundle(buildSignalAssetBundle(signal)) ?? "";
   const repurposingBundle = buildSignalRepurposingBundle(signal);
   const repurposingBundleJson = signal.repurposingBundleJson ?? stringifyRepurposingBundle(repurposingBundle) ?? "";
+  const publishPrepBundleJson =
+    signal.publishPrepBundleJson ?? stringifyPublishPrepBundle(buildSignalPublishPrepBundle(signal)) ?? "";
   const selectedRepurposedOutputIdsJson =
     signal.selectedRepurposedOutputIdsJson ??
     stringifySelectedRepurposedOutputIds(repurposingBundle?.recommendedSubset ?? []) ??
@@ -104,6 +118,7 @@ function createFormState(signal: SignalRecord): ReviewFormState {
     selectedVideoConceptId: signal.selectedVideoConceptId ?? "",
     generatedImageUrl: signal.generatedImageUrl ?? "",
     repurposingBundleJson,
+    publishPrepBundleJson,
     selectedRepurposedOutputIdsJson,
   };
 }
@@ -199,11 +214,19 @@ export function FinalReviewWorkspace({
   source,
   appliedPatternName,
   initialPostingEntries,
+  weeklyPlanContext,
 }: {
   signal: SignalRecord;
   source: SignalDataSource;
   appliedPatternName: string | null;
   initialPostingEntries: PostingLogEntry[];
+  weeklyPlanContext?: {
+    weekLabel: string;
+    theme: string | null;
+    summary: string;
+    boosts: string[];
+    cautions: string[];
+  } | null;
 }) {
   const [currentSignal, setCurrentSignal] = useState(signal);
   const [formState, setFormState] = useState<ReviewFormState>(() => createFormState(signal));
@@ -279,6 +302,10 @@ export function FinalReviewWorkspace({
           formState.repurposingBundleJson !== savedState.repurposingBundleJson
             ? formState.repurposingBundleJson.trim() || null
             : currentSignal.repurposingBundleJson,
+        publishPrepBundleJson:
+          formState.publishPrepBundleJson !== savedState.publishPrepBundleJson
+            ? formState.publishPrepBundleJson.trim() || null
+            : currentSignal.publishPrepBundleJson,
         selectedRepurposedOutputIdsJson:
           formState.selectedRepurposedOutputIdsJson !== savedState.selectedRepurposedOutputIdsJson
             ? formState.selectedRepurposedOutputIdsJson.trim() || null
@@ -303,6 +330,10 @@ export function FinalReviewWorkspace({
     () => parseRepurposingBundle(formState.repurposingBundleJson),
     [formState.repurposingBundleJson],
   );
+  const publishPrepBundle = useMemo(
+    () => parsePublishPrepBundle(formState.publishPrepBundleJson),
+    [formState.publishPrepBundleJson],
+  );
   const selectedRepurposedOutputIds = useMemo(
     () => parseSelectedRepurposedOutputIds(formState.selectedRepurposedOutputIdsJson),
     [formState.selectedRepurposedOutputIdsJson],
@@ -310,6 +341,10 @@ export function FinalReviewWorkspace({
   const repurposingSummary = useMemo(
     () => buildRepurposingBundleSummary(repurposingBundle),
     [repurposingBundle],
+  );
+  const publishPrepSummary = useMemo(
+    () => buildPublishPrepBundleSummary(publishPrepBundle),
+    [publishPrepBundle],
   );
 
   function updateField<K extends keyof ReviewFormState>(key: K, value: ReviewFormState[K]) {
@@ -350,6 +385,20 @@ export function FinalReviewWorkspace({
     });
   }
 
+  function updatePublishPrepBundle(mutator: (bundle: PublishPrepBundle) => PublishPrepBundle) {
+    setFormState((current) => {
+      const bundle = parsePublishPrepBundle(current.publishPrepBundleJson);
+      if (!bundle) {
+        return current;
+      }
+
+      return {
+        ...current,
+        publishPrepBundleJson: stringifyPublishPrepBundle(mutator(bundle)) ?? "",
+      };
+    });
+  }
+
   function toggleRepurposedOutput(outputId: string) {
     const nextIds = selectedRepurposedOutputIds.includes(outputId)
       ? selectedRepurposedOutputIds.filter((id) => id !== outputId)
@@ -370,6 +419,71 @@ export function FinalReviewWorkspace({
       outputs: bundle.outputs.filter((output) => output.id !== outputId),
       recommendedSubset: (bundle.recommendedSubset ?? []).filter((id) => id !== outputId),
     }));
+    updatePublishPrepBundle((bundle) => ({
+      ...bundle,
+      packages: bundle.packages.filter((pkg) => pkg.targetId !== outputId),
+    }));
+  }
+
+  function updatePublishPrepPackage(packageId: string, patch: Partial<PublishPrepPackage>) {
+    updatePublishPrepBundle((bundle) => ({
+      ...bundle,
+      packages: bundle.packages.map((pkg) => (pkg.id === packageId ? { ...pkg, ...patch } : pkg)),
+    }));
+  }
+
+  function applyHookVariant(packageId: string, hookId: string) {
+    const pkg = publishPrepBundle?.packages.find((entry) => entry.id === packageId);
+    const variant = pkg?.hookVariants.find((entry) => entry.id === hookId);
+    if (!pkg || !variant) {
+      return;
+    }
+
+    updatePublishPrepPackage(packageId, {
+      selectedHookId: hookId,
+      primaryHook: variant.text,
+    });
+  }
+
+  function applyCtaVariant(packageId: string, ctaId: string) {
+    const pkg = publishPrepBundle?.packages.find((entry) => entry.id === packageId);
+    const variant = pkg?.ctaVariants.find((entry) => entry.id === ctaId);
+    if (!pkg || !variant) {
+      return;
+    }
+
+    updatePublishPrepPackage(packageId, {
+      selectedCtaId: ctaId,
+      primaryCta: variant.text,
+    });
+  }
+
+  function handleHookEdit(packageId: string, value: string) {
+    const pkg = publishPrepBundle?.packages.find((entry) => entry.id === packageId);
+    if (!pkg) {
+      return;
+    }
+
+    updatePublishPrepPackage(packageId, {
+      primaryHook: value,
+      hookVariants: pkg.hookVariants.map((variant) =>
+        variant.id === pkg.selectedHookId ? { ...variant, text: value } : variant,
+      ),
+    });
+  }
+
+  function handleCtaEdit(packageId: string, value: string) {
+    const pkg = publishPrepBundle?.packages.find((entry) => entry.id === packageId);
+    if (!pkg) {
+      return;
+    }
+
+    updatePublishPrepPackage(packageId, {
+      primaryCta: value,
+      ctaVariants: pkg.ctaVariants.map((variant) =>
+        variant.id === pkg.selectedCtaId ? { ...variant, text: value } : variant,
+      ),
+    });
   }
 
   function handleImageSelection(imageAssetId: string) {
@@ -474,6 +588,7 @@ export function FinalReviewWorkspace({
           selectedVideoConceptId: formState.selectedVideoConceptId || null,
           generatedImageUrl: formState.generatedImageUrl || null,
           repurposingBundleJson: formState.repurposingBundleJson || null,
+          publishPrepBundleJson: formState.publishPrepBundleJson || null,
           selectedRepurposedOutputIdsJson: formState.selectedRepurposedOutputIdsJson || null,
         }),
       });
@@ -603,6 +718,23 @@ export function FinalReviewWorkspace({
             </div>
           </div>
 
+          {weeklyPlanContext ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Weekly plan context</p>
+              <p className="mt-2">
+                {weeklyPlanContext.summary}
+                {weeklyPlanContext.theme ? ` Theme: ${weeklyPlanContext.theme}.` : ""}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">Week: {weeklyPlanContext.weekLabel}</p>
+              {weeklyPlanContext.boosts.length > 0 ? (
+                <p className="mt-2 text-slate-500">Supports: {weeklyPlanContext.boosts.join(" · ")}</p>
+              ) : null}
+              {weeklyPlanContext.cautions.length > 0 ? (
+                <p className="mt-2 text-slate-500">Watch: {weeklyPlanContext.cautions.join(" · ")}</p>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
             Drafts are reviewed here with the current Scenario Angle, interpretation, optional applied pattern, editorial mode, and platform profile already in mind.
             {appliedPatternName ? ` Last applied pattern: ${appliedPatternName}.` : ""}
@@ -629,6 +761,20 @@ export function FinalReviewWorkspace({
               <p className="mt-2">
                 Selected variants: {selectedRepurposedOutputIds.length > 0 ? selectedRepurposedOutputIds.length : repurposingBundle.recommendedSubset?.length ?? 0}
               </p>
+            </div>
+          ) : null}
+
+          {publishPrepBundle ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Publish prep</p>
+              <p className="mt-2">
+                {publishPrepSummary
+                  ? `${publishPrepSummary.packageCount} publish-ready package${publishPrepSummary.packageCount === 1 ? "" : "s"} prepared${publishPrepSummary.primaryPlatformLabel ? ` with ${publishPrepSummary.primaryPlatformLabel} as the leading platform` : ""}.`
+                  : "Publish-prep packaging has not been generated yet."}
+              </p>
+              {publishPrepSummary?.previewLabels.length ? (
+                <p className="mt-2">Preview: {publishPrepSummary.previewLabels.join(" · ")}</p>
+              ) : null}
             </div>
           ) : null}
 
@@ -1052,6 +1198,232 @@ export function FinalReviewWorkspace({
                   </div>
                 );
               })}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {publishPrepBundle ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Publish Prep</CardTitle>
+            <CardDescription>
+              Lightweight posting packages for each platform or distinct repurposed output. Choose the strongest hook and CTA, then edit only what you need before posting manually.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Package summary</p>
+              <p className="mt-2">
+                {publishPrepSummary
+                  ? `${publishPrepSummary.packageCount} package${publishPrepSummary.packageCount === 1 ? "" : "s"} ready${publishPrepSummary.primaryPlatformLabel ? ` with ${publishPrepSummary.primaryPlatformLabel} as the leading platform` : ""}.`
+                  : "No publish-prep bundle is available yet."}
+              </p>
+              {publishPrepSummary?.previewLabels.length ? (
+                <p className="mt-2">Top packages: {publishPrepSummary.previewLabels.join(" · ")}</p>
+              ) : null}
+            </div>
+
+            <div className="space-y-4">
+              {publishPrepBundle.packages.map((pkg) => (
+                <div key={pkg.id} className="rounded-2xl bg-slate-50/80 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex rounded-full bg-slate-950 px-2.5 py-1 text-xs font-medium text-white">
+                        {pkg.platform === "x"
+                          ? "X"
+                          : pkg.platform === "linkedin"
+                            ? "LinkedIn"
+                            : pkg.platform === "reddit"
+                              ? "Reddit"
+                              : pkg.platform === "email"
+                                ? "Email"
+                                : pkg.platform === "video"
+                                  ? "Video"
+                                  : pkg.platform === "carousel"
+                                    ? "Carousel"
+                                    : "Founder thought"}
+                      </span>
+                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        {pkg.outputKind === "primary_draft" ? "Primary draft" : "Repurposed output"}
+                      </span>
+                    </div>
+                    <p className="text-sm font-medium text-slate-700">{getPublishPrepPackageLabel(pkg)}</p>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    <div className="space-y-3">
+                      <div className="grid gap-2">
+                        <Label htmlFor={`${pkg.id}-hook-choice`}>Hook variant</Label>
+                        <Select
+                          id={`${pkg.id}-hook-choice`}
+                          value={pkg.selectedHookId ?? ""}
+                          onChange={(event) => applyHookVariant(pkg.id, event.target.value)}
+                        >
+                          <option value="">Keep current hook</option>
+                          {pkg.hookVariants.map((variant) => (
+                            <option key={variant.id} value={variant.id}>
+                              {variant.styleLabel}: {variant.text}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor={`${pkg.id}-hook-text`}>Preferred hook</Label>
+                        <Textarea
+                          id={`${pkg.id}-hook-text`}
+                          value={getSelectedHookText(pkg) ?? ""}
+                          onChange={(event) => handleHookEdit(pkg.id, event.target.value)}
+                          className="min-h-[100px]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="grid gap-2">
+                        <Label htmlFor={`${pkg.id}-cta-choice`}>CTA variant</Label>
+                        <Select
+                          id={`${pkg.id}-cta-choice`}
+                          value={pkg.selectedCtaId ?? ""}
+                          onChange={(event) => applyCtaVariant(pkg.id, event.target.value)}
+                        >
+                          <option value="">Keep current CTA</option>
+                          {pkg.ctaVariants.map((variant) => (
+                            <option key={variant.id} value={variant.id}>
+                              {variant.goalLabel}: {variant.text}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor={`${pkg.id}-cta-text`}>Preferred CTA</Label>
+                        <Textarea
+                          id={`${pkg.id}-cta-text`}
+                          value={getSelectedCtaText(pkg) ?? ""}
+                          onChange={(event) => handleCtaEdit(pkg.id, event.target.value)}
+                          className="min-h-[100px]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label htmlFor={`${pkg.id}-keywords`}>{pkg.platform === "reddit" ? "Keywords" : "Hashtags / keywords"}</Label>
+                      <Input
+                        id={`${pkg.id}-keywords`}
+                        value={pkg.hashtagsOrKeywords.items.join(", ")}
+                        onChange={(event) =>
+                          updatePublishPrepPackage(pkg.id, {
+                            hashtagsOrKeywords: {
+                              ...pkg.hashtagsOrKeywords,
+                              items: event.target.value
+                                .split(",")
+                                .map((item) => item.trim())
+                                .filter(Boolean)
+                                .slice(0, 8),
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor={`${pkg.id}-posting-time`}>Suggested posting time</Label>
+                      <Input
+                        id={`${pkg.id}-posting-time`}
+                        value={pkg.suggestedPostingTime ?? ""}
+                        onChange={(event) => updatePublishPrepPackage(pkg.id, { suggestedPostingTime: event.target.value || null })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label htmlFor={`${pkg.id}-alt-text`}>Alt text</Label>
+                      <Textarea
+                        id={`${pkg.id}-alt-text`}
+                        value={pkg.altText?.text ?? ""}
+                        onChange={(event) =>
+                          updatePublishPrepPackage(pkg.id, {
+                            altText: event.target.value.trim() ? { text: event.target.value } : null,
+                          })
+                        }
+                        className="min-h-[100px]"
+                        placeholder="Optional alt text for image-backed posts"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor={`${pkg.id}-comment-prompt`}>Follow-up comment / reply prompt</Label>
+                      <Textarea
+                        id={`${pkg.id}-comment-prompt`}
+                        value={pkg.commentPrompt?.text ?? ""}
+                        onChange={(event) =>
+                          updatePublishPrepPackage(pkg.id, {
+                            commentPrompt: event.target.value.trim() ? { text: event.target.value } : null,
+                          })
+                        }
+                        className="min-h-[100px]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {pkg.linkVariants.length > 0 ? (
+                      pkg.linkVariants.map((link, index) => (
+                        <div key={`${pkg.id}-link-${index}`} className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+                          <div className="grid gap-3 xl:grid-cols-[1fr_220px]">
+                            <div className="grid gap-2">
+                              <Label htmlFor={`${pkg.id}-link-url-${index}`}>Link URL</Label>
+                              <Input
+                                id={`${pkg.id}-link-url-${index}`}
+                                value={link.url}
+                                onChange={(event) =>
+                                  updatePublishPrepPackage(pkg.id, {
+                                    linkVariants: pkg.linkVariants.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, url: event.target.value } : entry,
+                                    ),
+                                  })
+                                }
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor={`${pkg.id}-link-label-${index}`}>Link label</Label>
+                              <Input
+                                id={`${pkg.id}-link-label-${index}`}
+                                value={link.label}
+                                onChange={(event) =>
+                                  updatePublishPrepPackage(pkg.id, {
+                                    linkVariants: pkg.linkVariants.map((entry, entryIndex) =>
+                                      entryIndex === index ? { ...entry, label: event.target.value } : entry,
+                                    ),
+                                  })
+                                }
+                              />
+                            </div>
+                          </div>
+                          {link.utmParameters ? (
+                            <p className="mt-3 text-xs text-slate-500">
+                              UTM: {link.utmParameters.utm_source} / {link.utmParameters.utm_medium} / {link.utmParameters.utm_campaign} / {link.utmParameters.utm_content}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-slate-500">No link package needed for this output.</p>
+                    )}
+                  </div>
+
+                  <div className="mt-4 grid gap-2">
+                    <Label htmlFor={`${pkg.id}-notes`}>Package notes</Label>
+                    <Textarea
+                      id={`${pkg.id}-notes`}
+                      value={pkg.notes ?? ""}
+                      onChange={(event) => updatePublishPrepPackage(pkg.id, { notes: event.target.value || null })}
+                      className="min-h-[80px]"
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>

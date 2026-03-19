@@ -11,6 +11,7 @@ import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPatterns } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
+import { parsePublishPrepBundle } from "@/lib/publish-prep";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { getOperatorTuning } from "@/lib/tuning";
 import {
@@ -125,6 +126,7 @@ export async function PATCH(
     selectedVideoConceptId: review.selectedVideoConceptId ?? previousSignal.selectedVideoConceptId,
     generatedImageUrl: review.generatedImageUrl ?? previousSignal.generatedImageUrl,
     repurposingBundleJson: review.repurposingBundleJson ?? previousSignal.repurposingBundleJson,
+    publishPrepBundleJson: review.publishPrepBundleJson ?? previousSignal.publishPrepBundleJson,
     selectedRepurposedOutputIdsJson:
       review.selectedRepurposedOutputIdsJson ?? previousSignal.selectedRepurposedOutputIdsJson,
     finalReviewStartedAt: startedAt,
@@ -149,6 +151,7 @@ export async function PATCH(
     selectedVideoConceptId: review.selectedVideoConceptId ?? previousSignal.selectedVideoConceptId,
     generatedImageUrl: review.generatedImageUrl ?? previousSignal.generatedImageUrl,
     repurposingBundleJson: review.repurposingBundleJson ?? previousSignal.repurposingBundleJson,
+    publishPrepBundleJson: review.publishPrepBundleJson ?? previousSignal.publishPrepBundleJson,
     selectedRepurposedOutputIdsJson:
       review.selectedRepurposedOutputIdsJson ?? previousSignal.selectedRepurposedOutputIdsJson,
     finalReviewStartedAt: startedAt,
@@ -313,6 +316,58 @@ export async function PATCH(
       metadata: {
         bundleChanged: true,
       },
+    });
+  }
+
+  if (previousSignal.publishPrepBundleJson !== nextSignal.publishPrepBundleJson) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "PUBLISH_PREP_EDITED",
+      actor: "operator",
+      summary: "Edited publish-prep packaging during final review.",
+      metadata: {
+        bundleChanged: true,
+      },
+    });
+  }
+
+  const previousPublishPrep = parsePublishPrepBundle(previousSignal.publishPrepBundleJson);
+  const nextPublishPrep = parsePublishPrepBundle(nextSignal.publishPrepBundleJson);
+  const previousHookSelections = new Map(
+    (previousPublishPrep?.packages ?? []).map((pkg) => [pkg.id, pkg.selectedHookId ?? pkg.primaryHook ?? null]),
+  );
+  const nextHookSelections = new Map(
+    (nextPublishPrep?.packages ?? []).map((pkg) => [pkg.id, pkg.selectedHookId ?? pkg.primaryHook ?? null]),
+  );
+  const previousCtaSelections = new Map(
+    (previousPublishPrep?.packages ?? []).map((pkg) => [pkg.id, pkg.selectedCtaId ?? pkg.primaryCta ?? null]),
+  );
+  const nextCtaSelections = new Map(
+    (nextPublishPrep?.packages ?? []).map((pkg) => [pkg.id, pkg.selectedCtaId ?? pkg.primaryCta ?? null]),
+  );
+
+  const hookSelectionChanged = Array.from(nextHookSelections.entries()).some(
+    ([packageId, selected]) => previousHookSelections.get(packageId) !== selected,
+  );
+  const ctaSelectionChanged = Array.from(nextCtaSelections.entries()).some(
+    ([packageId, selected]) => previousCtaSelections.get(packageId) !== selected,
+  );
+
+  if (hookSelectionChanged) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "HOOK_SELECTED",
+      actor: "operator",
+      summary: "Updated a preferred publish hook during final review.",
+    });
+  }
+
+  if (ctaSelectionChanged) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "CTA_SELECTED",
+      actor: "operator",
+      summary: "Updated a preferred publish CTA during final review.",
     });
   }
 

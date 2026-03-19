@@ -37,6 +37,12 @@ import {
   type PostingOutcome,
 } from "@/lib/outcome-memory";
 import {
+  STRATEGIC_VALUE_LEVELS,
+  getStrategicValueLabel,
+  type StrategicOutcome,
+  type StrategicValue,
+} from "@/lib/strategic-outcome-memory";
+import {
   buildPlaybookCoverageSummary,
   type PlaybookCoverageGap,
   type PlaybookCoverageStatus,
@@ -47,6 +53,7 @@ import {
   type RepurposingFormatType,
   type RepurposingPlatform,
 } from "@/lib/repurposing";
+import { buildSignalPublishPrepBundle } from "@/lib/publish-prep";
 import type { PostingLogEntry } from "@/lib/posting-memory";
 import { indexBundleSummariesByPatternId, type PatternBundle } from "@/lib/pattern-bundles";
 import type { PatternType, SignalPattern } from "@/lib/pattern-definitions";
@@ -256,6 +263,40 @@ export interface RepurposingFormatInsightRow {
   count: number;
 }
 
+export interface PublishPrepPlatformInsightRow {
+  platform: string;
+  label: string;
+  count: number;
+}
+
+export interface PublishPrepStyleInsightRow {
+  label: string;
+  count: number;
+}
+
+export interface StrategicValueInsightRow {
+  value: StrategicValue;
+  label: string;
+  count: number;
+}
+
+export interface StrategicOutcomePlatformInsightRow {
+  platform: "x" | "linkedin" | "reddit";
+  label: string;
+  total: number;
+  highCount: number;
+  clickTotal: number;
+  leadTotal: number;
+}
+
+export interface StrategicOutcomeNamedInsightRow {
+  label: string;
+  total: number;
+  highCount: number;
+  clickTotal: number;
+  leadTotal: number;
+}
+
 export interface ReuseMemoryCombinationInsightRow {
   label: string;
   count: number;
@@ -415,6 +456,35 @@ export interface SignalInsights {
     rows: AssetTypeInsightRow[];
     topUsedLabel: string | null;
     topStrongLabel: string | null;
+  };
+  publishPrep: {
+    totalPackages: number;
+    platformRows: PublishPrepPlatformInsightRow[];
+    hookStyleRows: PublishPrepStyleInsightRow[];
+    ctaStyleRows: PublishPrepStyleInsightRow[];
+    topPlatformLabel: string | null;
+    topHookStyleLabel: string | null;
+    topCtaStyleLabel: string | null;
+  };
+  strategicOutcomes: {
+    recordedCount: number;
+    valueRows: StrategicValueInsightRow[];
+    platformRows: StrategicOutcomePlatformInsightRow[];
+    editorialModeRows: StrategicOutcomeNamedInsightRow[];
+    patternRows: StrategicOutcomeNamedInsightRow[];
+    bundleRows: StrategicOutcomeNamedInsightRow[];
+    sourceKindRows: StrategicOutcomeNamedInsightRow[];
+    assetRows: StrategicOutcomeNamedInsightRow[];
+    funnelRows: StrategicOutcomeNamedInsightRow[];
+    campaignRows: StrategicOutcomeNamedInsightRow[];
+    topHighValuePlatformLabel: string | null;
+    topLeadPlatformLabel: string | null;
+    topModeLabel: string | null;
+    topPatternLabel: string | null;
+    topSourceKindLabel: string | null;
+    topAssetLabel: string | null;
+    topCampaignLabel: string | null;
+    summaries: string[];
   };
   repurposing: {
     totalBundles: number;
@@ -1229,6 +1299,277 @@ function buildRepurposingInsights(
   };
 }
 
+function buildPublishPrepInsights(signals: SignalRecord[]): SignalInsights["publishPrep"] {
+  const platformMap = new Map<string, PublishPrepPlatformInsightRow>();
+  const hookStyleMap = new Map<string, PublishPrepStyleInsightRow>();
+  const ctaStyleMap = new Map<string, PublishPrepStyleInsightRow>();
+  let totalPackages = 0;
+
+  const getPlatformLabel = (platform: string) => {
+    if (platform === "x" || platform === "linkedin" || platform === "reddit") {
+      return getPostingPlatformLabel(platform);
+    }
+
+    if (platform === "email") {
+      return "Email";
+    }
+
+    if (platform === "video") {
+      return "Video";
+    }
+
+    if (platform === "carousel") {
+      return "Carousel";
+    }
+
+    return "Founder thought";
+  };
+
+  for (const signal of signals) {
+    const bundle = buildSignalPublishPrepBundle(signal);
+    if (!bundle) {
+      continue;
+    }
+
+    for (const pkg of bundle.packages) {
+      totalPackages += 1;
+      const platformRow = platformMap.get(pkg.platform) ?? {
+        platform: pkg.platform,
+        label: getPlatformLabel(pkg.platform),
+        count: 0,
+      };
+      platformRow.count += 1;
+      platformMap.set(pkg.platform, platformRow);
+
+      const selectedHook =
+        pkg.hookVariants.find((variant) => variant.id === pkg.selectedHookId) ??
+        pkg.hookVariants.find((variant) => variant.text === pkg.primaryHook) ??
+        pkg.hookVariants[0];
+      if (selectedHook) {
+        const hookRow = hookStyleMap.get(selectedHook.styleLabel) ?? {
+          label: selectedHook.styleLabel,
+          count: 0,
+        };
+        hookRow.count += 1;
+        hookStyleMap.set(selectedHook.styleLabel, hookRow);
+      }
+
+      const selectedCta =
+        pkg.ctaVariants.find((variant) => variant.id === pkg.selectedCtaId) ??
+        pkg.ctaVariants.find((variant) => variant.text === pkg.primaryCta) ??
+        pkg.ctaVariants[0];
+      if (selectedCta) {
+        const ctaRow = ctaStyleMap.get(selectedCta.goalLabel) ?? {
+          label: selectedCta.goalLabel,
+          count: 0,
+        };
+        ctaRow.count += 1;
+        ctaStyleMap.set(selectedCta.goalLabel, ctaRow);
+      }
+    }
+  }
+
+  const platformRows = Array.from(platformMap.values()).sort(
+    (left, right) => right.count - left.count || left.label.localeCompare(right.label),
+  );
+  const hookStyleRows = Array.from(hookStyleMap.values()).sort(
+    (left, right) => right.count - left.count || left.label.localeCompare(right.label),
+  );
+  const ctaStyleRows = Array.from(ctaStyleMap.values()).sort(
+    (left, right) => right.count - left.count || left.label.localeCompare(right.label),
+  );
+
+  return {
+    totalPackages,
+    platformRows,
+    hookStyleRows,
+    ctaStyleRows,
+    topPlatformLabel: platformRows[0]?.label ?? null,
+    topHookStyleLabel: hookStyleRows[0]?.label ?? null,
+    topCtaStyleLabel: ctaStyleRows[0]?.label ?? null,
+  };
+}
+
+function buildStrategicOutcomeInsights(input: {
+  signals: SignalRecord[];
+  postingEntries: PostingLogEntry[];
+  strategicOutcomes: StrategicOutcome[];
+  bundles: PatternBundle[];
+}): SignalInsights["strategicOutcomes"] {
+  const signalById = new Map(input.signals.map((signal) => [signal.recordId, signal]));
+  const postingEntryById = new Map(input.postingEntries.map((entry) => [entry.id, entry]));
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(input.bundles);
+
+  const valueRows: StrategicValueInsightRow[] = STRATEGIC_VALUE_LEVELS.map((value) => ({
+    value,
+    label: getStrategicValueLabel(value),
+    count: 0,
+  }));
+  const valueRowByKey = new Map(valueRows.map((row) => [row.value, row]));
+  const platformRows: StrategicOutcomePlatformInsightRow[] = POSTING_PLATFORMS.map((platform) => ({
+    platform,
+    label: getPostingPlatformLabel(platform),
+    total: 0,
+    highCount: 0,
+    clickTotal: 0,
+    leadTotal: 0,
+  }));
+  const platformRowByKey = new Map(platformRows.map((row) => [row.platform, row]));
+  const editorialModeCounts = new Map<string, StrategicOutcomeNamedInsightRow>();
+  const patternCounts = new Map<string, StrategicOutcomeNamedInsightRow>();
+  const bundleCounts = new Map<string, StrategicOutcomeNamedInsightRow>();
+  const sourceKindCounts = new Map<string, StrategicOutcomeNamedInsightRow>();
+  const assetCounts = new Map<string, StrategicOutcomeNamedInsightRow>();
+  const funnelCounts = new Map<string, StrategicOutcomeNamedInsightRow>();
+  const campaignCounts = new Map<string, StrategicOutcomeNamedInsightRow>();
+
+  function incrementRow(
+    counter: Map<string, StrategicOutcomeNamedInsightRow>,
+    key: string | null | undefined,
+    label: string | null | undefined,
+    outcome: StrategicOutcome,
+  ) {
+    if (!key || !label) {
+      return;
+    }
+
+    const current = counter.get(key) ?? {
+      label,
+      total: 0,
+      highCount: 0,
+      clickTotal: 0,
+      leadTotal: 0,
+    };
+    current.total += 1;
+    if (outcome.strategicValue === "high") {
+      current.highCount += 1;
+    }
+    current.clickTotal += outcome.clicks ?? 0;
+    current.leadTotal += (outcome.leadsOrSignups ?? 0) + (outcome.trialsOrConversions ?? 0);
+    counter.set(key, current);
+  }
+
+  for (const outcome of input.strategicOutcomes) {
+    valueRowByKey.get(outcome.strategicValue)!.count += 1;
+    const platformRow = platformRowByKey.get(outcome.platform);
+    if (platformRow) {
+      platformRow.total += 1;
+      if (outcome.strategicValue === "high") {
+        platformRow.highCount += 1;
+      }
+      platformRow.clickTotal += outcome.clicks ?? 0;
+      platformRow.leadTotal += (outcome.leadsOrSignups ?? 0) + (outcome.trialsOrConversions ?? 0);
+    }
+
+    const postingEntry = postingEntryById.get(outcome.postingLogId);
+    const signal = signalById.get(outcome.signalId);
+
+    if (postingEntry?.editorialMode) {
+      incrementRow(
+        editorialModeCounts,
+        postingEntry.editorialMode,
+        EDITORIAL_MODE_DEFINITIONS[postingEntry.editorialMode].label,
+        outcome,
+      );
+    }
+
+    if (postingEntry?.patternId && postingEntry.patternName) {
+      incrementRow(patternCounts, postingEntry.patternId, postingEntry.patternName, outcome);
+      for (const bundle of bundleSummariesByPatternId[postingEntry.patternId] ?? []) {
+        incrementRow(bundleCounts, bundle.id, bundle.name, outcome);
+      }
+    }
+
+    if (signal) {
+      const sourceProfile = getSourceProfile(signal);
+      incrementRow(sourceKindCounts, sourceProfile.sourceKind, sourceProfile.kindLabel, outcome);
+
+      const assetType = getSignalAssetType(signal);
+      incrementRow(
+        assetCounts,
+        assetType,
+        assetType === "image" ? "Image" : assetType === "video" ? "Video" : "Text-first",
+        outcome,
+      );
+
+      if (signal.funnelStage) {
+        incrementRow(funnelCounts, signal.funnelStage, signal.funnelStage, outcome);
+      }
+
+      if (signal.campaignId) {
+        incrementRow(campaignCounts, signal.campaignId, signal.campaignId, outcome);
+      }
+    }
+  }
+
+  const sortRows = (rows: StrategicOutcomeNamedInsightRow[]) =>
+    rows.sort(
+      (left, right) =>
+        right.highCount - left.highCount ||
+        right.leadTotal - left.leadTotal ||
+        right.clickTotal - left.clickTotal ||
+        right.total - left.total ||
+        left.label.localeCompare(right.label),
+    );
+
+  const editorialModeRows = sortRows(Array.from(editorialModeCounts.values()));
+  const patternRows = sortRows(Array.from(patternCounts.values()));
+  const bundleRows = sortRows(Array.from(bundleCounts.values()));
+  const sourceKindRows = sortRows(Array.from(sourceKindCounts.values()));
+  const assetRows = sortRows(Array.from(assetCounts.values()));
+  const funnelRows = sortRows(Array.from(funnelCounts.values()));
+  const campaignRows = sortRows(Array.from(campaignCounts.values()));
+  const topHighValuePlatform = [...platformRows].sort(
+    (left, right) =>
+      right.highCount - left.highCount ||
+      right.leadTotal - left.leadTotal ||
+      right.clickTotal - left.clickTotal ||
+      left.label.localeCompare(right.label),
+  )[0];
+  const topLeadPlatform = [...platformRows].sort(
+    (left, right) =>
+      right.leadTotal - left.leadTotal ||
+      right.highCount - left.highCount ||
+      right.clickTotal - left.clickTotal ||
+      left.label.localeCompare(right.label),
+  )[0];
+
+  const summaries: string[] = [];
+  if (topHighValuePlatform && topHighValuePlatform.highCount > 0) {
+    summaries.push(`${topHighValuePlatform.label} currently carries the most high-value strategic outcomes.`);
+  }
+  if (editorialModeRows[0]?.highCount) {
+    summaries.push(`${editorialModeRows[0].label} most often leads to high strategic value in the current window.`);
+  }
+  if (sourceKindRows[0]?.leadTotal) {
+    summaries.push(`${sourceKindRows[0].label} is currently producing the strongest lead or signup movement.`);
+  } else if (sourceKindRows[0]?.highCount) {
+    summaries.push(`${sourceKindRows[0].label} is currently the strongest source family for strategic value.`);
+  }
+
+  return {
+    recordedCount: input.strategicOutcomes.length,
+    valueRows,
+    platformRows,
+    editorialModeRows,
+    patternRows,
+    bundleRows,
+    sourceKindRows,
+    assetRows,
+    funnelRows,
+    campaignRows,
+    topHighValuePlatformLabel:
+      topHighValuePlatform && topHighValuePlatform.highCount > 0 ? topHighValuePlatform.label : null,
+    topLeadPlatformLabel: topLeadPlatform && topLeadPlatform.leadTotal > 0 ? topLeadPlatform.label : null,
+    topModeLabel: editorialModeRows[0]?.label ?? null,
+    topPatternLabel: patternRows[0]?.label ?? null,
+    topSourceKindLabel: sourceKindRows[0]?.label ?? null,
+    topAssetLabel: assetRows[0]?.label ?? null,
+    topCampaignLabel: campaignRows[0]?.label ?? null,
+    summaries: summaries.slice(0, 3),
+  };
+}
+
 function buildBundleCoverageInsights(input: {
   signals: SignalRecord[];
   auditEvents: AuditEvent[];
@@ -1732,6 +2073,8 @@ function buildObservations(input: {
   posting: SignalInsights["posting"];
   outcomes: SignalInsights["outcomes"];
   assets: SignalInsights["assets"];
+  publishPrep: SignalInsights["publishPrep"];
+  strategicOutcomes: SignalInsights["strategicOutcomes"];
   repurposing: SignalInsights["repurposing"];
   reuseMemory: SignalInsights["reuseMemory"];
   bundleCoverage: SignalInsights["bundleCoverage"];
@@ -1896,6 +2239,22 @@ function buildObservations(input: {
     });
   }
 
+  if (input.publishPrep.totalPackages > 0) {
+    observations.push({
+      tone: "neutral",
+      text: input.publishPrep.topPlatformLabel
+        ? `${input.publishPrep.totalPackages} publish-prep packages are currently attached, with ${input.publishPrep.topPlatformLabel} receiving the most last-mile support.`
+        : `${input.publishPrep.totalPackages} publish-prep packages are currently attached to approval-ready content.`,
+    });
+  }
+
+  if (input.strategicOutcomes.topHighValuePlatformLabel) {
+    observations.push({
+      tone: "neutral",
+      text: `${input.strategicOutcomes.topHighValuePlatformLabel} currently carries the strongest strategic-value outcomes in this window.`,
+    });
+  }
+
   if (input.repurposing.topPlatformLabel) {
     observations.push({
       tone: "neutral",
@@ -1957,6 +2316,7 @@ export function buildSignalInsights(
     patternFeedbackEntries?: PatternFeedbackEntry[];
     postingEntries?: PostingLogEntry[];
     postingOutcomes?: PostingOutcome[];
+    strategicOutcomes?: StrategicOutcome[];
   },
 ): SignalInsights {
   const now = options?.now ?? new Date();
@@ -2007,7 +2367,15 @@ export function buildSignalInsights(
     (options?.postingOutcomes ?? []).filter((outcome) => includedSignalIds.has(outcome.signalId)),
   );
   const includedPostingOutcomes = (options?.postingOutcomes ?? []).filter((outcome) => includedSignalIds.has(outcome.signalId));
+  const includedStrategicOutcomes = (options?.strategicOutcomes ?? []).filter((outcome) => includedSignalIds.has(outcome.signalId));
   const assets = buildAssetInsights(filteredSignals, includedPostingOutcomes);
+  const publishPrep = buildPublishPrepInsights(filteredSignals);
+  const strategicOutcomes = buildStrategicOutcomeInsights({
+    signals: filteredSignals,
+    postingEntries: includedPostingEntries,
+    strategicOutcomes: includedStrategicOutcomes,
+    bundles: options?.bundles ?? [],
+  });
   const repurposing = buildRepurposingInsights(filteredSignals, includedPostingOutcomes);
   const reuseMemory = buildReuseMemorySection({
     signals: filteredSignals,
@@ -2099,6 +2467,8 @@ export function buildSignalInsights(
     posting,
     outcomes,
     assets,
+    publishPrep,
+    strategicOutcomes,
     repurposing,
     reuseMemory,
     bundleCoverage,
@@ -2119,6 +2489,8 @@ export function buildSignalInsights(
       posting,
       outcomes,
       assets,
+      publishPrep,
+      strategicOutcomes,
       repurposing,
       reuseMemory,
       bundleCoverage,

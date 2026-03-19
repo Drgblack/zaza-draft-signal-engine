@@ -6,6 +6,7 @@ export const NAV_ITEMS = [
   { href: "/patterns", label: "Patterns" },
   { href: "/playbook", label: "Playbook" },
   { href: "/campaigns", label: "Campaigns" },
+  { href: "/plan", label: "Plan" },
   { href: "/insights", label: "Insights" },
   { href: "/settings", label: "Settings" },
   { href: "/ingestion", label: "Ingestion" },

@@ -20,6 +20,10 @@ export const postingLogEntrySchema = z.object({
   patternName: z.union([z.string().trim().min(1), z.null()]).optional(),
   scenarioAngle: z.union([z.string().trim().min(1), z.null()]).optional(),
   sourceDraftStatus: z.enum(FINAL_DRAFT_REVIEW_STATUSES).nullable().optional(),
+  publishPrepPackageId: z.union([z.string().trim().min(1), z.null()]).optional(),
+  selectedHookText: z.union([z.string().trim().min(1), z.null()]).optional(),
+  selectedCtaText: z.union([z.string().trim().min(1), z.null()]).optional(),
+  suggestedPostingTime: z.union([z.string().trim().min(1), z.null()]).optional(),
 });
 
 export type PostingLogEntry = z.infer<typeof postingLogEntrySchema>;
@@ -37,6 +41,10 @@ export interface CreatePostingLogInput {
   patternName?: string | null;
   scenarioAngle?: string | null;
   sourceDraftStatus?: FinalDraftReviewStatus | null;
+  publishPrepPackageId?: string | null;
+  selectedHookText?: string | null;
+  selectedCtaText?: string | null;
+  suggestedPostingTime?: string | null;
 }
 
 export interface SignalPostingSummaryRow {

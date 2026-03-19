@@ -8,7 +8,9 @@ import { getSignalContentContextSummary } from "@/lib/campaigns";
 import { getEditorialConfidenceLabel } from "@/lib/editorial-confidence";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import type { UnifiedGuidance } from "@/lib/guidance";
+import { buildPublishPrepBundleSummary, buildSignalPublishPrepBundle } from "@/lib/publish-prep";
 import { buildRepurposingBundleSummary, buildSignalRepurposingBundle } from "@/lib/repurposing";
+import { getWeeklyPlanAlignment, type WeeklyPlan, type WeeklyPlanState } from "@/lib/weekly-plan";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { SignalRecord } from "@/types/signal";
@@ -110,10 +112,14 @@ export function ApprovalQueueSection({
   candidates,
   strategy,
   cadence,
+  weeklyPlan,
+  weeklyPlanState,
 }: {
   candidates: ApprovalQueueCandidate[];
   strategy: CampaignStrategy;
   cadence: CampaignCadenceSummary;
+  weeklyPlan: WeeklyPlan | null;
+  weeklyPlanState: WeeklyPlanState | null;
 }) {
   return (
     <div id="approval-ready">
@@ -141,6 +147,9 @@ export function ApprovalQueueSection({
               const primaryVideo = getAssetPrimaryVideo(assetBundle, candidate.signal.selectedVideoConceptId);
               const repurposingBundle = buildSignalRepurposingBundle(candidate.signal);
               const repurposingSummary = buildRepurposingBundleSummary(repurposingBundle);
+              const publishPrepBundle = buildSignalPublishPrepBundle(candidate.signal);
+              const publishPrepSummary = buildPublishPrepBundleSummary(publishPrepBundle);
+              const planAlignment = getWeeklyPlanAlignment(candidate.signal, weeklyPlan, strategy, weeklyPlanState);
 
               return (
                 <div key={candidate.signal.recordId} className="rounded-2xl bg-white/80 p-4">
@@ -176,9 +185,11 @@ export function ApprovalQueueSection({
                       <p><span className="font-medium text-slate-900">Asset concepts:</span> {assetSummary?.summary ?? "Not generated yet"}</p>
                       <p><span className="font-medium text-slate-900">Repurposing:</span> {repurposingSummary ? `${repurposingSummary.count} variants` : "Not generated yet"}</p>
                       <p><span className="font-medium text-slate-900">Repurposing primary:</span> {repurposingSummary?.primaryPlatformLabel ?? "Not set"}</p>
+                      <p><span className="font-medium text-slate-900">Publish prep:</span> {publishPrepSummary ? `${publishPrepSummary.packageCount} packages ready` : "Not prepared yet"}</p>
+                      <p><span className="font-medium text-slate-900">Posting package:</span> {publishPrepSummary?.previewLabels.slice(0, 2).join(" · ") || "Hook, CTA, timing, and notes will appear after generation saves."}</p>
                     </div>
                     <div className="flex flex-wrap gap-2 text-sm text-slate-500">
-                      {candidate.rankReasons.map((reason) => (
+                      {[...candidate.rankReasons, ...planAlignment.boosts].slice(0, 4).map((reason) => (
                         <span key={reason} className="rounded-full bg-slate-100 px-3 py-1">
                           {reason}
                         </span>
@@ -201,12 +212,15 @@ export function ApprovalQueueSection({
                     <div>
                       <p className="font-medium text-slate-900">Strategy balance</p>
                       <p className="mt-2">
-                        {context.pillarName && cadence.underrepresentedPillars.includes(context.pillarName)
+                        {planAlignment.boosts[0]
+                          ? planAlignment.boosts[0]
+                          : context.pillarName && cadence.underrepresentedPillars.includes(context.pillarName)
                           ? `${context.pillarName} is currently underrepresented in recent output.`
                           : context.funnelStage && cadence.underrepresentedFunnels.includes(context.funnelStage)
                             ? `${context.funnelStage} content is currently thin in the recent mix.`
                             : "This item fits the current strategy mix without creating a strong repetition signal."}
                       </p>
+                      {planAlignment.cautions[0] ? <p className="mt-2 text-slate-500">Caution: {planAlignment.cautions[0]}</p> : null}
                     </div>
                     <div>
                       <p className="font-medium text-slate-900">Playbook / pattern support</p>
@@ -247,6 +261,17 @@ export function ApprovalQueueSection({
                         </p>
                         <p className="mt-2 text-slate-500">
                           Preview: {repurposingSummary?.previewLabels.join(" · ") || "No preview labels"}
+                        </p>
+                      </div>
+                    ) : null}
+                    {publishPrepBundle ? (
+                      <div>
+                        <p className="font-medium text-slate-900">Publish prep</p>
+                        <p className="mt-2">
+                          {publishPrepSummary?.packageCount ?? publishPrepBundle.packages.length} package{(publishPrepSummary?.packageCount ?? publishPrepBundle.packages.length) === 1 ? "" : "s"} ready.
+                        </p>
+                        <p className="mt-2 text-slate-500">
+                          {publishPrepSummary?.previewLabels.join(" · ") || "Hook + CTA + timing ready"}
                         </p>
                       </div>
                     ) : null}

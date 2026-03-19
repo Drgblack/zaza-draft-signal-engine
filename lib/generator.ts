@@ -296,6 +296,7 @@ export function buildInitialGenerationFromSignal(signal: SignalRecord): SignalGe
     promptVersion: signal.promptVersion ?? GENERATION_PROMPT_VERSION,
     generatedAt: signal.createdDate,
     assetBundleJson: signal.assetBundleJson,
+    publishPrepBundleJson: signal.publishPrepBundleJson,
     preferredAssetType: signal.preferredAssetType,
     selectedImageAssetId: signal.selectedImageAssetId ?? assetBundle?.imageAssets[0]?.id ?? null,
     selectedVideoConceptId: signal.selectedVideoConceptId ?? assetBundle?.videoConcepts[0]?.id ?? null,

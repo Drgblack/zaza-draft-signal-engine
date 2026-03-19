@@ -27,6 +27,7 @@ import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { buildFinalReviewSummary } from "@/lib/final-review";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
 import { indexOutcomesByPostingLogId, listPostingOutcomes } from "@/lib/outcomes";
+import { indexStrategicOutcomesByPostingLogId, listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { buildPatternCoverageRecords, buildPatternDraftFromCoverageGap } from "@/lib/pattern-coverage";
 import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
@@ -93,6 +94,7 @@ export default async function SignalDetailPage({
   const allPostingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes({ signalIds: [signal.recordId] });
   const allPostingOutcomes = await listPostingOutcomes();
+  const strategicOutcomes = await listStrategicOutcomes({ signalIds: [signal.recordId] });
   const strategy = await getCampaignStrategy();
   const patterns = await listPatterns();
   const allPatterns = await listPatterns({ includeRetired: true });
@@ -135,6 +137,7 @@ export default async function SignalDetailPage({
   const cadence = buildCampaignCadenceSummary(allSignals, strategy, allPostingEntries);
   const strategicContext = getSignalContentContextSummary(signal, strategy);
   const postingOutcomesByPostingLogId = indexOutcomesByPostingLogId(postingOutcomes);
+  const strategicOutcomesByPostingLogId = indexStrategicOutcomesByPostingLogId(strategicOutcomes);
   const automationReadiness = getAutomationReadinessSnapshot(signal);
   const initialScoring = buildInitialScoringFromSignal(signal);
   const tuning = await getOperatorTuning();
@@ -514,6 +517,7 @@ export default async function SignalDetailPage({
             signalId={signal.recordId}
             postingEntries={postingEntries}
             initialOutcomesByPostingLogId={postingOutcomesByPostingLogId}
+            initialStrategicOutcomesByPostingLogId={strategicOutcomesByPostingLogId}
             postingSummary={postingSummary}
             generationReady={generationReady}
           />

@@ -15,7 +15,9 @@ import { PATTERN_TYPE_LABELS } from "@/lib/pattern-definitions";
 import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
 import { buildPatternEffectivenessSummaries, listPatterns } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
+import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
+import { buildWeeklyPlanInsights, getCurrentWeeklyPlan, getWeeklyPlanStore } from "@/lib/weekly-plan";
 import { buildSignalInsights, INSIGHT_WINDOWS, type InsightObservation, type InsightWindow } from "@/lib/insights";
 
 export const dynamic = "force-dynamic";
@@ -143,6 +145,7 @@ export default async function InsightsPage({
   const feedbackEntries = await listFeedbackEntries();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const strategicOutcomes = await listStrategicOutcomes();
   const patterns = await listPatterns();
   const allPatterns = await listPatterns({ includeRetired: true });
   const bundles = await listPatternBundles();
@@ -150,6 +153,8 @@ export default async function InsightsPage({
   const patternFeedbackEntries = await listPatternFeedbackEntries();
   const tuning = await getOperatorTuning();
   const strategy = await getCampaignStrategy();
+  const currentWeeklyPlan = await getCurrentWeeklyPlan(strategy);
+  const weeklyPlanStore = await getWeeklyPlanStore(strategy);
   const patternEffectivenessSummaries = buildPatternEffectivenessSummaries(
     allPatterns,
     auditEvents,
@@ -176,10 +181,18 @@ export default async function InsightsPage({
     patternFeedbackEntries,
     postingEntries,
     postingOutcomes,
+    strategicOutcomes,
     tuning,
   });
   const campaignInsights = buildCampaignDistributionInsights(signals, strategy, postingEntries);
   const campaignCadence = buildCampaignCadenceSummary(signals, strategy, postingEntries);
+  const weeklyPlanInsights = buildWeeklyPlanInsights(
+    weeklyPlanStore.plans,
+    strategy,
+    signals,
+    postingEntries,
+    strategicOutcomes,
+  );
   await appendAuditEventsSafe(
     insights.playbook.topCoverageGaps.map((gap) => ({
       signalId: `playbook-gap:${gap.key}`,
@@ -345,6 +358,140 @@ export default async function InsightsPage({
                 </div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Weekly Plan Alignment</CardTitle>
+            <CardDescription>
+              Current-week intent versus what the system is actually preparing and posting.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Week"
+                value={weeklyPlanInsights.currentState?.weekLabel ?? currentWeeklyPlan.weekStartDate}
+                detail={weeklyPlanInsights.currentPlan?.theme ?? "No weekly theme set."}
+              />
+              <MetricCard
+                label="Goals"
+                value={String(weeklyPlanInsights.currentPlan?.goals.length ?? 0)}
+                detail={weeklyPlanInsights.currentPlan?.goals[0] ?? "No weekly goals saved."}
+              />
+              <MetricCard
+                label="Plan gaps"
+                value={String(weeklyPlanInsights.currentState?.gaps.length ?? 0)}
+                detail={weeklyPlanInsights.currentState?.summaries[0] ?? "Current output looks broadly aligned."}
+              />
+              <MetricCard
+                label="Stored weeks"
+                value={String(weeklyPlanStore.plans.length)}
+                detail="Light planning history for weekly comparison."
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Platforms vs target</p>
+                <div className="mt-3 space-y-3">
+                  {weeklyPlanInsights.currentState?.platformRows.map((row) => (
+                    <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm text-slate-600">{row.label}</span>
+                        <span className="text-lg font-semibold text-slate-950">{row.actualCount}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-500">Target: {row.target > 1 ? "Focus" : row.target === 1 ? "Light" : "Off"}</p>
+                    </div>
+                  )) ?? <EmptyState copy="No weekly plan state is available yet." />}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Funnels vs target</p>
+                <div className="mt-3 space-y-3">
+                  {weeklyPlanInsights.currentState?.funnelRows.map((row) => (
+                    <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm text-slate-600">{row.label}</span>
+                        <span className="text-lg font-semibold text-slate-950">{row.actualCount}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-500">Target: {row.target > 1 ? "Focus" : row.target === 1 ? "Light" : "Off"}</p>
+                    </div>
+                  )) ?? <EmptyState copy="No weekly plan state is available yet." />}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Modes vs target</p>
+                <div className="mt-3 space-y-3">
+                  {weeklyPlanInsights.currentState?.modeRows
+                    .filter((row) => row.target > 0 || row.actualCount > 0)
+                    .slice(0, 6)
+                    .map((row) => (
+                      <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm text-slate-600">{row.label}</span>
+                          <span className="text-lg font-semibold text-slate-950">{row.actualCount}</span>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-500">Target: {row.target > 1 ? "Focus" : row.target === 1 ? "Light" : "Off"}</p>
+                      </div>
+                    )) ?? <EmptyState copy="No weekly mode data is available yet." />}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Plan gaps</p>
+                <div className="mt-3 space-y-3">
+                  {(weeklyPlanInsights.currentState?.gaps.length ? weeklyPlanInsights.currentState.gaps : weeklyPlanInsights.currentState?.summaries ?? []).slice(0, 5).map((note) => (
+                    <div key={note} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                      {note}
+                    </div>
+                  ))}
+                  {!weeklyPlanInsights.currentState ? <EmptyState copy="No weekly plan state is available yet." /> : null}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Weekly Plan Effectiveness</CardTitle>
+            <CardDescription>
+              Lightweight comparison of recent planned weeks against strategic-value outcomes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {weeklyPlanInsights.effectivenessRows.length === 0 ? (
+              <EmptyState copy="No weekly plan history is stable enough to compare yet." />
+            ) : (
+              weeklyPlanInsights.effectivenessRows.slice(0, 5).map((row) => (
+                <div key={row.weekLabel} className="rounded-2xl bg-white/80 px-4 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-medium text-slate-950">{row.weekLabel}</p>
+                    <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.theme ?? "No theme"}</Badge>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">High strategic value</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-950">{row.highValueCount}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Leads</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-950">{row.leadTotal}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top platform</p>
+                      <p className="mt-2 text-lg font-semibold text-slate-950">{row.topPlatformLabel ?? "None yet"}</p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
           </CardContent>
         </Card>
       </div>
@@ -1575,6 +1722,87 @@ export default async function InsightsPage({
 
         <Card>
           <CardHeader>
+            <CardTitle>Publish Prep Usage</CardTitle>
+            <CardDescription>
+              Lightweight visibility into the last-mile posting packages being prepared for manual publishing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Packages"
+                value={String(insights.publishPrep.totalPackages)}
+                detail="Saved publish-prep packages in the current window."
+              />
+              <MetricCard
+                label="Top platform"
+                value={insights.publishPrep.topPlatformLabel ?? "None yet"}
+                detail="Platform most often receiving a posting package."
+              />
+              <MetricCard
+                label="Top hook style"
+                value={insights.publishPrep.topHookStyleLabel ?? "None yet"}
+                detail="Most common selected hook posture across packages."
+              />
+              <MetricCard
+                label="Top CTA style"
+                value={insights.publishPrep.topCtaStyleLabel ?? "None yet"}
+                detail="Most common selected CTA posture across packages."
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">By platform</p>
+                <div className="mt-3 space-y-3">
+                  {insights.publishPrep.platformRows.length === 0 ? (
+                    <EmptyState copy="No publish-prep packages are visible yet." />
+                  ) : (
+                    insights.publishPrep.platformRows.map((row) => (
+                      <div key={row.platform} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                        <span className="text-sm text-slate-600">{row.label}</span>
+                        <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Hook styles</p>
+                <div className="mt-3 space-y-3">
+                  {insights.publishPrep.hookStyleRows.length === 0 ? (
+                    <EmptyState copy="No selected publish hooks are stable enough to summarize yet." />
+                  ) : (
+                    insights.publishPrep.hookStyleRows.map((row) => (
+                      <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                        <span className="text-sm text-slate-600">{row.label}</span>
+                        <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">CTA styles</p>
+                <div className="mt-3 space-y-3">
+                  {insights.publishPrep.ctaStyleRows.length === 0 ? (
+                    <EmptyState copy="No selected CTA patterns are visible yet." />
+                  ) : (
+                    insights.publishPrep.ctaStyleRows.map((row) => (
+                      <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                        <span className="text-sm text-slate-600">{row.label}</span>
+                        <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Outcome Quality</CardTitle>
             <CardDescription>
               Operator judgement about whether posted outputs felt strong, reusable, or disappointing.
@@ -1609,6 +1837,143 @@ export default async function InsightsPage({
                   </p>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Strategic Outcomes</CardTitle>
+            <CardDescription>
+              Manual business-facing outcomes tied back to platform, framing, mode, source, asset posture, and campaign context.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Recorded"
+                value={String(insights.strategicOutcomes.recordedCount)}
+                detail="Posted items with saved strategic outcome data."
+              />
+              <MetricCard
+                label="Top high-value platform"
+                value={insights.strategicOutcomes.topHighValuePlatformLabel ?? "None yet"}
+                detail="Platform with the strongest high-value strategic outcomes."
+              />
+              <MetricCard
+                label="Top lead platform"
+                value={insights.strategicOutcomes.topLeadPlatformLabel ?? "None yet"}
+                detail="Platform currently driving the most leads or signups."
+              />
+              <MetricCard
+                label="Top mode"
+                value={insights.strategicOutcomes.topModeLabel ?? "None yet"}
+                detail="Editorial mode most often linked to high strategic value."
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {insights.strategicOutcomes.valueRows.map((row) => (
+                <div key={row.value} className="rounded-2xl bg-white/80 px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{row.label}</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">{row.count}</p>
+                  <p className="mt-1 text-sm text-slate-500">Strategic value marked {row.label.toLowerCase()}.</p>
+                </div>
+              ))}
+            </div>
+
+            {insights.strategicOutcomes.summaries.length > 0 ? (
+              <div className="space-y-3">
+                {insights.strategicOutcomes.summaries.map((summary) => (
+                  <div key={summary} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                    {summary}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">By platform</p>
+                <div className="mt-3 space-y-3">
+                  {insights.strategicOutcomes.platformRows.length === 0 ? (
+                    <EmptyState copy="No strategic outcomes are available yet." />
+                  ) : (
+                    insights.strategicOutcomes.platformRows.map((row) => (
+                      <div key={row.platform} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium text-slate-950">{row.label}</p>
+                          <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.total}</Badge>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {row.highCount} high-value · {row.clickTotal} clicks · {row.leadTotal} leads or conversions
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Modes and patterns</p>
+                <div className="mt-3 space-y-3">
+                  {insights.strategicOutcomes.editorialModeRows.slice(0, 3).map((row) => (
+                    <div key={`mode-${row.label}`} className="rounded-2xl bg-white/80 px-4 py-4">
+                      <p className="font-medium text-slate-950">{row.label}</p>
+                      <p className="mt-2 text-sm text-slate-600">
+                        {row.highCount} high-value · {row.clickTotal} clicks · {row.leadTotal} leads
+                      </p>
+                    </div>
+                  ))}
+                  {insights.strategicOutcomes.patternRows.slice(0, 2).map((row) => (
+                    <div key={`pattern-${row.label}`} className="rounded-2xl bg-white/80 px-4 py-4">
+                      <p className="font-medium text-slate-950">{row.label}</p>
+                      <p className="mt-2 text-sm text-slate-600">
+                        Pattern-linked outcomes: {row.highCount} high-value · {row.leadTotal} leads
+                      </p>
+                    </div>
+                  ))}
+                  {insights.strategicOutcomes.editorialModeRows.length === 0 && insights.strategicOutcomes.patternRows.length === 0 ? (
+                    <EmptyState copy="No stable mode or pattern outcome signals are available yet." />
+                  ) : null}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Source, asset, and strategy</p>
+                <div className="mt-3 space-y-3">
+                  {[
+                    insights.strategicOutcomes.sourceKindRows[0]
+                      ? `Source kind: ${insights.strategicOutcomes.sourceKindRows[0].label} · ${insights.strategicOutcomes.sourceKindRows[0].highCount} high-value`
+                      : null,
+                    insights.strategicOutcomes.assetRows[0]
+                      ? `Asset type: ${insights.strategicOutcomes.assetRows[0].label} · ${insights.strategicOutcomes.assetRows[0].highCount} high-value`
+                      : null,
+                    insights.strategicOutcomes.funnelRows[0]
+                      ? `Funnel: ${insights.strategicOutcomes.funnelRows[0].label} · ${insights.strategicOutcomes.funnelRows[0].leadTotal} leads`
+                      : null,
+                    insights.strategicOutcomes.campaignRows[0]
+                      ? `Campaign: ${insights.strategicOutcomes.campaignRows[0].label} · ${insights.strategicOutcomes.campaignRows[0].highCount} high-value`
+                      : null,
+                    insights.strategicOutcomes.bundleRows[0]
+                      ? `Bundle: ${insights.strategicOutcomes.bundleRows[0].label} · ${insights.strategicOutcomes.bundleRows[0].highCount} high-value`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .map((line) => (
+                      <div key={line} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                        {line}
+                      </div>
+                    ))}
+                  {insights.strategicOutcomes.sourceKindRows.length === 0 &&
+                  insights.strategicOutcomes.assetRows.length === 0 &&
+                  insights.strategicOutcomes.funnelRows.length === 0 &&
+                  insights.strategicOutcomes.campaignRows.length === 0 &&
+                  insights.strategicOutcomes.bundleRows.length === 0 ? (
+                    <EmptyState copy="No source, asset, bundle, or campaign-level strategic pattern is stable enough to surface yet." />
+                  ) : null}
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>

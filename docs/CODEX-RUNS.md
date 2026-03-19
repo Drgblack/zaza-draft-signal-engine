@@ -1277,3 +1277,137 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
   - no scheduling
   - no uncontrolled content explosion
   - no A/B testing system
+
+## Run 46
+- added a bounded publish-prep layer centered in `lib/publish-prep.ts`
+- defined reusable publish-prep models:
+  - `HookVariant`
+  - `CtaVariant`
+  - `PublishPrepPackage`
+  - `PublishPrepBundle`
+- added persisted signal state for:
+  - `publishPrepBundleJson`
+- publish prep now packages primary drafts and distinct repurposed outputs with:
+  - preferred hook plus bounded hook variants
+  - preferred CTA plus bounded CTA variants
+  - hashtags or keywords
+  - alt text where relevant
+  - follow-up comment or reply prompt
+  - suggested posting time
+  - optional UTM-ready link variants
+- generation save and the autonomous pipeline now both attach publish-prep packages so approval-ready items arrive closer to manual posting
+- final review now supports:
+  - selecting a preferred hook and CTA
+  - editing hook and CTA text
+  - editing hashtags or keywords, alt text, comment prompt, timing note, link URL, link label, and package notes
+- approval queue now surfaces light publish-prep readiness summaries
+- posting-log entries now preserve low-risk metadata from publish prep:
+  - package id
+  - selected hook
+  - selected CTA
+  - suggested posting time
+- `/insights` now shows lightweight publish-prep usage by:
+  - platform
+  - hook style
+  - CTA style
+- added audit coverage for:
+  - `PUBLISH_PREP_GENERATED`
+  - `PUBLISH_PREP_EDITED`
+  - `HOOK_SELECTED`
+  - `CTA_SELECTED`
+- kept the layer intentionally bounded:
+  - manual posting only
+  - no scheduler
+  - no direct social publishing
+  - UTM links use a bounded base-URL fallback when no configured site URL is present
+
+## Run 47
+- added a bounded strategic outcome loop split across:
+  - shared client-safe shapes in `lib/strategic-outcome-memory.ts`
+  - file-backed persistence in `lib/strategic-outcomes.ts`
+- strategic outcomes now stay intentionally compact and operator-entered:
+  - impressions or reach
+  - saves or bookmarks
+  - shares or reposts
+  - comments or replies
+  - clicks
+  - leads or signups
+  - trials or conversions
+  - strategic value: `high`, `medium`, `low`, `unclear`
+  - optional note
+- added a dedicated route at:
+  - `PATCH /api/signals/[id]/posting-log/[postingLogId]/strategic-outcome`
+- signal detail posting history now supports recording and editing strategic outcomes directly beside the existing qualitative outcome memory
+- posted entries now surface compact strategic summaries such as:
+  - strategic value badge
+  - key metric totals
+  - optional operator note
+- `/insights` now includes a compact strategic outcome section covering:
+  - recorded strategic outcome count
+  - strategic value distribution
+  - platform outcome rows
+  - editorial mode outcome rows
+  - pattern and bundle outcome rows
+  - source-kind outcome rows
+  - asset-type outcome rows
+  - funnel and campaign outcome rows
+  - short rule-based narrative summaries grounded in the recorded data
+- strategic outcome lineage now connects posted results back to existing content context such as:
+  - platform
+  - source kind
+  - editorial mode
+  - pattern and bundle
+  - asset posture
+  - funnel stage
+  - campaign
+- audit logging now supports:
+  - `STRATEGIC_OUTCOME_RECORDED`
+  - `STRATEGIC_OUTCOME_UPDATED`
+- mock mode now seeds realistic strategic outcomes so the closed-loop UI and insights are testable without external analytics integrations
+- kept the layer intentionally bounded:
+  - manual entry only
+  - no social API sync
+  - no attribution modelling
+  - comparative visibility rather than a BI dashboard
+
+## Run 48
+- added a bounded weekly planning layer centered in `lib/weekly-plan.ts`
+- the current weekly plan model now covers:
+  - week start date
+  - optional theme
+  - short goals
+  - active campaigns
+  - target platforms
+  - target funnel mix
+  - target editorial-mode mix
+  - target fresh / evergreen / reused content mix
+  - optional notes
+- added a lightweight plan-management surface at `/plan`
+- operators can now:
+  - update the current week quickly
+  - apply simple planning templates
+  - choose campaign and platform emphasis
+  - set soft funnel and mode priorities
+- approval-ready ranking now gets a small explicit weekly-plan influence for items that:
+  - support the active weekly campaign mix
+  - fill a missing funnel stage
+  - improve platform balance
+  - improve editorial-mode diversity
+- the review queue now surfaces:
+  - current weekly plan summary
+  - current plan gaps
+  - plan-aware ranking reasons inside approval-ready cards
+- final review now shows a compact weekly-plan context note so the operator can see whether the item supports or strains the current weekly mix
+- `/insights` now includes:
+  - weekly plan alignment
+  - platform / funnel / mode actuals versus the current plan
+  - plan-gap notes
+  - lightweight week-over-week effectiveness rows using strategic outcomes
+- added audit coverage for:
+  - `WEEKLY_PLAN_CREATED`
+  - `WEEKLY_PLAN_UPDATED`
+- kept the layer intentionally bounded:
+  - no scheduling engine
+  - no drag-and-drop calendar
+  - no hard blocking
+  - advisory planning only

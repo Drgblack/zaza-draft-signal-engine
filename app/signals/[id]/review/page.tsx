@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { getAuditEvents } from "@/lib/audit";
+import { getCampaignStrategy } from "@/lib/campaigns";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { buildFinalReviewSummary } from "@/lib/final-review";
@@ -19,6 +20,7 @@ import { listPatterns } from "@/lib/patterns";
 import { getPostingLogEntries, listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { getOperatorTuning } from "@/lib/tuning";
+import { buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanAlignment } from "@/lib/weekly-plan";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,7 @@ export default async function FinalReviewPage({
   const playbookCards = await listPlaybookCards();
   const bundles = await listPatternBundles();
   const tuning = await getOperatorTuning();
+  const strategy = await getCampaignStrategy();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
     signals: allSignals,
@@ -69,6 +72,9 @@ export default async function FinalReviewPage({
   });
   const reviewSummary = buildFinalReviewSummary(signal);
   const appliedPatternName = getLastAppliedPatternName(auditEvents);
+  const weeklyPlan = await getCurrentWeeklyPlan(strategy);
+  const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, allSignals, allPostingEntries);
+  const weeklyPlanAlignment = getWeeklyPlanAlignment(signal, weeklyPlan, strategy, weeklyPlanState);
   const guidance = assembleGuidanceForSignal({
     signal,
     context: "review",
@@ -154,6 +160,13 @@ export default async function FinalReviewPage({
         source={result.source}
         appliedPatternName={appliedPatternName}
         initialPostingEntries={postingEntries}
+        weeklyPlanContext={{
+          weekLabel: weeklyPlanState.weekLabel,
+          theme: weeklyPlan.theme,
+          summary: weeklyPlanAlignment.summary,
+          boosts: weeklyPlanAlignment.boosts,
+          cautions: weeklyPlanAlignment.cautions,
+        }}
       />
     </div>
   );

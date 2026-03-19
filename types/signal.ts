@@ -215,6 +215,7 @@ export interface SignalGenerationResult {
   hashtagsOrKeywords: string;
   assetBundleJson?: string | null;
   repurposingBundleJson?: string | null;
+  publishPrepBundleJson?: string | null;
   selectedRepurposedOutputIdsJson?: string | null;
   preferredAssetType?: AssetPrimaryType | null;
   selectedImageAssetId?: string | null;
@@ -258,6 +259,7 @@ export interface SignalFinalReviewSavePayload {
   videoScript?: string | null;
   assetBundleJson?: string | null;
   repurposingBundleJson?: string | null;
+  publishPrepBundleJson?: string | null;
   selectedRepurposedOutputIdsJson?: string | null;
   preferredAssetType?: AssetPrimaryType | null;
   selectedImageAssetId?: string | null;
@@ -383,6 +385,7 @@ export interface SignalRecord extends SignalAutomationEvaluationFields {
   promptVersion: string | null;
   assetBundleJson: string | null;
   repurposingBundleJson: string | null;
+  publishPrepBundleJson: string | null;
   selectedRepurposedOutputIdsJson: string | null;
   preferredAssetType: AssetPrimaryType | null;
   selectedImageAssetId: string | null;

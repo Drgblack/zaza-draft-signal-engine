@@ -22,6 +22,7 @@ import {
   stringifyRepurposingBundle,
   stringifySelectedRepurposedOutputIds,
 } from "@/lib/repurposing";
+import { buildSignalPublishPrepBundle, stringifyPublishPrepBundle } from "@/lib/publish-prep";
 import { getOperatorTuning } from "@/lib/tuning";
 import { saveGenerationRequestSchema, toGenerationSavePayload, type SaveGenerationResponse } from "@/types/api";
 
@@ -91,6 +92,7 @@ export async function PATCH(
     ctaOrClosingLine: generation.ctaOrClosingLine,
     hashtagsOrKeywords: generation.hashtagsOrKeywords,
     assetBundleJson: generation.assetBundleJson ?? null,
+    publishPrepBundleJson: generation.publishPrepBundleJson ?? null,
     preferredAssetType: generation.preferredAssetType ?? null,
     selectedImageAssetId: generation.selectedImageAssetId ?? null,
     selectedVideoConceptId: generation.selectedVideoConceptId ?? null,
@@ -300,6 +302,24 @@ export async function PATCH(
     if (clearedRepurposing.signal) {
       nextSignal = clearedRepurposing.signal;
     }
+  }
+
+  const publishPrepBundle = buildSignalPublishPrepBundle(nextSignal);
+  const publishPrepSave = await saveSignalWithFallback(id, {
+    publishPrepBundleJson: stringifyPublishPrepBundle(publishPrepBundle),
+  });
+  if (publishPrepSave.signal) {
+    nextSignal = publishPrepSave.signal;
+    auditEvents.push({
+      signalId: id,
+      eventType: "PUBLISH_PREP_GENERATED",
+      actor: "system",
+      summary: `Prepared ${publishPrepBundle?.packages.length ?? 0} publish-prep package${publishPrepBundle?.packages.length === 1 ? "" : "s"} for manual posting review.`,
+      metadata: {
+        packageCount: publishPrepBundle?.packages.length ?? 0,
+        primaryPlatform: publishPrepBundle?.primaryPlatform ?? null,
+      },
+    });
   }
   await appendAuditEventsSafe(auditEvents);
 

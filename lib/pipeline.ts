@@ -18,6 +18,7 @@ import { listPatterns } from "@/lib/patterns";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPostingLogEntries } from "@/lib/posting-log";
+import { buildSignalPublishPrepBundle, stringifyPublishPrepBundle } from "@/lib/publish-prep";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import {
   assessRepurposingEligibility,
@@ -28,6 +29,7 @@ import {
 import { SCENARIO_ANGLE_QUALITY_LEVELS, getSavedScenarioAngleReuseDecision } from "@/lib/scenario-angle";
 import { scoreSignal } from "@/lib/scoring";
 import { getOperatorTuning } from "@/lib/tuning";
+import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
 import { hasGeneration, hasInterpretation, hasScoring, isFilteredOutSignal } from "@/lib/workflow";
 import type { IngestionRunSummary } from "@/lib/ingestion/types";
 import type { ScenarioAngleQuality } from "@/lib/scenario-angle";
@@ -1000,6 +1002,7 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
       ctaOrClosingLine: generationRun.outputs.ctaOrClosingLine,
       hashtagsOrKeywords: generationRun.outputs.hashtagsOrKeywords,
       assetBundleJson: generationRun.outputs.assetBundleJson ?? null,
+      publishPrepBundleJson: generationRun.outputs.publishPrepBundleJson ?? null,
       preferredAssetType: generationRun.outputs.preferredAssetType ?? null,
       selectedImageAssetId: generationRun.outputs.selectedImageAssetId ?? null,
       selectedVideoConceptId: generationRun.outputs.selectedVideoConceptId ?? null,
@@ -1073,6 +1076,23 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
       if (clearedRepurposing.signal) {
         generatedWithContext = clearedRepurposing.signal;
       }
+    }
+    const publishPrepBundle = buildSignalPublishPrepBundle(generatedWithContext);
+    const publishPrepSave = await saveSignalWithFallback(generatedWithContext.recordId, {
+      publishPrepBundleJson: stringifyPublishPrepBundle(publishPrepBundle),
+    });
+    if (publishPrepSave.signal) {
+      generatedWithContext = publishPrepSave.signal;
+      auditEvents.push({
+        signalId: generatedWithContext.recordId,
+        eventType: "PUBLISH_PREP_GENERATED",
+        actor: "system",
+        summary: `Prepared ${publishPrepBundle?.packages.length ?? 0} publish-prep package${publishPrepBundle?.packages.length === 1 ? "" : "s"} for approval review.`,
+        metadata: {
+          packageCount: publishPrepBundle?.packages.length ?? 0,
+          primaryPlatform: publishPrepBundle?.primaryPlatform ?? null,
+        },
+      });
     }
     workingSignals = replaceSignal(workingSignals, generatedWithContext);
     touchedRecordIds.add(currentSignal.recordId);
@@ -1185,12 +1205,16 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
   }
 
   const cadence = buildCampaignCadenceSummary(workingSignals, strategy, postingEntries);
+  const weeklyPlan = await getCurrentWeeklyPlan(strategy);
+  const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, workingSignals, postingEntries);
   const rankedApprovalCandidates = rankApprovalCandidates(
     approvalReadyCandidates,
     Math.max(approvalReadyCandidates.length, 1),
     {
       strategy,
       cadence,
+      weeklyPlan,
+      weeklyPlanState,
     },
   );
   const approvalReadyRecords = rankedApprovalCandidates.map((candidate) =>

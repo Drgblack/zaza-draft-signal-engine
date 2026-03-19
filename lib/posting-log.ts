@@ -85,6 +85,10 @@ function buildPostingLogEntry(input: CreatePostingLogInput): PostingLogEntry {
     patternName: normalizeOptionalPostingText(input.patternName),
     scenarioAngle: normalizeOptionalPostingText(input.scenarioAngle),
     sourceDraftStatus: input.sourceDraftStatus ?? null,
+    publishPrepPackageId: normalizeOptionalPostingText(input.publishPrepPackageId),
+    selectedHookText: normalizeOptionalPostingText(input.selectedHookText),
+    selectedCtaText: normalizeOptionalPostingText(input.selectedCtaText),
+    suggestedPostingTime: normalizeOptionalPostingText(input.suggestedPostingTime),
   });
 }
 

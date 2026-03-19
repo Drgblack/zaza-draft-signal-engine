@@ -3,6 +3,8 @@ import type { CampaignCadenceSummary, CampaignStrategy } from "@/lib/campaigns";
 import { getSignalContentContextSummary } from "@/lib/campaigns";
 import type { UnifiedGuidance } from "@/lib/guidance";
 import { buildSignalRepurposingBundle } from "@/lib/repurposing";
+import type { WeeklyPlan, WeeklyPlanState } from "@/lib/weekly-plan";
+import { getWeeklyPlanAlignment } from "@/lib/weekly-plan";
 import type { SignalRecord } from "@/types/signal";
 
 export interface ApprovalQueueCandidate {
@@ -44,6 +46,8 @@ export function rankApprovalCandidates(
   options?: {
     strategy?: CampaignStrategy;
     cadence?: CampaignCadenceSummary;
+    weeklyPlan?: WeeklyPlan | null;
+    weeklyPlanState?: WeeklyPlanState | null;
   },
 ): ApprovalQueueCandidate[] {
   return candidates
@@ -104,6 +108,22 @@ export function rankApprovalCandidates(
       if ((repurposingBundle?.outputs.length ?? 0) >= 4) {
         rankScore += 1;
         uniquePush(rankReasons, "Repurposes well across formats");
+      }
+
+      if (options?.strategy && options?.weeklyPlan) {
+        const planAlignment = getWeeklyPlanAlignment(
+          candidate.signal,
+          options.weeklyPlan,
+          options.strategy,
+          options.weeklyPlanState,
+        );
+        rankScore += planAlignment.scoreDelta;
+        for (const reason of planAlignment.boosts) {
+          uniquePush(rankReasons, reason);
+        }
+        for (const caution of planAlignment.cautions) {
+          uniquePush(rankReasons, caution);
+        }
       }
 
       if (resolvedContext?.campaignName && options?.cadence) {

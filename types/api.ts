@@ -45,11 +45,13 @@ import type { PatternFeedbackEntry } from "@/lib/pattern-feedback-definitions";
 import type { PlaybookCard } from "@/lib/playbook-card-definitions";
 import type { PostingOutcome } from "@/lib/outcome-memory";
 import type { PostingLogEntry } from "@/lib/posting-memory";
+import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import type { PatternSummary, SignalPattern } from "@/lib/pattern-definitions";
 import type { PatternBundle } from "@/lib/pattern-bundles";
 import type { ScenarioAngleAssessment, ScenarioAngleSuggestion } from "@/lib/scenario-angle";
 import type { OperatorTuning } from "@/lib/tuning-definitions";
 import type { AudienceSegment, Campaign, CampaignStrategy, ContentPillar } from "@/lib/campaigns";
+import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
 import {
   TUNING_PRESETS,
   operatorTuningSettingsSchema,
@@ -222,6 +224,7 @@ export const generationResultSchema = z.object({
   hashtagsOrKeywords: z.string().trim().min(1),
   assetBundleJson: optionalNullableString,
   repurposingBundleJson: optionalNullableString,
+  publishPrepBundleJson: optionalNullableString,
   selectedRepurposedOutputIdsJson: optionalNullableString,
   preferredAssetType: optionalAssetPrimaryTypeSchema,
   selectedImageAssetId: optionalNullableString,
@@ -289,6 +292,7 @@ export const finalReviewUpdateRequestSchema = z.object({
   finalReviewNotes: optionalNullableString,
   assetBundleJson: optionalNullableString,
   repurposingBundleJson: optionalNullableString,
+  publishPrepBundleJson: optionalNullableString,
   selectedRepurposedOutputIdsJson: optionalNullableString,
   preferredAssetType: optionalAssetPrimaryTypeSchema,
   selectedImageAssetId: optionalNullableString,
@@ -575,6 +579,15 @@ export interface PostingOutcomeResponse {
   error?: string;
 }
 
+export interface StrategicOutcomeResponse {
+  success: boolean;
+  persisted: boolean;
+  outcome: StrategicOutcome | null;
+  previousOutcome: StrategicOutcome | null;
+  message: string;
+  error?: string;
+}
+
 export interface FeedbackSummaryResponse {
   success: boolean;
   source: SignalDataSource;
@@ -724,6 +737,15 @@ export interface CampaignManagementResponse {
   error?: string;
 }
 
+export interface WeeklyPlanResponse {
+  success: boolean;
+  plan: WeeklyPlan | null;
+  templates: WeeklyPlanTemplate[];
+  recentPlans?: WeeklyPlan[];
+  message?: string;
+  error?: string;
+}
+
 export function normalizeSeverityScore(value: unknown): SeverityScore | null {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -848,6 +870,7 @@ export function toGenerationSavePayload(
     hashtagsOrKeywords: value.hashtagsOrKeywords.trim(),
     assetBundleJson: normalizeOptionalString(value.assetBundleJson),
     repurposingBundleJson: normalizeOptionalString(value.repurposingBundleJson),
+    publishPrepBundleJson: normalizeOptionalString(value.publishPrepBundleJson),
     selectedRepurposedOutputIdsJson: normalizeOptionalString(value.selectedRepurposedOutputIdsJson),
     preferredAssetType: value.preferredAssetType ?? null,
     selectedImageAssetId: normalizeOptionalString(value.selectedImageAssetId),
@@ -927,6 +950,7 @@ export function toFinalReviewSavePayload(
     finalReviewNotes: normalizeOptionalString(value.finalReviewNotes),
     assetBundleJson: normalizeOptionalString(value.assetBundleJson),
     repurposingBundleJson: normalizeOptionalString(value.repurposingBundleJson),
+    publishPrepBundleJson: normalizeOptionalString(value.publishPrepBundleJson),
     selectedRepurposedOutputIdsJson: normalizeOptionalString(value.selectedRepurposedOutputIdsJson),
     preferredAssetType: value.preferredAssetType ?? null,
     selectedImageAssetId: normalizeOptionalString(value.selectedImageAssetId),

@@ -21,6 +21,7 @@ import { listPatterns } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { getOperatorTuning } from "@/lib/tuning";
+import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
 import { formatDateTime } from "@/lib/utils";
 import { getScheduledSoonSignals, getWorkflowBuckets } from "@/lib/workflow";
 
@@ -36,6 +37,7 @@ export default async function DashboardPage() {
   const postingOutcomes = await listPostingOutcomes();
   const strategy = await getCampaignStrategy();
   const tuning = await getOperatorTuning();
+  const weeklyPlan = await getCurrentWeeklyPlan(strategy);
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
     signals,
@@ -51,6 +53,7 @@ export default async function DashboardPage() {
     bundleSummariesByPatternId,
   });
   const cadence = buildCampaignCadenceSummary(signals, strategy, postingEntries);
+  const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, signals, postingEntries);
   const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
     signals,
     feedbackEntries,
@@ -83,6 +86,8 @@ export default async function DashboardPage() {
     {
       strategy,
       cadence,
+      weeklyPlan,
+      weeklyPlanState,
     },
   );
   const workflowBuckets = getWorkflowBuckets(signals);
@@ -122,6 +127,9 @@ export default async function DashboardPage() {
             </Link>
             <Link href="/campaigns" className={buttonVariants({ variant: "secondary" })}>
               Open campaigns
+            </Link>
+            <Link href="/plan" className={buttonVariants({ variant: "secondary" })}>
+              Open weekly plan
             </Link>
             <Link href="/settings" className={buttonVariants({ variant: "secondary" })}>
               Adjust tuning
@@ -193,6 +201,12 @@ export default async function DashboardPage() {
                 href: "/review#ready-for-review",
                 title: "Ready for review",
                 copy: `${workflowBuckets.readyForReview.length} drafted records are waiting for review or approval.`,
+                icon: Clock3,
+              },
+              {
+                href: "/plan",
+                title: "Weekly plan",
+                copy: weeklyPlanState.summaries[0] ?? "Set the week’s balance across campaigns, funnels, platforms, and modes.",
                 icon: Clock3,
               },
               {
