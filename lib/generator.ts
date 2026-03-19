@@ -1,4 +1,5 @@
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import { buildAssetBundle, buildSignalAssetBundle, parseAssetBundle, stringifyAssetBundle } from "@/lib/assets";
 import { GENERATION_JSON_SCHEMA, GENERATION_PROMPT_VERSION, buildGenerationSystemPrompt, buildGenerationUserPrompt } from "@/lib/generation-prompts";
 import { generateStructuredJson, getGenerationProviderConfig, getSafeLlmErrorMessage } from "@/lib/llm";
 import type { PatternSummary, SignalPattern } from "@/lib/pattern-definitions";
@@ -191,8 +192,7 @@ export function buildMockDrafts(
     options?.pattern?.exampleOutput
       ? " Shape the draft with the same calm clarity, but keep the wording original."
       : "";
-
-  return {
+  const draftResult: SignalGenerationResult = {
     xDraft: `${modeLead.xPrefix} ${scenarioLead}. ${input.riskToTeacher}${patternCue ? ` ${patternCue}.` : ""} ${modeLead.close}`.replace(/\s+/g, " ").trim(),
     linkedInDraft: `${input.hookTemplateUsed}\n\n${modeLead.linkedLead}\n\n${scenarioLead}\n\nWhat this really shows is ${input.contentAngle.toLowerCase()}. ${linkedInProfile.helperNote}.${patternDirection}${patternStructureNote}\n\n${modeDefinition.label} works here because ${modeDefinition.framing.toLowerCase()}\n\n${close}`,
     redditDraft: `${modeLead.redditLead}\n\nScenario: "${scenarioLead}".\n\nThe part that stands out is ${input.riskToTeacher.toLowerCase()}. ${redditProfile.helperNote}.${patternCue ? " I’d still want the wording to stay clear and non-defensive." : ""}\n\nHow would you handle this without making it sound colder than you mean?`,
@@ -204,6 +204,19 @@ export function buildMockDrafts(
     generationModelVersion: "mock-fixed-template-v1",
     promptVersion: GENERATION_PROMPT_VERSION,
     generatedAt: new Date().toISOString(),
+  };
+  const assetBundle = buildAssetBundle(input, draftResult, {
+    editorialMode,
+    pattern: options?.pattern ? toPatternSummary(options.pattern) : null,
+  });
+
+  return {
+    ...draftResult,
+    assetBundleJson: stringifyAssetBundle(assetBundle),
+    preferredAssetType: assetBundle.suggestedPrimaryAssetType,
+    selectedImageAssetId: assetBundle.imageAssets[0]?.id ?? null,
+    selectedVideoConceptId: assetBundle.videoConcepts[0]?.id ?? null,
+    generatedImageUrl: null,
   };
 }
 
@@ -268,6 +281,7 @@ export function buildInitialGenerationFromSignal(signal: SignalRecord): SignalGe
   }
 
   const providerConfig = getGenerationProviderConfig();
+  const assetBundle = parseAssetBundle(signal.assetBundleJson) ?? buildSignalAssetBundle(signal);
 
   return {
     xDraft: signal.xDraft,
@@ -281,6 +295,11 @@ export function buildInitialGenerationFromSignal(signal: SignalRecord): SignalGe
     generationModelVersion: signal.generationModelVersion ?? "manual-save",
     promptVersion: signal.promptVersion ?? GENERATION_PROMPT_VERSION,
     generatedAt: signal.createdDate,
+    assetBundleJson: signal.assetBundleJson,
+    preferredAssetType: signal.preferredAssetType,
+    selectedImageAssetId: signal.selectedImageAssetId ?? assetBundle?.imageAssets[0]?.id ?? null,
+    selectedVideoConceptId: signal.selectedVideoConceptId ?? assetBundle?.videoConcepts[0]?.id ?? null,
+    generatedImageUrl: signal.generatedImageUrl,
   };
 }
 
@@ -324,9 +343,21 @@ export async function generateDrafts(
       promptVersion: GENERATION_PROMPT_VERSION,
       generatedAt: new Date().toISOString(),
     });
+    const assetBundle = buildAssetBundle(input, parsed, {
+      editorialMode,
+      pattern: appliedPattern,
+    });
+    const outputs: SignalGenerationResult = {
+      ...parsed,
+      assetBundleJson: stringifyAssetBundle(assetBundle),
+      preferredAssetType: parsed.preferredAssetType ?? assetBundle.suggestedPrimaryAssetType,
+      selectedImageAssetId: parsed.selectedImageAssetId ?? assetBundle.imageAssets[0]?.id ?? null,
+      selectedVideoConceptId: parsed.selectedVideoConceptId ?? assetBundle.videoConcepts[0]?.id ?? null,
+      generatedImageUrl: parsed.generatedImageUrl ?? null,
+    };
 
     return {
-      outputs: parsed,
+      outputs,
       appliedPattern,
       message: options?.pattern
         ? `Drafts generated via ${generation.source} using ${generation.modelVersion} in ${editorialModeLabel} mode with pattern guidance from ${options.pattern.name}.`

@@ -1,9 +1,12 @@
 import { z } from "zod";
 
 import {
+  CTA_GOALS,
   EDITORIAL_MODES,
   FINAL_DRAFT_REVIEW_STATUSES,
+  FUNNEL_STAGES,
   GENERATION_SOURCES,
+  ASSET_PRIMARY_TYPES,
   HOOK_TEMPLATES,
   INTERPRETATION_CONFIDENCE_LEVELS,
   INTERPRETATION_SOURCES,
@@ -17,6 +20,8 @@ import {
   type InterpretationSource,
   type PlatformPriority,
   type RelevanceToZazaDraft,
+  type CtaGoal,
+  type FunnelStage,
   type SignalCreatePayload,
   type SignalGenerationInput,
   type SignalGenerationResult,
@@ -34,7 +39,7 @@ import {
   type SuggestedFormatPriority,
 } from "@/types/signal";
 import type { IngestionRunSummary, ManagedIngestionSource } from "@/lib/ingestion/types";
-import type { PipelineRunSummary } from "@/lib/pipeline";
+import type { AutonomousRunSummary, PipelineRunSummary } from "@/lib/pipeline";
 import type { FeedbackCategory, FeedbackValue, SignalFeedback } from "@/lib/feedback-definitions";
 import type { PatternFeedbackEntry } from "@/lib/pattern-feedback-definitions";
 import type { PlaybookCard } from "@/lib/playbook-card-definitions";
@@ -44,12 +49,21 @@ import type { PatternSummary, SignalPattern } from "@/lib/pattern-definitions";
 import type { PatternBundle } from "@/lib/pattern-bundles";
 import type { ScenarioAngleAssessment, ScenarioAngleSuggestion } from "@/lib/scenario-angle";
 import type { OperatorTuning } from "@/lib/tuning-definitions";
+import type { AudienceSegment, Campaign, CampaignStrategy, ContentPillar } from "@/lib/campaigns";
 import {
   TUNING_PRESETS,
   operatorTuningSettingsSchema,
 } from "@/lib/tuning-definitions";
 
 const optionalNullableString = z.union([z.string(), z.null()]).optional();
+const optionalAssetPrimaryTypeSchema = z.enum(ASSET_PRIMARY_TYPES).nullable().optional();
+const optionalContentContextSchema = z.object({
+  campaignId: optionalNullableString,
+  pillarId: optionalNullableString,
+  audienceSegmentId: optionalNullableString,
+  funnelStage: z.enum(FUNNEL_STAGES).nullable().optional(),
+  ctaGoal: z.enum(CTA_GOALS).nullable().optional(),
+});
 
 export const createSignalRequestSchema = z
   .object({
@@ -149,10 +163,12 @@ export const interpretationResultSchema = z.object({
   interpretedAt: z.string().trim().min(1),
 });
 
-export const saveInterpretationRequestSchema = interpretationResultSchema.extend({
-  scenarioAngle: optionalNullableString,
-  status: z.enum(SIGNAL_STATUSES).optional(),
-});
+export const saveInterpretationRequestSchema = interpretationResultSchema
+  .extend({
+    scenarioAngle: optionalNullableString,
+    status: z.enum(SIGNAL_STATUSES).optional(),
+  })
+  .merge(optionalContentContextSchema);
 
 export const generationSignalSchema = z.object({
   recordId: z.string().trim().min(1).optional(),
@@ -204,16 +220,25 @@ export const generationResultSchema = z.object({
   videoScript: z.string().trim().min(1),
   ctaOrClosingLine: z.string().trim().min(1),
   hashtagsOrKeywords: z.string().trim().min(1),
+  assetBundleJson: optionalNullableString,
+  repurposingBundleJson: optionalNullableString,
+  selectedRepurposedOutputIdsJson: optionalNullableString,
+  preferredAssetType: optionalAssetPrimaryTypeSchema,
+  selectedImageAssetId: optionalNullableString,
+  selectedVideoConceptId: optionalNullableString,
+  generatedImageUrl: optionalNullableString,
   generationSource: z.enum(GENERATION_SOURCES),
   generationModelVersion: z.string().trim().min(1),
   promptVersion: z.string().trim().min(1),
   generatedAt: z.string().trim().min(1),
 });
 
-export const saveGenerationRequestSchema = generationResultSchema.extend({
-  editorialMode: z.enum(EDITORIAL_MODES),
-  status: z.enum(SIGNAL_STATUSES).optional(),
-});
+export const saveGenerationRequestSchema = generationResultSchema
+  .extend({
+    editorialMode: z.enum(EDITORIAL_MODES),
+    status: z.enum(SIGNAL_STATUSES).optional(),
+  })
+  .merge(optionalContentContextSchema);
 
 export const workflowUpdateRequestSchema = z
   .object({
@@ -262,6 +287,13 @@ export const finalReviewUpdateRequestSchema = z.object({
   linkedInReviewStatus: z.enum(FINAL_DRAFT_REVIEW_STATUSES).nullable(),
   redditReviewStatus: z.enum(FINAL_DRAFT_REVIEW_STATUSES).nullable(),
   finalReviewNotes: optionalNullableString,
+  assetBundleJson: optionalNullableString,
+  repurposingBundleJson: optionalNullableString,
+  selectedRepurposedOutputIdsJson: optionalNullableString,
+  preferredAssetType: optionalAssetPrimaryTypeSchema,
+  selectedImageAssetId: optionalNullableString,
+  selectedVideoConceptId: optionalNullableString,
+  generatedImageUrl: optionalNullableString,
 });
 
 export const ingestRequestSchema = z.object({
@@ -323,7 +355,78 @@ export const pipelineRunRequestSchema = z.object({
   maxCandidates: z.number().int().min(1).max(30).optional(),
 });
 
+export const autonomousRunRequestSchema = z.object({
+  ingestFresh: z.boolean().optional(),
+  sourceIds: z.array(z.string().trim().min(1)).optional(),
+  maxCandidates: z.number().int().min(1).max(30).optional(),
+});
+
 export const tuningPresetSchema = z.enum(TUNING_PRESETS);
+
+export const campaignStatusSchema = z.enum(["active", "inactive"]);
+
+export const createCampaignRequestSchema = z.object({
+  name: z.string().trim().min(1, "Campaign name is required."),
+  description: z.string().trim().min(1, "Campaign description is required."),
+  status: campaignStatusSchema,
+  goal: optionalNullableString,
+  startDate: optionalNullableString,
+  endDate: optionalNullableString,
+});
+
+export const updateCampaignRequestSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    name: z.string().trim().min(1).optional(),
+    description: z.string().trim().min(1).optional(),
+    status: campaignStatusSchema.optional(),
+    goal: optionalNullableString,
+    startDate: optionalNullableString,
+    endDate: optionalNullableString,
+  })
+  .refine((value) => Boolean(value.id), {
+    message: "Campaign id is required.",
+  });
+
+export const createContentPillarRequestSchema = z.object({
+  name: z.string().trim().min(1, "Pillar name is required."),
+  description: z.string().trim().min(1, "Pillar description is required."),
+});
+
+export const updateContentPillarRequestSchema = z.object({
+  id: z.string().trim().min(1),
+  name: z.string().trim().min(1).optional(),
+  description: z.string().trim().min(1).optional(),
+});
+
+export const createAudienceSegmentRequestSchema = z.object({
+  name: z.string().trim().min(1, "Audience name is required."),
+  description: z.string().trim().min(1, "Audience description is required."),
+});
+
+export const updateAudienceSegmentRequestSchema = z.object({
+  id: z.string().trim().min(1),
+  name: z.string().trim().min(1).optional(),
+  description: z.string().trim().min(1).optional(),
+});
+
+export const campaignManagementRequestSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("campaign"),
+    action: z.enum(["create", "update"]),
+    data: z.union([createCampaignRequestSchema, updateCampaignRequestSchema]),
+  }),
+  z.object({
+    kind: z.literal("pillar"),
+    action: z.enum(["create", "update"]),
+    data: z.union([createContentPillarRequestSchema, updateContentPillarRequestSchema]),
+  }),
+  z.object({
+    kind: z.literal("audience"),
+    action: z.enum(["create", "update"]),
+    data: z.union([createAudienceSegmentRequestSchema, updateAudienceSegmentRequestSchema]),
+  }),
+]);
 
 export const tuningUpdateRequestSchema = z
   .object({
@@ -590,9 +693,33 @@ export interface PipelineRunResponse {
   error?: string;
 }
 
+export interface AutonomousRunResponse {
+  success: boolean;
+  source: SignalDataSource;
+  result?: AutonomousRunSummary;
+  error?: string;
+}
+
 export interface TuningResponse {
   success: boolean;
   tuning: OperatorTuning | null;
+  message?: string;
+  error?: string;
+}
+
+export interface CampaignStrategyResponse {
+  success: boolean;
+  strategy: CampaignStrategy | null;
+  message?: string;
+  error?: string;
+}
+
+export interface CampaignManagementResponse {
+  success: boolean;
+  strategy: CampaignStrategy | null;
+  campaign?: Campaign | null;
+  pillar?: ContentPillar | null;
+  audienceSegment?: AudienceSegment | null;
   message?: string;
   error?: string;
 }
@@ -671,6 +798,11 @@ export function toInterpretationSavePayload(
     interpretationSource: value.interpretationSource,
     interpretedAt: value.interpretedAt,
     scenarioAngle: normalizeOptionalString(value.scenarioAngle),
+    campaignId: normalizeOptionalString(value.campaignId),
+    pillarId: normalizeOptionalString(value.pillarId),
+    audienceSegmentId: normalizeOptionalString(value.audienceSegmentId),
+    funnelStage: (value.funnelStage ?? null) as FunnelStage | null,
+    ctaGoal: (value.ctaGoal ?? null) as CtaGoal | null,
     status: value.status,
   };
 }
@@ -714,11 +846,23 @@ export function toGenerationSavePayload(
     videoScript: value.videoScript.trim(),
     ctaOrClosingLine: value.ctaOrClosingLine.trim(),
     hashtagsOrKeywords: value.hashtagsOrKeywords.trim(),
+    assetBundleJson: normalizeOptionalString(value.assetBundleJson),
+    repurposingBundleJson: normalizeOptionalString(value.repurposingBundleJson),
+    selectedRepurposedOutputIdsJson: normalizeOptionalString(value.selectedRepurposedOutputIdsJson),
+    preferredAssetType: value.preferredAssetType ?? null,
+    selectedImageAssetId: normalizeOptionalString(value.selectedImageAssetId),
+    selectedVideoConceptId: normalizeOptionalString(value.selectedVideoConceptId),
+    generatedImageUrl: normalizeOptionalString(value.generatedImageUrl),
     generationSource: value.generationSource,
     generationModelVersion: value.generationModelVersion.trim(),
     promptVersion: value.promptVersion.trim(),
     generatedAt: value.generatedAt,
     editorialMode: value.editorialMode,
+    campaignId: normalizeOptionalString(value.campaignId),
+    pillarId: normalizeOptionalString(value.pillarId),
+    audienceSegmentId: normalizeOptionalString(value.audienceSegmentId),
+    funnelStage: (value.funnelStage ?? null) as FunnelStage | null,
+    ctaGoal: (value.ctaGoal ?? null) as CtaGoal | null,
     status: value.status,
   };
 }
@@ -781,6 +925,13 @@ export function toFinalReviewSavePayload(
     linkedInReviewStatus: value.linkedInReviewStatus,
     redditReviewStatus: value.redditReviewStatus,
     finalReviewNotes: normalizeOptionalString(value.finalReviewNotes),
+    assetBundleJson: normalizeOptionalString(value.assetBundleJson),
+    repurposingBundleJson: normalizeOptionalString(value.repurposingBundleJson),
+    selectedRepurposedOutputIdsJson: normalizeOptionalString(value.selectedRepurposedOutputIdsJson),
+    preferredAssetType: value.preferredAssetType ?? null,
+    selectedImageAssetId: normalizeOptionalString(value.selectedImageAssetId),
+    selectedVideoConceptId: normalizeOptionalString(value.selectedVideoConceptId),
+    generatedImageUrl: normalizeOptionalString(value.generatedImageUrl),
   };
 }
 

@@ -29,13 +29,143 @@ Convert selected teacher-relevant signals into structured, platform-specific dra
 - Unified guidance that converges co-pilot recommendation, reuse memory, playbook support, pattern support, and meaningful gap warnings into one compact operator-facing layer
 - Editorial confidence that shows how much trust the current guidance deserves, using explainable qualitative support and uncertainty signals
 - Operator tuning controls that let the operator adjust bounded strictness and guidance posture without editing code
+- Autonomous approval queue automation that can score, interpret, generate, and rank stronger candidates into an approval-ready queue while explicitly holding weaker cases back
+- Campaign and calendar layer that adds bounded campaign, pillar, audience, funnel, CTA, and cadence context so content is generated with clearer strategic intent
+- Asset pipeline that adds structured image concepts, reusable image prompts, video concepts, and short-form scripts to approval-ready content
+- Repurposing engine that expands stronger signals into a small multi-platform bundle instead of one isolated primary output
 - Signal interpretation
 - Fixed-template content generation
 - Airtable storage
 - Internal review workflow
 
 ## Status
-Active internal workflow with ingestion, scoring, scenario framing, generation, audit memory, operator-facing insights, a lightweight reusable pattern library, bounded pattern discovery suggestions, heuristic pattern-aware co-pilot assists, inspectable pattern coverage-gap visibility, a manual lifecycle layer for retiring weak or outdated patterns, manual pattern bundles for organising related approaches into small kits, bundle-level coverage visibility for spotting thin or missing kits, a bounded editorial-mode layer for shaping draft intent more explicitly, explicit platform intent profiles for X, LinkedIn, and Reddit, a final review workspace for last-mile manual editing decisions, a manual posting-memory layer for preserving what was actually published externally, a manual qualitative outcome layer for capturing whether those published outputs were worth repeating, a bounded reuse-memory layer that brings those judged outcomes back into new editorial decisions without auto-applying them, a manual editorial playbook-card layer for compact reusable operator guidance, a heuristic playbook-coverage layer that highlights which recurring situations still need clearer playbook support, a unified guidance layer that presents the strongest next action, relevant memory, and support context in one place, and a bounded operator-tuning layer for adjusting strictness and guidance posture without code edits.
+Active internal workflow with ingestion, scoring, scenario framing, generation, audit memory, operator-facing insights, a lightweight reusable pattern library, bounded pattern discovery suggestions, heuristic pattern-aware co-pilot assists, inspectable pattern coverage-gap visibility, a manual lifecycle layer for retiring weak or outdated patterns, manual pattern bundles for organising related approaches into small kits, bundle-level coverage visibility for spotting thin or missing kits, a bounded editorial-mode layer for shaping draft intent more explicitly, explicit platform intent profiles for X, LinkedIn, and Reddit, a final review workspace for last-mile manual editing decisions, a manual posting-memory layer for preserving what was actually published externally, a manual qualitative outcome layer for capturing whether those published outputs were worth repeating, a bounded reuse-memory layer that brings those judged outcomes back into new editorial decisions without auto-applying them, a manual editorial playbook-card layer for compact reusable operator guidance, a heuristic playbook-coverage layer that highlights which recurring situations still need clearer playbook support, a unified guidance layer that presents the strongest next action, relevant memory, and support context in one place, a bounded operator-tuning layer for adjusting strictness and guidance posture without code edits, an autonomous approval queue layer that prepares stronger signals for review while still keeping final posting manual, a bounded campaign strategy layer that helps the system balance campaigns, pillars, audiences, funnel stages, CTA goals, and recent cadence, a structured asset pipeline that packages visual and short-form video execution guidance with approval-ready drafts, and a bounded repurposing engine that turns one strong idea into a few differentiated platform-ready variants.
+
+## Campaign Strategy Layer
+- Campaign strategy is centralized in `lib/campaigns.ts`.
+- The layer stays intentionally bounded:
+  - campaigns
+  - content pillars
+  - audience segments
+  - funnel stages
+  - CTA goals
+  - light cadence awareness
+- Strategic context can be:
+  - managed on `/campaigns`
+  - inferred heuristically when missing
+  - overridden during interpretation or generation
+  - surfaced in the approval-ready queue and signal detail views
+- Approval ranking now uses this context lightly:
+  - active campaign alignment can lift a candidate
+  - underrepresented pillars or funnel stages can get a small boost
+  - recent repetition by pillar or audience can reduce priority slightly
+- The cadence layer is descriptive only:
+  - no scheduling automation
+  - no drag-and-drop calendar
+  - no marketing automation platform
+- Limitations:
+  - heuristic assignment only
+  - optional, not required
+  - no full campaign planner or posting calendar UI
+
+## Autonomous Approval Queue
+- Autonomous queue logic is centralized in `lib/auto-advance.ts` and `lib/approval-ranking.ts`.
+- The cron-compatible runner lives at `GET` or `POST /api/autonomous/run`.
+- The runner is intentionally bounded:
+  - it can ingest
+  - score missing candidates
+  - auto-interpret stronger records
+  - auto-generate stronger interpreted records
+  - classify generated records as approval-ready or held
+- Approval-ready remains operator-facing:
+  - final review still happens in `/signals/[id]/review`
+  - scheduling and posting remain manual
+  - weak or uncertain cases are held rather than pushed through
+- Auto-hold reasons stay explicit and compact, for example:
+  - low confidence
+  - weak framing
+  - indirect source still needs judgement
+  - weak draft quality
+  - thin support coverage
+- Approval ranking is heuristic and inspectable. It uses existing structured support such as:
+  - confidence
+  - reuse memory
+  - playbook support
+  - pattern / bundle support
+  - draft quality
+  - review priority
+  - novelty and repetition risk
+- Current limitations:
+  - no auto-posting
+  - image generation is still a provider-agnostic placeholder hook
+  - no video rendering engine
+  - no full campaign calendar UI
+  - no large job orchestration system
+
+## Asset Pipeline
+- Asset packaging is centralized in `lib/assets.ts`.
+- Each generated draft package can now carry an `AssetBundle` with:
+  - `imageAssets[]`
+  - `videoConcepts[]`
+  - `suggestedPrimaryAssetType`
+- Image concepts stay structured and reusable:
+  - concept title
+  - concept description
+  - visual style
+  - layout idea
+  - optional text overlay
+  - reusable image prompt
+  - platform suggestions
+- Video concepts stay structured and lightweight:
+  - concept title
+  - concept description
+  - hook
+  - short-form script
+  - simple shot list
+  - style
+  - platform suggestions
+- Approval-ready and final-review workflows now support:
+  - viewing image and video concepts
+  - choosing preferred image and video concepts
+  - selecting a preferred asset type
+  - editing the active image prompt
+  - editing the active short-form video script
+- The current `Generate image` button is intentionally bounded:
+  - it stores a mock provider-agnostic generated-image reference
+  - it does not yet call a real image-generation API
+- Limitations:
+  - concept, prompt, and script level only
+  - no video rendering
+  - no asset library or CDN
+  - no real image provider integration yet
+
+## Repurposing Engine
+- Repurposing logic is centralized in `lib/repurposing.ts`.
+- The model uses:
+  - `RepurposedOutput`
+  - `RepurposingBundle`
+- Current bounded output types include:
+  - X
+  - LinkedIn
+  - Reddit
+  - Carousel
+  - Video
+  - Email
+  - optional founder-thought angle
+- The engine stays selective on purpose:
+  - it only generates bundles for stronger candidates
+  - it keeps bundles to roughly 3-5 variants
+  - it differentiates copy by platform instead of cloning the same text everywhere
+- Final review now supports:
+  - editing each repurposed variant
+  - selecting which variants to keep
+  - removing weak variants from the bundle
+- `/review` surfaces repurposing summaries and `/insights` shows lightweight platform and format mix.
+- Limitations:
+  - no auto-posting
+  - no scheduling
+  - no large-scale content explosion
+  - bounded repurposing only
 
 ## Unified Guidance
 - Guidance is assembled centrally in `lib/guidance.ts` rather than duplicated in page components.

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { listAuditEvents } from "@/lib/audit";
+import { getCampaignStrategy } from "@/lib/campaigns";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
 import { buildInitialInterpretationFromSignal } from "@/lib/interpreter";
@@ -50,6 +51,7 @@ export default async function InterpretSignalPage({
   const bundles = await listPatternBundles();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const strategy = await getCampaignStrategy();
   const allAuditEvents = await listAuditEvents();
   const allPatternFeedbackEntries = await listPatternFeedbackEntries();
   const tuning = await getOperatorTuning();
@@ -136,6 +138,9 @@ export default async function InterpretSignalPage({
         source={result.source}
         relatedPatterns={relatedPatterns}
         suggestedPatterns={suggestedPatterns}
+        campaigns={strategy.campaigns}
+        pillars={strategy.pillars}
+        audienceSegments={strategy.audienceSegments}
       />
 
       <FeedbackPanel

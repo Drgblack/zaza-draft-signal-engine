@@ -41,6 +41,12 @@ import {
   type PlaybookCoverageGap,
   type PlaybookCoverageStatus,
 } from "@/lib/playbook-coverage";
+import {
+  buildSignalRepurposingBundle,
+  parseSelectedRepurposedOutputIds,
+  type RepurposingFormatType,
+  type RepurposingPlatform,
+} from "@/lib/repurposing";
 import type { PostingLogEntry } from "@/lib/posting-memory";
 import { indexBundleSummariesByPatternId, type PatternBundle } from "@/lib/pattern-bundles";
 import type { PatternType, SignalPattern } from "@/lib/pattern-definitions";
@@ -230,6 +236,26 @@ export interface OutcomePlatformInsightRow {
   weakCount: number;
 }
 
+export interface AssetTypeInsightRow {
+  type: "image" | "video" | "text_first";
+  label: string;
+  count: number;
+  strongCount: number;
+}
+
+export interface RepurposingPlatformInsightRow {
+  platform: RepurposingPlatform;
+  label: string;
+  count: number;
+  strongCount: number;
+}
+
+export interface RepurposingFormatInsightRow {
+  formatType: RepurposingFormatType;
+  label: string;
+  count: number;
+}
+
 export interface ReuseMemoryCombinationInsightRow {
   label: string;
   count: number;
@@ -384,6 +410,19 @@ export interface SignalInsights {
     topStrongSourceKindLabel: string | null;
     topStrongPatternName: string | null;
     topDoNotRepeatModeLabel: string | null;
+  };
+  assets: {
+    rows: AssetTypeInsightRow[];
+    topUsedLabel: string | null;
+    topStrongLabel: string | null;
+  };
+  repurposing: {
+    totalBundles: number;
+    totalOutputs: number;
+    platformRows: RepurposingPlatformInsightRow[];
+    formatRows: RepurposingFormatInsightRow[];
+    topPlatformLabel: string | null;
+    topStrongPlatformLabel: string | null;
   };
   reuseMemory: {
     totalCases: number;
@@ -1003,6 +1042,193 @@ function buildOutcomeInsights(
   };
 }
 
+function getSignalAssetType(signal: SignalRecord): AssetTypeInsightRow["type"] {
+  if (signal.preferredAssetType) {
+    return signal.preferredAssetType;
+  }
+
+  if (signal.suggestedFormatPriority === "Video") {
+    return "video";
+  }
+
+  if (signal.suggestedFormatPriority === "Image" || signal.suggestedFormatPriority === "Carousel") {
+    return "image";
+  }
+
+  return "text_first";
+}
+
+function buildAssetInsights(
+  signals: SignalRecord[],
+  postingOutcomes: PostingOutcome[],
+): SignalInsights["assets"] {
+  const rows: AssetTypeInsightRow[] = [
+    { type: "image", label: "Image", count: 0, strongCount: 0 },
+    { type: "video", label: "Video", count: 0, strongCount: 0 },
+    { type: "text_first", label: "Text-first", count: 0, strongCount: 0 },
+  ];
+  const rowByType = new Map(rows.map((row) => [row.type, row]));
+  const signalById = new Map(signals.map((signal) => [signal.recordId, signal]));
+
+  for (const signal of signals) {
+    const row = rowByType.get(getSignalAssetType(signal));
+    if (row) {
+      row.count += 1;
+    }
+  }
+
+  for (const outcome of postingOutcomes) {
+    if (outcome.outcomeQuality !== "strong") {
+      continue;
+    }
+
+    const signal = signalById.get(outcome.signalId);
+    if (!signal) {
+      continue;
+    }
+
+    const row = rowByType.get(getSignalAssetType(signal));
+    if (row) {
+      row.strongCount += 1;
+    }
+  }
+
+  const topUsed = [...rows]
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+    .find((row) => row.count > 0) ?? null;
+  const topStrong = [...rows]
+    .sort((left, right) => right.strongCount - left.strongCount || right.count - left.count || left.label.localeCompare(right.label))
+    .find((row) => row.strongCount > 0) ?? null;
+
+  return {
+    rows,
+    topUsedLabel: topUsed?.label ?? null,
+    topStrongLabel: topStrong?.label ?? null,
+  };
+}
+
+function buildRepurposingInsights(
+  signals: SignalRecord[],
+  postingOutcomes: PostingOutcome[],
+): SignalInsights["repurposing"] {
+  const platformLabel = (platform: RepurposingPlatform) => {
+    switch (platform) {
+      case "x":
+        return "X";
+      case "linkedin":
+        return "LinkedIn";
+      case "reddit":
+        return "Reddit";
+      case "email":
+        return "Email";
+      case "video":
+        return "Video";
+      case "carousel":
+        return "Carousel";
+      case "founder_thought":
+      default:
+        return "Founder thought";
+    }
+  };
+  const formatLabel = (formatType: RepurposingFormatType) => {
+    switch (formatType) {
+      case "email_angle":
+        return "Email angle";
+      case "outline":
+        return "Outline";
+      case "reflection":
+        return "Reflection";
+      case "post":
+        return "Post";
+      case "thread":
+        return "Thread";
+      case "script":
+      case "concept":
+      default:
+        return formatType[0].toUpperCase() + formatType.slice(1).replace("_", " ");
+    }
+  };
+
+  const platformMap = new Map<RepurposingPlatform, RepurposingPlatformInsightRow>();
+  const formatMap = new Map<RepurposingFormatType, RepurposingFormatInsightRow>();
+  const bundleSignals = signals
+    .map((signal) => ({
+      signal,
+      bundle: buildSignalRepurposingBundle(signal),
+      selectedIds: parseSelectedRepurposedOutputIds(signal.selectedRepurposedOutputIdsJson),
+    }))
+    .filter((entry): entry is {
+      signal: SignalRecord;
+      bundle: NonNullable<ReturnType<typeof buildSignalRepurposingBundle>>;
+      selectedIds: string[];
+    } => entry.bundle !== null);
+  const signalBundleMap = new Map(bundleSignals.map((entry) => [entry.signal.recordId, entry]));
+
+  for (const entry of bundleSignals) {
+    for (const output of entry.bundle.outputs) {
+      const platformRow = platformMap.get(output.platform) ?? {
+        platform: output.platform,
+        label: platformLabel(output.platform),
+        count: 0,
+        strongCount: 0,
+      };
+      platformRow.count += 1;
+      platformMap.set(output.platform, platformRow);
+
+      const formatRow = formatMap.get(output.formatType) ?? {
+        formatType: output.formatType,
+        label: formatLabel(output.formatType),
+        count: 0,
+      };
+      formatRow.count += 1;
+      formatMap.set(output.formatType, formatRow);
+    }
+  }
+
+  for (const outcome of postingOutcomes) {
+    if (outcome.outcomeQuality !== "strong") {
+      continue;
+    }
+
+    const bundleEntry = signalBundleMap.get(outcome.signalId);
+    if (!bundleEntry?.bundle) {
+      continue;
+    }
+
+    const selectedOutputs = bundleEntry.bundle.outputs.filter((output) =>
+      bundleEntry.selectedIds.length > 0 ? bundleEntry.selectedIds.includes(output.id) : (bundleEntry.bundle.recommendedSubset ?? []).includes(output.id),
+    );
+    const matchingOutput = selectedOutputs.find((output) => output.platform === outcome.platform) ??
+      bundleEntry.bundle.outputs.find((output) => output.platform === outcome.platform);
+    if (!matchingOutput) {
+      continue;
+    }
+
+    const row = platformMap.get(matchingOutput.platform);
+    if (row) {
+      row.strongCount += 1;
+    }
+  }
+
+  const platformRows = Array.from(platformMap.values()).sort(
+    (left, right) => right.count - left.count || right.strongCount - left.strongCount || left.label.localeCompare(right.label),
+  );
+  const formatRows = Array.from(formatMap.values()).sort(
+    (left, right) => right.count - left.count || left.label.localeCompare(right.label),
+  );
+
+  return {
+    totalBundles: bundleSignals.length,
+    totalOutputs: bundleSignals.reduce((sum, entry) => sum + entry.bundle.outputs.length, 0),
+    platformRows,
+    formatRows,
+    topPlatformLabel: platformRows[0]?.label ?? null,
+    topStrongPlatformLabel: [...platformRows].sort((left, right) => right.strongCount - left.strongCount || right.count - left.count)[0]?.strongCount
+      ? [...platformRows].sort((left, right) => right.strongCount - left.strongCount || right.count - left.count)[0].label
+      : null,
+  };
+}
+
 function buildBundleCoverageInsights(input: {
   signals: SignalRecord[];
   auditEvents: AuditEvent[];
@@ -1505,6 +1731,8 @@ function buildObservations(input: {
   finalReview: SignalInsights["finalReview"];
   posting: SignalInsights["posting"];
   outcomes: SignalInsights["outcomes"];
+  assets: SignalInsights["assets"];
+  repurposing: SignalInsights["repurposing"];
   reuseMemory: SignalInsights["reuseMemory"];
   bundleCoverage: SignalInsights["bundleCoverage"];
   playbook: SignalInsights["playbook"];
@@ -1661,6 +1889,20 @@ function buildObservations(input: {
     });
   }
 
+  if (input.assets.topStrongLabel) {
+    observations.push({
+      tone: "neutral",
+      text: `${input.assets.topStrongLabel} assets are currently most often associated with strong posted outcomes.`,
+    });
+  }
+
+  if (input.repurposing.topPlatformLabel) {
+    observations.push({
+      tone: "neutral",
+      text: `${input.repurposing.topPlatformLabel} is currently the most common repurposed platform in this window.`,
+    });
+  }
+
   if (input.reuseMemory.topReusableCombinationLabel) {
     observations.push({
       tone: "neutral",
@@ -1765,6 +2007,8 @@ export function buildSignalInsights(
     (options?.postingOutcomes ?? []).filter((outcome) => includedSignalIds.has(outcome.signalId)),
   );
   const includedPostingOutcomes = (options?.postingOutcomes ?? []).filter((outcome) => includedSignalIds.has(outcome.signalId));
+  const assets = buildAssetInsights(filteredSignals, includedPostingOutcomes);
+  const repurposing = buildRepurposingInsights(filteredSignals, includedPostingOutcomes);
   const reuseMemory = buildReuseMemorySection({
     signals: filteredSignals,
     postingEntries: includedPostingEntries,
@@ -1854,6 +2098,8 @@ export function buildSignalInsights(
     finalReview,
     posting,
     outcomes,
+    assets,
+    repurposing,
     reuseMemory,
     bundleCoverage,
     playbook,
@@ -1872,6 +2118,8 @@ export function buildSignalInsights(
       finalReview,
       posting,
       outcomes,
+      assets,
+      repurposing,
       reuseMemory,
       bundleCoverage,
       playbook,

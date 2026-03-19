@@ -26,7 +26,7 @@ export default async function IngestionPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0 text-sm text-slate-600">
-          Imported items enter the normal workflow as new signals. This page now supports bounded feed ingestion, bounded Reddit ingestion, bounded curated-query ingestion, and a controlled pipeline run that can ingest, score, interpret, and selectively generate drafts while still stopping short of approval, scheduling, or posting. Source settings below let the operator cap noisy sources without changing the downstream pipeline.
+          Imported items enter the normal workflow as new signals. This page now supports bounded feed ingestion, bounded Reddit ingestion, bounded curated-query ingestion, a controlled pipeline run, and an autonomous approval queue run that can push strong records toward approval-ready while holding weaker ones back for human judgement. Source settings below let the operator cap noisy sources without changing the downstream pipeline.
         </CardContent>
       </Card>
 

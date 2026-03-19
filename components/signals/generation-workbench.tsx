@@ -3,6 +3,16 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import {
+  buildGeneratedImagePlaceholderUrl,
+  getAssetPrimaryImage,
+  getAssetPrimaryVideo,
+  parseAssetBundle,
+  stringifyAssetBundle,
+  type AssetBundle,
+  type AssetPrimaryType,
+} from "@/lib/assets";
+import { ContentContextFields, type ContentContextFormValue } from "@/components/campaigns/content-context-fields";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { PatternCandidatePanel } from "@/components/patterns/pattern-candidate-panel";
 import { PatternSuggestionList } from "@/components/patterns/pattern-suggestion-list";
@@ -21,6 +31,7 @@ import type { PatternCandidateAssessment } from "@/lib/pattern-discovery";
 import { PATTERN_TYPE_LABELS, type PatternSummary, type SignalPattern } from "@/lib/pattern-definitions";
 import { PLATFORM_INTENT_PROFILE_VERSION, getPlatformIntentProfile } from "@/lib/platform-profiles";
 import { EDITORIAL_MODES, type EditorialMode, type SignalDataSource, type SignalGenerationInput, type SignalGenerationResult, type SignalRecord } from "@/types/signal";
+import type { AudienceSegment, Campaign, ContentPillar } from "@/lib/campaigns";
 
 function toneClasses(tone: "success" | "warning" | "error") {
   switch (tone) {
@@ -50,6 +61,9 @@ export function GenerationWorkbench({
   suggestedEditorialMode,
   bundleSummariesByPatternId,
   initialSelectedPatternBundles,
+  campaigns,
+  pillars,
+  audienceSegments,
 }: {
   signal: SignalRecord;
   generationInput: SignalGenerationInput | null;
@@ -69,6 +83,9 @@ export function GenerationWorkbench({
   } | null;
   bundleSummariesByPatternId: Record<string, PatternBundleSummary[]>;
   initialSelectedPatternBundles: PatternBundleSummary[];
+  campaigns: Campaign[];
+  pillars: ContentPillar[];
+  audienceSegments: AudienceSegment[];
 }) {
   const [generation, setGeneration] = useState<SignalGenerationResult | null>(initialGeneration);
   const [currentStatus, setCurrentStatus] = useState(signal.status);
@@ -79,6 +96,13 @@ export function GenerationWorkbench({
   const [selectedEditorialMode, setSelectedEditorialMode] = useState<EditorialMode>(initialSelectedEditorialMode);
   const [appliedPattern, setAppliedPattern] = useState<PatternSummary | null>(lastAppliedPattern);
   const [selectedPatternBundles, setSelectedPatternBundles] = useState<PatternBundleSummary[]>(initialSelectedPatternBundles);
+  const [contentContext, setContentContext] = useState<ContentContextFormValue>({
+    campaignId: signal.campaignId ?? "",
+    pillarId: signal.pillarId ?? "",
+    audienceSegmentId: signal.audienceSegmentId ?? "",
+    funnelStage: signal.funnelStage ?? "",
+    ctaGoal: signal.ctaGoal ?? "",
+  });
   const [feedback, setFeedback] = useState<{
     tone: "success" | "warning" | "error";
     title: string;
@@ -116,6 +140,15 @@ export function GenerationWorkbench({
   const xProfile = useMemo(() => getPlatformIntentProfile("x"), []);
   const linkedInProfile = useMemo(() => getPlatformIntentProfile("linkedin"), []);
   const redditProfile = useMemo(() => getPlatformIntentProfile("reddit"), []);
+  const assetBundle = useMemo(() => parseAssetBundle(generation?.assetBundleJson), [generation?.assetBundleJson]);
+  const primaryImageAsset = useMemo(
+    () => getAssetPrimaryImage(assetBundle, generation?.selectedImageAssetId),
+    [assetBundle, generation?.selectedImageAssetId],
+  );
+  const primaryVideoConcept = useMemo(
+    () => getAssetPrimaryVideo(assetBundle, generation?.selectedVideoConceptId),
+    [assetBundle, generation?.selectedVideoConceptId],
+  );
 
   function badgeClasses(value: "ready" | "caution" | "blocked" | "strong" | "usable" | "weak" | "missing" | "Strong" | "Needs Review" | "Weak") {
     switch (value) {
@@ -140,6 +173,85 @@ export function GenerationWorkbench({
 
   function updateField<K extends keyof SignalGenerationResult>(key: K, value: SignalGenerationResult[K]) {
     setGeneration((current) => (current ? { ...current, [key]: value } : current));
+  }
+
+  function updateAssetBundle(mutator: (bundle: AssetBundle) => AssetBundle) {
+    setGeneration((current) => {
+      if (!current?.assetBundleJson) {
+        return current;
+      }
+
+      const bundle = parseAssetBundle(current.assetBundleJson);
+      if (!bundle) {
+        return current;
+      }
+
+      return {
+        ...current,
+        assetBundleJson: stringifyAssetBundle(mutator(bundle)),
+      };
+    });
+  }
+
+  function handlePrimaryAssetTypeChange(value: AssetPrimaryType) {
+    updateField("preferredAssetType", value);
+  }
+
+  function handlePrimaryImageSelection(imageAssetId: string) {
+    updateField("selectedImageAssetId", imageAssetId);
+    const selected = assetBundle?.imageAssets.find((asset) => asset.id === imageAssetId);
+    if (selected) {
+      updateField("imagePrompt", selected.imagePrompt);
+    }
+  }
+
+  function handlePrimaryVideoSelection(videoConceptId: string) {
+    updateField("selectedVideoConceptId", videoConceptId);
+    const selected = assetBundle?.videoConcepts.find((concept) => concept.id === videoConceptId);
+    if (selected) {
+      updateField("videoScript", selected.scriptShort);
+    }
+  }
+
+  function handleImagePromptEdit(value: string) {
+    updateField("imagePrompt", value);
+    if (!generation?.selectedImageAssetId) {
+      return;
+    }
+
+    updateAssetBundle((bundle) => ({
+      ...bundle,
+      imageAssets: bundle.imageAssets.map((asset) =>
+        asset.id === generation.selectedImageAssetId ? { ...asset, imagePrompt: value } : asset,
+      ),
+    }));
+  }
+
+  function handleVideoScriptEdit(value: string) {
+    updateField("videoScript", value);
+    if (!generation?.selectedVideoConceptId) {
+      return;
+    }
+
+    updateAssetBundle((bundle) => ({
+      ...bundle,
+      videoConcepts: bundle.videoConcepts.map((concept) =>
+        concept.id === generation.selectedVideoConceptId ? { ...concept, scriptShort: value } : concept,
+      ),
+    }));
+  }
+
+  function handleGenerateImagePlaceholder() {
+    if (!signal.recordId || !generation?.selectedImageAssetId) {
+      return;
+    }
+
+    updateField("generatedImageUrl", buildGeneratedImagePlaceholderUrl(signal.recordId, generation.selectedImageAssetId));
+    setFeedback({
+      tone: "warning",
+      title: "Placeholder image generated",
+      body: "A mock generated-image URL was attached. This keeps the workflow provider-agnostic until a real image service is added.",
+    });
   }
 
   async function handleGenerate() {
@@ -212,6 +324,11 @@ export function GenerationWorkbench({
         body: JSON.stringify({
           ...generation,
           editorialMode: selectedEditorialMode,
+          campaignId: contentContext.campaignId || null,
+          pillarId: contentContext.pillarId || null,
+          audienceSegmentId: contentContext.audienceSegmentId || null,
+          funnelStage: contentContext.funnelStage || null,
+          ctaGoal: contentContext.ctaGoal || null,
           status: "Draft Generated",
         }),
       });
@@ -569,7 +686,7 @@ export function GenerationWorkbench({
                 <Textarea
                   id="imagePrompt"
                   value={generation.imagePrompt}
-                  onChange={(event) => updateField("imagePrompt", event.target.value)}
+                  onChange={(event) => handleImagePromptEdit(event.target.value)}
                 />
               </div>
               <div className="grid gap-2">
@@ -577,7 +694,7 @@ export function GenerationWorkbench({
                 <Textarea
                   id="videoScript"
                   value={generation.videoScript}
-                  onChange={(event) => updateField("videoScript", event.target.value)}
+                  onChange={(event) => handleVideoScriptEdit(event.target.value)}
                 />
               </div>
               <div className="grid gap-2">
@@ -596,6 +713,125 @@ export function GenerationWorkbench({
                   onChange={(event) => updateField("hashtagsOrKeywords", event.target.value)}
                 />
               </div>
+
+              <ContentContextFields
+                value={contentContext}
+                onChange={setContentContext}
+                campaigns={campaigns}
+                pillars={pillars}
+                audienceSegments={audienceSegments}
+                helperText="If you leave these blank, the system will infer bounded defaults from the current signal, mode, and content direction."
+              />
+
+              {assetBundle ? (
+                <div className="space-y-4 rounded-2xl bg-white/75 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Asset bundle</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Structured image and video concepts for approval-ready packaging.
+                      </p>
+                    </div>
+                    <Badge className="bg-sky-50 text-sky-700 ring-sky-200">
+                      {generation.preferredAssetType === "image"
+                        ? "Image-first"
+                        : generation.preferredAssetType === "video"
+                          ? "Video-first"
+                          : "Text-first"}
+                    </Badge>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-2">
+                      <Label htmlFor="preferred-asset-type">Primary asset type</Label>
+                      <Select
+                        id="preferred-asset-type"
+                        value={generation.preferredAssetType ?? "text_first"}
+                        onChange={(event) => handlePrimaryAssetTypeChange(event.target.value as AssetPrimaryType)}
+                      >
+                        <option value="image">Image</option>
+                        <option value="video">Video</option>
+                        <option value="text_first">Text-first</option>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="primary-image-select">Primary image concept</Label>
+                      <Select
+                        id="primary-image-select"
+                        value={generation.selectedImageAssetId ?? assetBundle.imageAssets[0]?.id ?? ""}
+                        onChange={(event) => handlePrimaryImageSelection(event.target.value)}
+                      >
+                        {assetBundle.imageAssets.map((asset) => (
+                          <option key={asset.id} value={asset.id}>
+                            {asset.conceptTitle}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="primary-video-select">Primary video concept</Label>
+                      <Select
+                        id="primary-video-select"
+                        value={generation.selectedVideoConceptId ?? assetBundle.videoConcepts[0]?.id ?? ""}
+                        onChange={(event) => handlePrimaryVideoSelection(event.target.value)}
+                      >
+                        {assetBundle.videoConcepts.map((concept) => (
+                          <option key={concept.id} value={concept.id}>
+                            {concept.conceptTitle}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+                      <p className="font-medium text-slate-900">Primary image concept</p>
+                      <p className="mt-2">{primaryImageAsset?.conceptTitle ?? "No image concept selected"}</p>
+                      <p className="mt-2 leading-6">{primaryImageAsset?.conceptDescription}</p>
+                      {primaryImageAsset ? (
+                        <>
+                          <p className="mt-3">Style: {primaryImageAsset.visualStyle} · Ratio: {primaryImageAsset.aspectRatio}</p>
+                          <p className="mt-2">Layout: {primaryImageAsset.layoutIdea}</p>
+                          {primaryImageAsset.textOverlay ? <p className="mt-2">Text overlay: {primaryImageAsset.textOverlay}</p> : null}
+                          <p className="mt-2">Platforms: {primaryImageAsset.platformSuggestions.join(" · ")}</p>
+                        </>
+                      ) : null}
+                    </div>
+                    <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+                      <p className="font-medium text-slate-900">Primary video concept</p>
+                      <p className="mt-2">{primaryVideoConcept?.conceptTitle ?? "No video concept selected"}</p>
+                      <p className="mt-2 leading-6">{primaryVideoConcept?.conceptDescription}</p>
+                      {primaryVideoConcept ? (
+                        <>
+                          <p className="mt-3">Hook: {primaryVideoConcept.hook}</p>
+                          <p className="mt-2">Style: {primaryVideoConcept.style} · Platforms: {primaryVideoConcept.platformSuggestions.join(" · ")}</p>
+                          <div className="mt-3 space-y-1">
+                            {primaryVideoConcept.shotList.map((shot) => (
+                              <p key={shot}>- {shot}</p>
+                            ))}
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button type="button" variant="secondary" size="sm" onClick={handleGenerateImagePlaceholder}>
+                      Generate image
+                    </Button>
+                    <p className="text-sm text-slate-500">
+                      Future-ready hook only. This currently stores a mock generated-image reference without coupling the workflow to a provider.
+                    </p>
+                  </div>
+                  {generation.generatedImageUrl ? (
+                    <div className="rounded-2xl bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
+                      <p className="font-medium text-slate-900">Generated image reference</p>
+                      <p className="mt-2 break-all">{generation.generatedImageUrl}</p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               {draftQuality ? (
                 <div className="rounded-2xl bg-white/75 p-4">

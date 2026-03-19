@@ -364,8 +364,29 @@ function mapRecordFromAirtable(record: AirtableRecord<AirtableFields>): SignalRe
       getFieldValue(fields, "editorialMode"),
       AIRTABLE_SIGNAL_FIELD_DEFINITIONS.editorialMode.allowedValues ?? [],
     ) as SignalRecord["editorialMode"],
+    campaignId: parseText(getFieldValue(fields, "campaignId")),
+    pillarId: parseText(getFieldValue(fields, "pillarId")),
+    audienceSegmentId: parseText(getFieldValue(fields, "audienceSegmentId")),
+    funnelStage: parseSelect(
+      getFieldValue(fields, "funnelStage"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.funnelStage.allowedValues ?? [],
+    ) as SignalRecord["funnelStage"],
+    ctaGoal: parseSelect(
+      getFieldValue(fields, "ctaGoal"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.ctaGoal.allowedValues ?? [],
+    ) as SignalRecord["ctaGoal"],
     generationModelVersion: parseText(getFieldValue(fields, "generationModelVersion")),
     promptVersion: parseText(getFieldValue(fields, "promptVersion")),
+    assetBundleJson: parseText(getFieldValue(fields, "assetBundleJson")),
+    repurposingBundleJson: parseText(getFieldValue(fields, "repurposingBundleJson")),
+    selectedRepurposedOutputIdsJson: parseText(getFieldValue(fields, "selectedRepurposedOutputIdsJson")),
+    preferredAssetType: parseSelect(
+      getFieldValue(fields, "preferredAssetType"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.preferredAssetType.allowedValues ?? [],
+    ) as SignalRecord["preferredAssetType"],
+    selectedImageAssetId: parseText(getFieldValue(fields, "selectedImageAssetId")),
+    selectedVideoConceptId: parseText(getFieldValue(fields, "selectedVideoConceptId")),
+    generatedImageUrl: parseText(getFieldValue(fields, "generatedImageUrl")),
   };
 }
 
@@ -444,6 +465,27 @@ function mapCreatePayloadToAirtableFields(input: SignalCreatePayload): AirtableF
           [getAirtableFieldLabel("reviewPriority")]: serializeSelect(
             input.reviewPriority,
             AIRTABLE_SIGNAL_FIELD_DEFINITIONS.reviewPriority.allowedValues,
+          ),
+        }
+      : {}),
+    ...(serializeText(input.campaignId) ? { [getAirtableFieldLabel("campaignId")]: serializeText(input.campaignId) } : {}),
+    ...(serializeText(input.pillarId) ? { [getAirtableFieldLabel("pillarId")]: serializeText(input.pillarId) } : {}),
+    ...(serializeText(input.audienceSegmentId)
+      ? { [getAirtableFieldLabel("audienceSegmentId")]: serializeText(input.audienceSegmentId) }
+      : {}),
+    ...(serializeSelect(input.funnelStage, AIRTABLE_SIGNAL_FIELD_DEFINITIONS.funnelStage.allowedValues)
+      ? {
+          [getAirtableFieldLabel("funnelStage")]: serializeSelect(
+            input.funnelStage,
+            AIRTABLE_SIGNAL_FIELD_DEFINITIONS.funnelStage.allowedValues,
+          ),
+        }
+      : {}),
+    ...(serializeSelect(input.ctaGoal, AIRTABLE_SIGNAL_FIELD_DEFINITIONS.ctaGoal.allowedValues)
+      ? {
+          [getAirtableFieldLabel("ctaGoal")]: serializeSelect(
+            input.ctaGoal,
+            AIRTABLE_SIGNAL_FIELD_DEFINITIONS.ctaGoal.allowedValues,
           ),
         }
       : {}),

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, buildOperatorOverrideEvent, buildRecommendationEvent, listAuditEvents, type AuditEventInput } from "@/lib/audit";
 import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { assignSignalContentContext, getCampaignStrategy } from "@/lib/campaigns";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
 import { listPostingOutcomes } from "@/lib/outcomes";
@@ -43,6 +44,36 @@ export async function PATCH(
   const interpretation = toInterpretationSavePayload(parsed.data);
   const tuning = await getOperatorTuning();
   const previousSignalResult = await getSignalWithFallback(id);
+  const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
+  const strategy = await getCampaignStrategy();
+  const baseSignal = previousSignalResult.signal ?? allSignals.find((signal) => signal.recordId === id) ?? null;
+  const signalForAssignment = baseSignal
+    ? {
+        ...baseSignal,
+        scenarioAngle: interpretation.scenarioAngle ?? null,
+        signalCategory: interpretation.signalCategory,
+        severityScore: interpretation.severityScore,
+        signalSubtype: interpretation.signalSubtype,
+        emotionalPattern: interpretation.emotionalPattern,
+        teacherPainPoint: interpretation.teacherPainPoint,
+        relevanceToZazaDraft: interpretation.relevanceToZazaDraft,
+        riskToTeacher: interpretation.riskToTeacher,
+        interpretationNotes: interpretation.interpretationNotes,
+        hookTemplateUsed: interpretation.hookTemplateUsed,
+        contentAngle: interpretation.contentAngle,
+        platformPriority: interpretation.platformPriority,
+        suggestedFormatPriority: interpretation.suggestedFormatPriority,
+      }
+    : null;
+  const contextAssignment = signalForAssignment
+    ? assignSignalContentContext(signalForAssignment, strategy, {
+        campaignId: interpretation.campaignId,
+        pillarId: interpretation.pillarId,
+        audienceSegmentId: interpretation.audienceSegmentId,
+        funnelStage: interpretation.funnelStage,
+        ctaGoal: interpretation.ctaGoal,
+      })
+    : null;
   const result = await saveSignalWithFallback(id, {
     scenarioAngle: interpretation.scenarioAngle,
     signalCategory: interpretation.signalCategory,
@@ -57,6 +88,11 @@ export async function PATCH(
     contentAngle: interpretation.contentAngle,
     platformPriority: interpretation.platformPriority,
     suggestedFormatPriority: interpretation.suggestedFormatPriority,
+    campaignId: contextAssignment?.context.campaignId ?? interpretation.campaignId ?? null,
+    pillarId: contextAssignment?.context.pillarId ?? interpretation.pillarId ?? null,
+    audienceSegmentId: contextAssignment?.context.audienceSegmentId ?? interpretation.audienceSegmentId ?? null,
+    funnelStage: contextAssignment?.context.funnelStage ?? interpretation.funnelStage ?? null,
+    ctaGoal: contextAssignment?.context.ctaGoal ?? interpretation.ctaGoal ?? null,
     status: interpretation.status ?? "Interpreted",
   });
 
@@ -82,7 +118,6 @@ export async function PATCH(
   const playbookCards = await listPlaybookCards();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
-  const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
   const allAuditEvents = await listAuditEvents();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const updatedSignals = allSignals.map((signal) => (signal.recordId === id ? nextSignal : signal));
@@ -118,6 +153,30 @@ export async function PATCH(
     const overrideEvent = buildOperatorOverrideEvent(previousSignalResult.signal, "interpret", tuning.settings);
     if (overrideEvent) {
       auditEvents.push(overrideEvent);
+    }
+
+    const nextContext = contextAssignment?.context;
+    if (
+      nextContext &&
+      (nextContext.campaignId !== previousSignalResult.signal.campaignId ||
+        nextContext.pillarId !== previousSignalResult.signal.pillarId ||
+        nextContext.audienceSegmentId !== previousSignalResult.signal.audienceSegmentId ||
+        nextContext.funnelStage !== previousSignalResult.signal.funnelStage ||
+        nextContext.ctaGoal !== previousSignalResult.signal.ctaGoal)
+    ) {
+      auditEvents.push({
+        signalId: id,
+        eventType: contextAssignment.autoAssignedKeys.length > 0 ? "CONTEXT_AUTO_ASSIGNED" : "CONTENT_CONTEXT_ASSIGNED",
+        actor: "system",
+        summary: contextAssignment.summary,
+        metadata: {
+          campaignId: nextContext.campaignId,
+          pillarId: nextContext.pillarId,
+          audienceSegmentId: nextContext.audienceSegmentId,
+          funnelStage: nextContext.funnelStage,
+          ctaGoal: nextContext.ctaGoal,
+        },
+      });
     }
   }
 

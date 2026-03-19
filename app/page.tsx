@@ -5,8 +5,12 @@ import { OverviewCards } from "@/components/signals/overview-cards";
 import { SignalsTable } from "@/components/signals/signals-table";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { assessAutonomousSignal } from "@/lib/auto-advance";
+import { rankApprovalCandidates } from "@/lib/approval-ranking";
+import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { listFeedbackEntries } from "@/lib/feedback";
+import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { STATUS_DISPLAY_ORDER } from "@/lib/constants";
 import { listSignalsWithFallback } from "@/lib/airtable";
@@ -30,6 +34,7 @@ export default async function DashboardPage() {
   const bundles = await listPatternBundles();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const strategy = await getCampaignStrategy();
   const tuning = await getOperatorTuning();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
@@ -45,6 +50,7 @@ export default async function DashboardPage() {
     postingOutcomes,
     bundleSummariesByPatternId,
   });
+  const cadence = buildCampaignCadenceSummary(signals, strategy, postingEntries);
   const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
     signals,
     feedbackEntries,
@@ -55,6 +61,29 @@ export default async function DashboardPage() {
     reuseMemoryCases,
     playbookCoverageSummary,
     tuning.settings,
+  );
+  const approvalReadyCandidates = rankApprovalCandidates(
+    signals
+      .map((signal) => {
+        const guidance = buildUnifiedGuidanceModel({
+          signal,
+          guidance: guidanceBySignalId[signal.recordId],
+          context: "review",
+          tuning: tuning.settings,
+        });
+
+        return {
+          signal,
+          guidance,
+          assessment: assessAutonomousSignal(signal, guidance),
+        };
+      })
+      .filter((item) => item.assessment.decision === "approval_ready"),
+    5,
+    {
+      strategy,
+      cadence,
+    },
   );
   const workflowBuckets = getWorkflowBuckets(signals);
   const scheduledSoon = getScheduledSoonSignals(signals);
@@ -90,6 +119,9 @@ export default async function DashboardPage() {
             </Link>
             <Link href="/playbook" className={buttonVariants({ variant: "secondary" })}>
               Open playbook
+            </Link>
+            <Link href="/campaigns" className={buttonVariants({ variant: "secondary" })}>
+              Open campaigns
             </Link>
             <Link href="/settings" className={buttonVariants({ variant: "secondary" })}>
               Adjust tuning
@@ -139,6 +171,12 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent className="grid gap-4">
             {[
+              {
+                href: "/review#approval-ready",
+                title: "Approval-ready",
+                copy: `${approvalReadyCandidates.length} near-finished candidates are ready for final review.`,
+                icon: ArrowRight,
+              },
               {
                 href: "/review#needs-interpretation",
                 title: "Needs interpretation",

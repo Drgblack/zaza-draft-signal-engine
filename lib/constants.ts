@@ -5,6 +5,7 @@ export const NAV_ITEMS = [
   { href: "/signals", label: "Signals" },
   { href: "/patterns", label: "Patterns" },
   { href: "/playbook", label: "Playbook" },
+  { href: "/campaigns", label: "Campaigns" },
   { href: "/insights", label: "Insights" },
   { href: "/settings", label: "Settings" },
   { href: "/ingestion", label: "Ingestion" },

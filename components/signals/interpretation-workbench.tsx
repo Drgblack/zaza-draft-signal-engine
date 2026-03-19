@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 
+import { ContentContextFields, type ContentContextFormValue } from "@/components/campaigns/content-context-fields";
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import type { ScenarioAngleSuggestion } from "@/lib/scenario-angle";
 import { PatternSuggestionList } from "@/components/patterns/pattern-suggestion-list";
@@ -27,6 +28,7 @@ import {
 } from "@/types/signal";
 import type { SignalPattern } from "@/lib/pattern-definitions";
 import type { PatternMatchSuggestion } from "@/lib/pattern-match";
+import type { AudienceSegment, Campaign, ContentPillar } from "@/lib/campaigns";
 
 function toneClasses(tone: "success" | "warning" | "error") {
   switch (tone) {
@@ -46,16 +48,29 @@ export function InterpretationWorkbench({
   source,
   relatedPatterns,
   suggestedPatterns,
+  campaigns,
+  pillars,
+  audienceSegments,
 }: {
   signal: SignalRecord;
   initialInterpretation: SignalInterpretationResult | null;
   source: SignalDataSource;
   relatedPatterns: SignalPattern[];
   suggestedPatterns: PatternMatchSuggestion[];
+  campaigns: Campaign[];
+  pillars: ContentPillar[];
+  audienceSegments: AudienceSegment[];
 }) {
   const [interpretation, setInterpretation] = useState<SignalInterpretationResult | null>(initialInterpretation);
   const [scenarioAngle, setScenarioAngle] = useState(signal.scenarioAngle ?? "");
   const [currentStatus, setCurrentStatus] = useState(signal.status);
+  const [contentContext, setContentContext] = useState<ContentContextFormValue>({
+    campaignId: signal.campaignId ?? "",
+    pillarId: signal.pillarId ?? "",
+    audienceSegmentId: signal.audienceSegmentId ?? "",
+    funnelStage: signal.funnelStage ?? "",
+    ctaGoal: signal.ctaGoal ?? "",
+  });
   const [isRunning, setIsRunning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
@@ -225,6 +240,11 @@ export function InterpretationWorkbench({
         body: JSON.stringify({
           ...interpretation,
           scenarioAngle,
+          campaignId: contentContext.campaignId || null,
+          pillarId: contentContext.pillarId || null,
+          audienceSegmentId: contentContext.audienceSegmentId || null,
+          funnelStage: contentContext.funnelStage || null,
+          ctaGoal: contentContext.ctaGoal || null,
           status: "Interpreted",
         }),
       });
@@ -583,6 +603,15 @@ export function InterpretationWorkbench({
                   onChange={(event) => updateField("interpretationNotes", event.target.value)}
                 />
               </div>
+
+              <ContentContextFields
+                value={contentContext}
+                onChange={setContentContext}
+                campaigns={campaigns}
+                pillars={pillars}
+                audienceSegments={audienceSegments}
+                helperText="These fields help the autonomous queue and insights layer balance campaign, audience, funnel, and CTA mix."
+              />
 
               <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
                 <p className="font-medium text-slate-800">Interpreter metadata</p>

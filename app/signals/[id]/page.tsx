@@ -16,9 +16,11 @@ import { StatusBadge } from "@/components/signals/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { deriveDisplayEngagementScore, getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { getAuditEvents, listAuditEvents } from "@/lib/audit";
 import { buildBundleCoverageSummary, getSignalBundleCoverageHint } from "@/lib/bundle-coverage";
+import { buildCampaignCadenceSummary, getCampaignStrategy, getSignalContentContextSummary } from "@/lib/campaigns";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
@@ -91,6 +93,7 @@ export default async function SignalDetailPage({
   const allPostingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes({ signalIds: [signal.recordId] });
   const allPostingOutcomes = await listPostingOutcomes();
+  const strategy = await getCampaignStrategy();
   const patterns = await listPatterns();
   const allPatterns = await listPatterns({ includeRetired: true });
   const bundles = await listPatternBundles();
@@ -129,6 +132,8 @@ export default async function SignalDetailPage({
   const generationReady = hasGeneration(signal);
   const finalReviewSummary = buildFinalReviewSummary(signal);
   const postingSummary = buildSignalPostingSummary(signal, postingEntries);
+  const cadence = buildCampaignCadenceSummary(allSignals, strategy, allPostingEntries);
+  const strategicContext = getSignalContentContextSummary(signal, strategy);
   const postingOutcomesByPostingLogId = indexOutcomesByPostingLogId(postingOutcomes);
   const automationReadiness = getAutomationReadinessSnapshot(signal);
   const initialScoring = buildInitialScoringFromSignal(signal);
@@ -164,6 +169,7 @@ export default async function SignalDetailPage({
     playbookCoverageSummary,
     tuning: tuning.settings,
   });
+  const autonomousAssessment = assessAutonomousSignal(signal, guidance);
   const readinessTone =
     automationReadiness.tone === "success"
       ? "bg-emerald-50 text-emerald-700"
@@ -296,11 +302,85 @@ export default async function SignalDetailPage({
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle>Strategic Context</CardTitle>
+              <CardDescription>
+                Lightweight campaign, pillar, audience, funnel, and CTA context used to keep content generation more intentional.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <SummaryItem label="Campaign" value={strategicContext.campaignName ?? "Not set"} />
+                <SummaryItem label="Pillar" value={strategicContext.pillarName ?? "Not set"} />
+                <SummaryItem label="Audience" value={strategicContext.audienceSegmentName ?? "Not set"} />
+                <SummaryItem label="Funnel Stage" value={strategicContext.funnelStage ?? "Not set"} />
+                <SummaryItem label="CTA Goal" value={strategicContext.ctaGoal ?? "Not set"} />
+                <SummaryItem
+                  label="Cadence Note"
+                  value={
+                    strategicContext.pillarName && cadence.underrepresentedPillars.includes(strategicContext.pillarName)
+                      ? `${strategicContext.pillarName} is currently underrepresented in recent output.`
+                      : strategicContext.funnelStage && cadence.underrepresentedFunnels.includes(strategicContext.funnelStage)
+                        ? `${strategicContext.funnelStage} content is currently thin in recent output.`
+                        : "No strong imbalance note surfaced for this context."
+                  }
+                />
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Link href="/campaigns" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+                  Open campaigns
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+
           <GuidancePanel
             guidance={guidance}
             title="Guidance"
             description="One compact view of the strongest next step, what has worked before, and whether support or coverage gaps already exist."
           />
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Autonomous Queue Status</CardTitle>
+              <CardDescription>
+                How the approval-first automation layer currently sees this record.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge className={autonomousAssessment.decision === "approval_ready" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : autonomousAssessment.decision === "hold" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                  {autonomousAssessment.decision === "approval_ready"
+                    ? "Approval-ready"
+                    : autonomousAssessment.decision === "hold"
+                      ? "Auto-held"
+                      : "Not active"}
+                </Badge>
+                {autonomousAssessment.stage ? (
+                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                    {autonomousAssessment.stage.replaceAll("_", " ")}
+                  </Badge>
+                ) : null}
+              </div>
+              <p className="text-sm leading-6 text-slate-700">{autonomousAssessment.summary}</p>
+              {autonomousAssessment.reasons.length > 0 ? (
+                <div className="flex flex-wrap gap-2 text-sm text-slate-500">
+                  {autonomousAssessment.reasons.map((reason) => (
+                    <span key={reason} className="rounded-full bg-white/80 px-3 py-1">
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {autonomousAssessment.assetSuggestion ? (
+                <div className="rounded-2xl bg-white/75 px-4 py-4 text-sm text-slate-600">
+                  <p className="font-medium text-slate-900">{autonomousAssessment.assetSuggestion.label}</p>
+                  <p className="mt-2 leading-6">{autonomousAssessment.assetSuggestion.summary}</p>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
 
           <PatternCandidatePanel
             assessment={patternCandidate}

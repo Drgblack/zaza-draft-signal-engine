@@ -33,6 +33,23 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - bounded operator-triggered runs from `/ingestion`
   - explicit score-to-gate-to-interpret-to-generate rules
   - no autonomous recurring processing
+- Autonomous approval queue with:
+  - centralized rules in `lib/auto-advance.ts`
+  - centralized ranking in `lib/approval-ranking.ts`
+  - cron-compatible runner at `GET` or `POST /api/autonomous/run`
+  - bounded auto-interpret, auto-generate, and approval-ready promotion rules
+  - explicit auto-hold reasons for weak or uncertain cases
+  - approval-ready queue visibility on `/review`
+  - no auto-posting
+- Campaign and calendar layer with:
+  - centralized strategic context in `lib/campaigns.ts`
+  - `/campaigns` management for campaigns, pillars, and audience segments
+  - bounded funnel stages and CTA goals
+  - optional strategic context saved directly on signal records
+  - heuristic default assignment when context is missing
+  - light cadence-aware ranking and insight summaries
+  - compact context surfacing in approval queue and signal detail
+  - no drag-and-drop planner or scheduling automation
 - Rules-based interpretation layer
 - `POST /api/interpret`
 - `PATCH /api/signals/[id]/interpret`
@@ -159,6 +176,24 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - bounded downstream effects on scoring, transformability, confidence, co-pilot posture, and pattern suggestion surfacing
   - audit events for meaningful tuning changes only
   - no formula editor, multi-user config, or automatic optimisation
+- Asset pipeline with:
+  - centralized asset model in `lib/assets.ts`
+  - structured `imageAssets[]`, `videoConcepts[]`, and `suggestedPrimaryAssetType`
+  - deterministic asset bundling attached to generated outputs
+  - image prompts suitable for external tools without coupling to one provider
+  - short-form video concepts, scripts, and simple shot lists
+  - lightweight selection and prompt/script editing in generation and final review
+  - compact asset summaries in the approval-ready queue and on `/insights`
+  - provider-agnostic placeholder image-generation hook only
+  - no video rendering engine or design-tool workflow
+- Repurposing engine with:
+  - centralized bundle logic in `lib/repurposing.ts`
+  - bounded multi-platform variants from one strong signal
+  - differentiated X, LinkedIn, Reddit, carousel, video, email, and optional founder-thought outputs
+  - persisted bundle and selected-output state on the signal record
+  - compact approval-queue summaries and editable final-review controls
+  - lightweight repurposing visibility on `/insights`
+  - no auto-posting, scheduling, or content-spinning behavior
 - Dashboard, signals index, signal detail, new signal, review, interpretation, and generation pages
 - Generation workbench page
 - Generation readiness and quality guidance with:
@@ -176,9 +211,11 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Auth and user accounts
 - Analytics engine
 - Posting to social platforms
-- Real image or video generation
+- Real image-provider integration or video rendering
+- Large-scale uncontrolled repurposing or content spinning
 - Airtable base creation
-- autonomous recurring interpretation/generation chaining
+- auto-posting or direct platform publishing
+- full campaign-planning suite or marketing automation platform
 
 ## V1 Working Model
 1. Operator manually submits one signal.
@@ -198,20 +235,43 @@ Build a private internal dashboard for manually submitting signals, lightly clas
    - gates
    - auto-interprets kept/pass records
    - auto-generates only high-priority kept/pass records
-9. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
-10. Operator can add a scenario angle when a raw source needs to be transformed into a clearer teacher communication situation before interpretation.
-11. The app evaluates whether the angle is missing, weak, usable, or strong and can suggest 2-3 bounded alternatives for indirect signals.
-12. Operator edits and saves the interpretation back to the signal record when needed.
-13. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
-14. Generation prioritises:
+9. Operator can also run the autonomous approval queue pass that:
+   - ingests
+   - scores missing candidates
+   - auto-interprets stronger candidates
+   - auto-generates stronger interpreted candidates
+   - auto-promotes near-finished records into an approval-ready queue
+   - auto-holds weak or uncertain cases with explicit reasons
+10. The interpretation layer returns a structured editorial read with category, severity, pain point, risk framing, hook, and platform guidance.
+11. Operator can add a scenario angle when a raw source needs to be transformed into a clearer teacher communication situation before interpretation.
+12. The app evaluates whether the angle is missing, weak, usable, or strong and can suggest 2-3 bounded alternatives for indirect signals.
+13. Operator edits and saves the interpretation back to the signal record when needed.
+14. The generation layer produces fixed-format drafts for X, LinkedIn, Reddit, image direction, and short-form video.
+15. Generation prioritises:
    - a usable scenario angle
    - saved interpretation fields
    - source evidence/context
-15. Operator sees whether generation is ready, cautionary, or blocked before running it.
-16. Operator edits and saves the drafts back to the record when needed.
-17. Operator uses the co-pilot guidance layer to see the next best action without changing the core status workflow.
-18. The app records a bounded audit trail of key decisions and transitions for each signal.
-19. Operator reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
+16. Operator sees whether generation is ready, cautionary, or blocked before running it.
+17. Operator edits and saves the drafts back to the record when needed.
+18. Operator uses the co-pilot guidance layer to see the next best action without changing the core status workflow.
+19. The app records a bounded audit trail of key decisions and transitions for each signal.
+20. Operator mainly works from the approval-ready queue, then reviews, approves, schedules, and logs posting metadata manually through the detail workflow.
+21. Campaign, pillar, audience, funnel, and CTA context can be saved or inferred so candidates do not queue in isolation from the current strategy mix.
+
+## Campaign Strategy Notes
+- Strategic context is optional and does not block interpretation, generation, or approval readiness.
+- Current saved context fields are:
+  - `campaignId`
+  - `pillarId`
+  - `audienceSegmentId`
+  - `funnelStage`
+  - `ctaGoal`
+- Default assignment is heuristic and inspectable. It uses existing structured fields such as signal family, source wording, editorial mode, and product intent.
+- Approval ranking uses this layer lightly:
+  - active campaign alignment can lift a candidate
+  - underrepresented pillars or funnel stages can lift a candidate
+  - recent repetition by pillar or audience can lower a candidate slightly
+- Cadence awareness is descriptive only. It does not auto-schedule content or enforce quotas.
 
 ## Query Source Notes
 - Query sources are curated registry definitions, not free-form operator searches.
@@ -843,6 +903,122 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Strong or usable `Scenario Angle` can improve transformability for policy/news/report sources.
 - Weak or missing framing keeps transformability low, so indirect sources still stay weak unless they are genuinely well-shaped.
 - Transformability helps indirect sources compete more fairly; it does not replace source-aware scoring or let generic news flood the queue.
+
+## Autonomous Approval Queue Notes
+- The autonomous approval queue is a bounded automation layer, not an autonomous publisher.
+- The runner is exposed at:
+  - `GET /api/autonomous/run`
+  - `POST /api/autonomous/run`
+- The current autonomous pass can:
+  - ingest
+  - score missing candidates
+  - auto-interpret stronger signals
+  - auto-generate stronger interpreted signals
+  - classify generated records as approval-ready or held
+- Approval-ready is currently a derived queue classification, not a new canonical record status.
+- Current auto-advance stages are explicit:
+  - `auto_interpret`
+  - `auto_generate`
+  - `auto_prepare_for_review`
+- Current auto-hold reasons are intentionally compact and inspectable. Common examples include:
+  - low confidence
+  - weak framing
+  - indirect source still needs judgement
+  - no reliable playbook or pattern support
+  - weak draft quality
+- Approval ranking is heuristic and inspectable. Current inputs include:
+  - editorial confidence
+  - reuse memory
+  - playbook support
+  - pattern or bundle support
+  - draft quality
+  - review priority
+  - novelty and repetition risk
+- Current audit coverage now includes:
+  - `AUTO_INTERPRETED`
+  - `AUTO_GENERATED`
+  - `AUTO_HELD_FOR_REVIEW`
+  - `AUTO_PROMOTED_TO_APPROVAL_QUEUE`
+- Current limitations:
+  - final review remains manual
+  - scheduling and posting remain manual
+  - there is no auto-posting
+  - image generation is still a provider-agnostic placeholder hook
+  - there is no video rendering integration
+  - automation stays bounded to one inspectable pass rather than a large job system
+
+## Asset Pipeline Notes
+- The asset pipeline is centralized in `lib/assets.ts`.
+- Generated packages can now carry:
+  - `imageAssets[]`
+  - `videoConcepts[]`
+  - `suggestedPrimaryAssetType`
+- Image assets include:
+  - concept title
+  - concept description
+  - visual style
+  - layout idea
+  - optional text overlay
+  - structured image prompt
+  - platform suggestions
+- Video concepts include:
+  - concept title
+  - concept description
+  - hook
+  - 5-15 second script
+  - simple shot list
+  - style
+  - platform suggestions
+- The generation workbench and final review workspace now support:
+  - reviewing asset concepts
+  - selecting preferred image and video concepts
+  - choosing a preferred asset type
+  - editing the active image prompt
+  - editing the active short-form video script
+- The current `Generate image` action is future-ready only:
+  - it stores a mock generated-image reference
+  - it remains provider-agnostic in this run
+- Asset usage is surfaced lightly in `/insights` as:
+  - image vs video vs text-first mix
+  - simple strong-outcome correlation where posting-outcome history exists
+- Limitations:
+  - concept, prompt, and script level only
+  - no real image-provider integration yet
+  - no video rendering
+  - no asset library or CDN beyond signal-linked metadata
+
+## Repurposing Notes
+- Repurposing is centralized in `lib/repurposing.ts`.
+- The current models are:
+  - `RepurposedOutput`
+  - `RepurposingBundle`
+- Current bounded platform outputs include:
+  - X
+  - LinkedIn
+  - Reddit
+  - Carousel
+  - Video
+  - Email
+  - optional founder-thought angle
+- Current trigger rules stay bounded:
+  - core platform drafts must already exist
+  - confidence cannot be low
+  - Scenario Angle must be usable or strong
+  - inactive / filtered / posted records do not repurpose
+- Current final review support includes:
+  - editing each variant
+  - selecting which variants to keep
+  - removing variants from the bundle
+- Current `/insights` support includes:
+  - platform mix across repurposed outputs
+  - format distribution
+  - lightweight strong-outcome correlation where selection history exists
+- Limitations:
+  - bounded 3-5 variant bundles only
+  - no auto-posting
+  - no scheduling
+  - no A/B testing system
+  - no large-scale content expansion
 
 ## Next Planned Runs
 - Improve duplicate handling and better borderline-review tooling

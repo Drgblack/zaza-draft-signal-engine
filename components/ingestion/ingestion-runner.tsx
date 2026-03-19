@@ -7,8 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type { IngestionRunSummary, IngestionSourceKind, ManagedIngestionSource } from "@/lib/ingestion/types";
-import type { PipelineRunSummary } from "@/lib/pipeline";
-import type { IngestApiResponse, SourceRegistryResponse, UpdateSourceRegistryResponse } from "@/types/api";
+import type { AutonomousRunSummary, PipelineRunSummary } from "@/lib/pipeline";
+import type { AutonomousRunResponse, IngestApiResponse, SourceRegistryResponse, UpdateSourceRegistryResponse } from "@/types/api";
 
 type ResultTone = "success" | "warning" | "error";
 type SourceFamily = "feed" | "reddit" | "query";
@@ -97,10 +97,12 @@ export function IngestionRunner({
   const [isRunning, setIsRunning] = useState(false);
   const [isScoring, setIsScoring] = useState(false);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
+  const [isRunningAutonomous, setIsRunningAutonomous] = useState(false);
   const [savingSourceId, setSavingSourceId] = useState<string | null>(null);
   const [lastRunLabel, setLastRunLabel] = useState("all enabled sources");
   const [result, setResult] = useState<IngestionRunSummary | null>(null);
   const [pipelineSummary, setPipelineSummary] = useState<PipelineRunSummary | null>(null);
+  const [autonomousSummary, setAutonomousSummary] = useState<AutonomousRunSummary | null>(null);
   const [scoreSummary, setScoreSummary] = useState<{
     processed: number;
     saved: number;
@@ -386,6 +388,46 @@ export function IngestionRunner({
     }
   }
 
+  async function handleRunAutonomous() {
+    setFeedback(null);
+    setIsRunningAutonomous(true);
+
+    try {
+      const response = await fetch("/api/autonomous/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ingestFresh: true,
+          maxCandidates: 10,
+        }),
+      });
+
+      const data = (await response.json()) as AutonomousRunResponse;
+
+      if (!response.ok || !data.success || !data.result) {
+        throw new Error(data.error ?? "Unable to run the autonomous queue.");
+      }
+
+      setAutonomousSummary(data.result);
+      await refreshSources();
+      setFeedback({
+        tone: data.source === "airtable" ? "success" : "warning",
+        title: data.source === "airtable" ? "Autonomous queue completed" : "Mock autonomous queue completed",
+        body: data.result.message,
+      });
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        title: "Autonomous queue failed",
+        body: error instanceof Error ? error.message : "Unable to run the autonomous queue.",
+      });
+    } finally {
+      setIsRunningAutonomous(false);
+    }
+  }
+
   const latestFamilySummary = result ? buildFamilySummary(result) : null;
 
   return (
@@ -438,9 +480,16 @@ export function IngestionRunner({
             <Button
               variant="secondary"
               onClick={handleRunPipeline}
-              disabled={isRunning || isScoring || isRunningPipeline || hasUnsavedSourceChanges}
+              disabled={isRunning || isScoring || isRunningPipeline || isRunningAutonomous || hasUnsavedSourceChanges}
             >
               {isRunningPipeline ? "Running pipeline..." : "Run pipeline"}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleRunAutonomous}
+              disabled={isRunning || isScoring || isRunningPipeline || isRunningAutonomous || hasUnsavedSourceChanges}
+            >
+              {isRunningAutonomous ? "Running autonomous queue..." : "Run autonomous queue"}
             </Button>
           </div>
 
@@ -810,6 +859,103 @@ export function IngestionRunner({
                   <p className="font-medium">Pipeline warnings</p>
                   <div className="mt-2 space-y-2">
                     {pipelineSummary.errors.map((error, index) => (
+                      <p key={`${error.stage}-${error.recordId ?? error.sourceId ?? index}`}>
+                        {error.stage}: {error.message}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Autonomous Approval Queue Run</CardTitle>
+          <CardDescription>
+            Approval-first automation: ingest, score, auto-interpret, auto-generate, then hold or promote candidates into the approval-ready queue.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!autonomousSummary ? (
+            <div className="rounded-2xl bg-slate-100 px-4 py-5 text-sm text-slate-600">
+              No autonomous queue run has been executed in this session yet.
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <div className="rounded-2xl bg-white/80 px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Imported</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">{autonomousSummary.ingestion?.itemsImported ?? 0}</p>
+                </div>
+                <div className="rounded-2xl bg-white/80 px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Scored</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">{autonomousSummary.candidatesScored}</p>
+                </div>
+                <div className="rounded-2xl bg-white/80 px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Auto-interpreted</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">{autonomousSummary.autoInterpreted}</p>
+                </div>
+                <div className="rounded-2xl bg-white/80 px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Auto-generated</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">{autonomousSummary.autoGenerated}</p>
+                </div>
+                <div className="rounded-2xl bg-white/80 px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Approval-ready</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">{autonomousSummary.approvalReady}</p>
+                  <p className="mt-1 text-sm text-slate-500">{autonomousSummary.held} held</p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <div className="space-y-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top candidates</p>
+                  {autonomousSummary.topCandidates.length === 0 ? (
+                    <div className="rounded-2xl bg-slate-100 px-4 py-5 text-sm text-slate-600">
+                      No approval-ready candidates surfaced in this run.
+                    </div>
+                  ) : (
+                    autonomousSummary.topCandidates.map((record) => (
+                      <div key={record.recordId} className="rounded-2xl bg-white/80 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium text-slate-950">{record.sourceTitle}</p>
+                          <p className="text-sm text-slate-500">{record.confidenceLevel ?? "n/a"} confidence</p>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">{record.summary}</p>
+                        <p className="mt-2 text-sm text-slate-500">{record.rankReasons.join(" · ")}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Held cases</p>
+                  {autonomousSummary.records.held.length === 0 ? (
+                    <div className="rounded-2xl bg-slate-100 px-4 py-5 text-sm text-slate-600">
+                      No cases were held in this run.
+                    </div>
+                  ) : (
+                    autonomousSummary.records.held.map((record) => (
+                      <div key={record.recordId} className="rounded-2xl bg-white/80 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium text-slate-950">{record.sourceTitle}</p>
+                          <p className="text-sm text-slate-500">{record.stage.replaceAll("_", " ")}</p>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">{record.summary}</p>
+                        <p className="mt-2 text-sm text-slate-500">{record.reasons.join(" · ")}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {autonomousSummary.errors.length > 0 ? (
+                <div className="rounded-2xl bg-amber-50 px-4 py-4 text-sm text-amber-800">
+                  <p className="font-medium">Autonomous run warnings</p>
+                  <div className="mt-2 space-y-2">
+                    {autonomousSummary.errors.map((error, index) => (
                       <p key={`${error.stage}-${error.recordId ?? error.sourceId ?? index}`}>
                         {error.stage}: {error.message}
                       </p>

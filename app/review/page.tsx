@@ -1,11 +1,16 @@
 import Link from "next/link";
 
+import { ApprovalQueueSection, AutoHeldSection } from "@/components/signals/approval-queue-section";
 import { WorkflowQueueSection } from "@/components/signals/workflow-queue-section";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { assessAutonomousSignal } from "@/lib/auto-advance";
+import { rankApprovalCandidates } from "@/lib/approval-ranking";
+import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { listFeedbackEntries } from "@/lib/feedback";
+import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { listPatterns } from "@/lib/patterns";
 import { listPostingOutcomes } from "@/lib/outcomes";
@@ -27,6 +32,7 @@ export default async function ReviewPage() {
   const bundles = await listPatternBundles();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const strategy = await getCampaignStrategy();
   const tuning = await getOperatorTuning();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
@@ -42,6 +48,7 @@ export default async function ReviewPage() {
     postingOutcomes,
     bundleSummariesByPatternId,
   });
+  const cadence = buildCampaignCadenceSummary(signals, strategy, postingEntries);
   const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
     signals,
     feedbackEntries,
@@ -54,6 +61,31 @@ export default async function ReviewPage() {
     tuning.settings,
   );
   const sortedSignals = sortSignals(signals, "createdDate-desc");
+  const unifiedGuidanceBySignalId = Object.fromEntries(
+    sortedSignals.map((signal) => [
+      signal.recordId,
+      buildUnifiedGuidanceModel({
+        signal,
+        guidance: guidanceBySignalId[signal.recordId],
+        context: "review",
+        tuning: tuning.settings,
+      }),
+    ]),
+  );
+  const autonomousAssessments = sortedSignals.map((signal) => ({
+    signal,
+    guidance: unifiedGuidanceBySignalId[signal.recordId],
+    assessment: assessAutonomousSignal(signal, unifiedGuidanceBySignalId[signal.recordId]),
+  }));
+  const approvalReadyCandidates = rankApprovalCandidates(
+    autonomousAssessments.filter((item) => item.assessment.decision === "approval_ready"),
+    10,
+    {
+      strategy,
+      cadence,
+    },
+  );
+  const heldCases = autonomousAssessments.filter((item) => item.assessment.decision === "hold");
   const postingEntriesBySignalId = indexPostingEntriesBySignalId(postingEntries);
   const postingSummaryBySignalId = Object.fromEntries(
     sortedSignals.map((signal) => [
@@ -65,6 +97,8 @@ export default async function ReviewPage() {
   const scheduledSoon = getScheduledSoonSignals(sortedSignals);
 
   const queueSummary = [
+    { label: "Approval-ready", count: approvalReadyCandidates.length, href: "#approval-ready" },
+    { label: "Auto-held", count: heldCases.length, href: "#auto-held" },
     { label: "Needs interpretation", count: buckets.needsInterpretation.length, href: "#needs-interpretation" },
     { label: "Ready for generation", count: buckets.readyForGeneration.length, href: "#ready-for-generation" },
     { label: "Ready for review", count: buckets.readyForReview.length, href: "#ready-for-review" },
@@ -84,11 +118,11 @@ export default async function ReviewPage() {
           </div>
           <CardTitle className="text-3xl">Review Queue</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
-            Operator queue for what needs attention next. It groups records by the actual editorial stages and now keeps subtle source-aware context visible so teacher discussion signals are easier to spot than generic sector coverage.
+            Approval-first operator queue. The autonomous layer now tries to push strong signals toward near-finished review candidates, while still keeping held cases and normal workflow buckets visible and inspectable.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-0">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
             {queueSummary.map((item) => (
               <Link
                 key={item.label}
@@ -127,6 +161,10 @@ export default async function ReviewPage() {
           )}
         </CardContent>
       </Card>
+
+      <ApprovalQueueSection candidates={approvalReadyCandidates} strategy={strategy} cadence={cadence} />
+
+      <AutoHeldSection items={heldCases} strategy={strategy} />
 
       <WorkflowQueueSection
         id="needs-interpretation"

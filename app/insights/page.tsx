@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { listSignalsWithFallback } from "@/lib/airtable";
 import { appendAuditEventsSafe, listAuditEvents } from "@/lib/audit";
 import { BUNDLE_COVERAGE_STRENGTH_LABELS, type BundleCoverageStrength } from "@/lib/bundle-coverage";
+import { buildCampaignCadenceSummary, buildCampaignDistributionInsights, getCampaignStrategy } from "@/lib/campaigns";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { listPlaybookCards } from "@/lib/playbook-cards";
@@ -148,6 +149,7 @@ export default async function InsightsPage({
   const playbookCards = await listPlaybookCards({ status: "all" });
   const patternFeedbackEntries = await listPatternFeedbackEntries();
   const tuning = await getOperatorTuning();
+  const strategy = await getCampaignStrategy();
   const patternEffectivenessSummaries = buildPatternEffectivenessSummaries(
     allPatterns,
     auditEvents,
@@ -176,6 +178,8 @@ export default async function InsightsPage({
     postingOutcomes,
     tuning,
   });
+  const campaignInsights = buildCampaignDistributionInsights(signals, strategy, postingEntries);
+  const campaignCadence = buildCampaignCadenceSummary(signals, strategy, postingEntries);
   await appendAuditEventsSafe(
     insights.playbook.topCoverageGaps.map((gap) => ({
       signalId: `playbook-gap:${gap.key}`,
@@ -253,6 +257,97 @@ export default async function InsightsPage({
           </div>
         </CardContent>
       </Card>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Campaign Strategy</CardTitle>
+            <CardDescription>
+              Current strategic context that is shaping content assignment and approval ranking.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Active campaigns"
+                value={String(campaignCadence.activeCampaignCount)}
+                detail={campaignCadence.activeCampaignNames[0] ? campaignCadence.activeCampaignNames.join(" · ") : "No active campaigns yet."}
+              />
+              <MetricCard
+                label="Pillars"
+                value={String(strategy.pillars.length)}
+                detail="Strategic themes available for assignment and balancing."
+              />
+              <MetricCard
+                label="Audiences"
+                value={String(strategy.audienceSegments.length)}
+                detail="Audience segments available for light targeting."
+              />
+              <MetricCard
+                label="Recent mix window"
+                value={`${campaignCadence.recentWindowDays}d`}
+                detail={`${campaignCadence.recentSignalsCount} recent generated, reviewed, approved, scheduled, or posted records in the cadence window.`}
+              />
+            </div>
+
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              {campaignCadence.underrepresentedFunnels.length > 0 || campaignCadence.underrepresentedPillars.length > 0
+                ? `Current strategic gaps: ${campaignCadence.underrepresentedFunnels.slice(0, 2).join(", ") || "No funnel gap"}${campaignCadence.underrepresentedFunnels.length > 0 && campaignCadence.underrepresentedPillars.length > 0 ? " funnel content and " : ""}${campaignCadence.underrepresentedPillars.slice(0, 2).join(", ") || "no pillar gap"} pillar coverage are underrepresented in recent output.`
+                : "Recent output looks reasonably balanced across the current strategy layer."}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Campaign Distribution</CardTitle>
+            <CardDescription>
+              How current records distribute across campaigns, pillars, and funnel stages.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">By campaign</p>
+              <div className="mt-3 space-y-3">
+                {campaignInsights.byCampaign.length === 0 ? (
+                  <EmptyState copy="No campaign-linked records are available yet." />
+                ) : (
+                  campaignInsights.byCampaign.map((row) => (
+                    <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                      <span className="text-sm text-slate-600">{row.label}</span>
+                      <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">By pillar</p>
+                <div className="mt-3 space-y-3">
+                  {campaignInsights.byPillar.map((row) => (
+                    <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                      <span className="text-sm text-slate-600">{row.label}</span>
+                      <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">By funnel stage</p>
+                <div className="mt-3 space-y-3">
+                  {campaignInsights.byFunnelStage.map((row) => (
+                    <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                      <span className="text-sm text-slate-600">{row.label}</span>
+                      <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader>
@@ -1375,6 +1470,109 @@ export default async function InsightsPage({
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Asset Mix</CardTitle>
+            <CardDescription>
+              Lightweight visibility into how approval-ready content is currently packaging visual support.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-3">
+              {insights.assets.rows.map((row) => (
+                <MetricCard
+                  key={row.type}
+                  label={row.label}
+                  value={String(row.count)}
+                  detail={row.strongCount > 0 ? `${row.strongCount} strong posted outcomes.` : "No strong posted outcomes recorded yet."}
+                />
+              ))}
+            </div>
+
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              {insights.assets.topUsedLabel
+                ? `${insights.assets.topUsedLabel} is the most-used asset posture in the current window.`
+                : "No asset usage pattern is stable enough to surface yet."}
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              {insights.assets.topStrongLabel
+                ? `${insights.assets.topStrongLabel} assets are currently most often tied to strong posted outcomes.`
+                : "There is not enough posted outcome history yet to call out one asset type as strongest."}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Repurposing Mix</CardTitle>
+            <CardDescription>
+              How often one signal is being expanded into additional bounded platform variants.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Bundles"
+                value={String(insights.repurposing.totalBundles)}
+                detail="Signals carrying a saved repurposing bundle."
+              />
+              <MetricCard
+                label="Outputs"
+                value={String(insights.repurposing.totalOutputs)}
+                detail="Total bounded repurposed variants in scope."
+              />
+              <MetricCard
+                label="Top platform"
+                value={insights.repurposing.topPlatformLabel ?? "None yet"}
+                detail="Most common platform across repurposed outputs."
+              />
+              <MetricCard
+                label="Top strong"
+                value={insights.repurposing.topStrongPlatformLabel ?? "None yet"}
+                detail="Platform most often associated with strong posted outcomes where selection history exists."
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">By platform</p>
+                <div className="mt-3 space-y-3">
+                  {insights.repurposing.platformRows.length === 0 ? (
+                    <EmptyState copy="No repurposing bundles are stable enough to summarize yet." />
+                  ) : (
+                    insights.repurposing.platformRows.map((row) => (
+                      <div key={row.platform} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium text-slate-950">{row.label}</p>
+                          <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.count}</Badge>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {row.strongCount > 0 ? `${row.strongCount} strong posted outcomes.` : "No strong posted outcomes recorded yet."}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">By format</p>
+                <div className="mt-3 space-y-3">
+                  {insights.repurposing.formatRows.length === 0 ? (
+                    <EmptyState copy="No repurposed formats are visible yet." />
+                  ) : (
+                    insights.repurposing.formatRows.map((row) => (
+                      <div key={row.formatType} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                        <span className="text-sm text-slate-600">{row.label}</span>
+                        <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Outcome Quality</CardTitle>

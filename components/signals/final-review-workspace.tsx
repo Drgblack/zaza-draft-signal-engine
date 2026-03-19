@@ -3,6 +3,26 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import {
+  buildSignalAssetBundle,
+  buildGeneratedImagePlaceholderUrl,
+  getAssetPrimaryImage,
+  getAssetPrimaryVideo,
+  parseAssetBundle,
+  stringifyAssetBundle,
+  type AssetBundle,
+  type AssetPrimaryType,
+} from "@/lib/assets";
+import {
+  buildRepurposingBundleSummary,
+  buildSignalRepurposingBundle,
+  parseRepurposingBundle,
+  parseSelectedRepurposedOutputIds,
+  stringifyRepurposingBundle,
+  stringifySelectedRepurposedOutputIds,
+  type RepurposedOutput,
+  type RepurposingBundle,
+} from "@/lib/repurposing";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -29,6 +49,15 @@ type ReviewFormState = {
   linkedInReviewStatus: "" | "ready" | "needs_edit" | "skip";
   redditReviewStatus: "" | "ready" | "needs_edit" | "skip";
   finalReviewNotes: string;
+  imagePrompt: string;
+  videoScript: string;
+  assetBundleJson: string;
+  preferredAssetType: "" | AssetPrimaryType;
+  selectedImageAssetId: string;
+  selectedVideoConceptId: string;
+  generatedImageUrl: string;
+  repurposingBundleJson: string;
+  selectedRepurposedOutputIdsJson: string;
 };
 
 type PostingFormState = {
@@ -51,6 +80,14 @@ function toneClasses(tone: "success" | "warning" | "error") {
 }
 
 function createFormState(signal: SignalRecord): ReviewFormState {
+  const assetBundleJson = signal.assetBundleJson ?? stringifyAssetBundle(buildSignalAssetBundle(signal)) ?? "";
+  const repurposingBundle = buildSignalRepurposingBundle(signal);
+  const repurposingBundleJson = signal.repurposingBundleJson ?? stringifyRepurposingBundle(repurposingBundle) ?? "";
+  const selectedRepurposedOutputIdsJson =
+    signal.selectedRepurposedOutputIdsJson ??
+    stringifySelectedRepurposedOutputIds(repurposingBundle?.recommendedSubset ?? []) ??
+    "";
+
   return {
     finalXDraft: signal.finalXDraft ?? signal.xDraft ?? "",
     finalLinkedInDraft: signal.finalLinkedInDraft ?? signal.linkedInDraft ?? "",
@@ -59,6 +96,15 @@ function createFormState(signal: SignalRecord): ReviewFormState {
     linkedInReviewStatus: signal.linkedInReviewStatus ?? "",
     redditReviewStatus: signal.redditReviewStatus ?? "",
     finalReviewNotes: signal.finalReviewNotes ?? "",
+    imagePrompt: signal.imagePrompt ?? "",
+    videoScript: signal.videoScript ?? "",
+    assetBundleJson,
+    preferredAssetType: signal.preferredAssetType ?? "",
+    selectedImageAssetId: signal.selectedImageAssetId ?? "",
+    selectedVideoConceptId: signal.selectedVideoConceptId ?? "",
+    generatedImageUrl: signal.generatedImageUrl ?? "",
+    repurposingBundleJson,
+    selectedRepurposedOutputIdsJson,
   };
 }
 
@@ -211,6 +257,32 @@ export function FinalReviewWorkspace({
           formState.finalReviewNotes !== savedState.finalReviewNotes
             ? formState.finalReviewNotes.trim() || null
             : currentSignal.finalReviewNotes,
+        imagePrompt: formState.imagePrompt !== savedState.imagePrompt ? formState.imagePrompt.trim() || null : currentSignal.imagePrompt,
+        videoScript: formState.videoScript !== savedState.videoScript ? formState.videoScript.trim() || null : currentSignal.videoScript,
+        assetBundleJson:
+          formState.assetBundleJson !== savedState.assetBundleJson ? formState.assetBundleJson.trim() || null : currentSignal.assetBundleJson,
+        preferredAssetType:
+          formState.preferredAssetType !== savedState.preferredAssetType ? formState.preferredAssetType || null : currentSignal.preferredAssetType,
+        selectedImageAssetId:
+          formState.selectedImageAssetId !== savedState.selectedImageAssetId
+            ? formState.selectedImageAssetId.trim() || null
+            : currentSignal.selectedImageAssetId,
+        selectedVideoConceptId:
+          formState.selectedVideoConceptId !== savedState.selectedVideoConceptId
+            ? formState.selectedVideoConceptId.trim() || null
+            : currentSignal.selectedVideoConceptId,
+        generatedImageUrl:
+          formState.generatedImageUrl !== savedState.generatedImageUrl
+            ? formState.generatedImageUrl.trim() || null
+            : currentSignal.generatedImageUrl,
+        repurposingBundleJson:
+          formState.repurposingBundleJson !== savedState.repurposingBundleJson
+            ? formState.repurposingBundleJson.trim() || null
+            : currentSignal.repurposingBundleJson,
+        selectedRepurposedOutputIdsJson:
+          formState.selectedRepurposedOutputIdsJson !== savedState.selectedRepurposedOutputIdsJson
+            ? formState.selectedRepurposedOutputIdsJson.trim() || null
+            : currentSignal.selectedRepurposedOutputIdsJson,
       }),
     [currentSignal, formState, savedState],
   );
@@ -218,9 +290,143 @@ export function FinalReviewWorkspace({
     () => buildSignalPostingSummary(currentSignal, postingEntries),
     [currentSignal, postingEntries],
   );
+  const assetBundle = useMemo(() => parseAssetBundle(formState.assetBundleJson), [formState.assetBundleJson]);
+  const primaryImageAsset = useMemo(
+    () => getAssetPrimaryImage(assetBundle, formState.selectedImageAssetId || null),
+    [assetBundle, formState.selectedImageAssetId],
+  );
+  const primaryVideoConcept = useMemo(
+    () => getAssetPrimaryVideo(assetBundle, formState.selectedVideoConceptId || null),
+    [assetBundle, formState.selectedVideoConceptId],
+  );
+  const repurposingBundle = useMemo(
+    () => parseRepurposingBundle(formState.repurposingBundleJson),
+    [formState.repurposingBundleJson],
+  );
+  const selectedRepurposedOutputIds = useMemo(
+    () => parseSelectedRepurposedOutputIds(formState.selectedRepurposedOutputIdsJson),
+    [formState.selectedRepurposedOutputIdsJson],
+  );
+  const repurposingSummary = useMemo(
+    () => buildRepurposingBundleSummary(repurposingBundle),
+    [repurposingBundle],
+  );
 
   function updateField<K extends keyof ReviewFormState>(key: K, value: ReviewFormState[K]) {
     setFormState((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateAssetBundle(mutator: (bundle: AssetBundle) => AssetBundle) {
+    setFormState((current) => {
+      const bundle = parseAssetBundle(current.assetBundleJson);
+      if (!bundle) {
+        return current;
+      }
+
+      return {
+        ...current,
+        assetBundleJson: stringifyAssetBundle(mutator(bundle)) ?? "",
+      };
+    });
+  }
+
+  function updateRepurposingBundle(mutator: (bundle: RepurposingBundle) => RepurposingBundle) {
+    setFormState((current) => {
+      const bundle = parseRepurposingBundle(current.repurposingBundleJson);
+      if (!bundle) {
+        return current;
+      }
+
+      const nextBundle = mutator(bundle);
+      const selectedIds = parseSelectedRepurposedOutputIds(current.selectedRepurposedOutputIdsJson).filter((id) =>
+        nextBundle.outputs.some((output) => output.id === id),
+      );
+
+      return {
+        ...current,
+        repurposingBundleJson: stringifyRepurposingBundle(nextBundle) ?? "",
+        selectedRepurposedOutputIdsJson: stringifySelectedRepurposedOutputIds(selectedIds) ?? "",
+      };
+    });
+  }
+
+  function toggleRepurposedOutput(outputId: string) {
+    const nextIds = selectedRepurposedOutputIds.includes(outputId)
+      ? selectedRepurposedOutputIds.filter((id) => id !== outputId)
+      : [...selectedRepurposedOutputIds, outputId];
+    updateField("selectedRepurposedOutputIdsJson", stringifySelectedRepurposedOutputIds(nextIds) ?? "");
+  }
+
+  function updateRepurposedOutput(outputId: string, patch: Partial<RepurposedOutput>) {
+    updateRepurposingBundle((bundle) => ({
+      ...bundle,
+      outputs: bundle.outputs.map((output) => (output.id === outputId ? { ...output, ...patch } : output)),
+    }));
+  }
+
+  function removeRepurposedOutput(outputId: string) {
+    updateRepurposingBundle((bundle) => ({
+      ...bundle,
+      outputs: bundle.outputs.filter((output) => output.id !== outputId),
+      recommendedSubset: (bundle.recommendedSubset ?? []).filter((id) => id !== outputId),
+    }));
+  }
+
+  function handleImageSelection(imageAssetId: string) {
+    updateField("selectedImageAssetId", imageAssetId);
+    const selected = assetBundle?.imageAssets.find((asset) => asset.id === imageAssetId);
+    if (selected) {
+      updateField("imagePrompt", selected.imagePrompt);
+    }
+  }
+
+  function handleVideoSelection(videoConceptId: string) {
+    updateField("selectedVideoConceptId", videoConceptId);
+    const selected = assetBundle?.videoConcepts.find((concept) => concept.id === videoConceptId);
+    if (selected) {
+      updateField("videoScript", selected.scriptShort);
+    }
+  }
+
+  function handleImagePromptEdit(value: string) {
+    updateField("imagePrompt", value);
+    if (!formState.selectedImageAssetId) {
+      return;
+    }
+
+    updateAssetBundle((bundle) => ({
+      ...bundle,
+      imageAssets: bundle.imageAssets.map((asset) =>
+        asset.id === formState.selectedImageAssetId ? { ...asset, imagePrompt: value } : asset,
+      ),
+    }));
+  }
+
+  function handleVideoScriptEdit(value: string) {
+    updateField("videoScript", value);
+    if (!formState.selectedVideoConceptId) {
+      return;
+    }
+
+    updateAssetBundle((bundle) => ({
+      ...bundle,
+      videoConcepts: bundle.videoConcepts.map((concept) =>
+        concept.id === formState.selectedVideoConceptId ? { ...concept, scriptShort: value } : concept,
+      ),
+    }));
+  }
+
+  function handleGenerateImagePlaceholder() {
+    if (!formState.selectedImageAssetId) {
+      return;
+    }
+
+    updateField("generatedImageUrl", buildGeneratedImagePlaceholderUrl(currentSignal.recordId, formState.selectedImageAssetId));
+    setFeedback({
+      tone: "warning",
+      title: "Placeholder image generated",
+      body: "A mock generated-image reference was attached so the preferred visual can travel with final review.",
+    });
   }
 
   function updatePostingField(platform: PostingPlatform, key: keyof PostingFormState, value: string) {
@@ -260,6 +466,15 @@ export function FinalReviewWorkspace({
           linkedInReviewStatus: formState.linkedInReviewStatus || null,
           redditReviewStatus: formState.redditReviewStatus || null,
           finalReviewNotes: formState.finalReviewNotes,
+          imagePrompt: formState.imagePrompt,
+          videoScript: formState.videoScript,
+          assetBundleJson: formState.assetBundleJson || null,
+          preferredAssetType: formState.preferredAssetType || null,
+          selectedImageAssetId: formState.selectedImageAssetId || null,
+          selectedVideoConceptId: formState.selectedVideoConceptId || null,
+          generatedImageUrl: formState.generatedImageUrl || null,
+          repurposingBundleJson: formState.repurposingBundleJson || null,
+          selectedRepurposedOutputIdsJson: formState.selectedRepurposedOutputIdsJson || null,
         }),
       });
 
@@ -392,6 +607,30 @@ export function FinalReviewWorkspace({
             Drafts are reviewed here with the current Scenario Angle, interpretation, optional applied pattern, editorial mode, and platform profile already in mind.
             {appliedPatternName ? ` Last applied pattern: ${appliedPatternName}.` : ""}
           </div>
+
+          {assetBundle ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Asset review</p>
+              <p className="mt-2">
+                Primary asset is currently {formState.preferredAssetType === "image" ? "image-first" : formState.preferredAssetType === "video" ? "video-first" : "text-first"}.
+              </p>
+              <p className="mt-2">
+                Image concept: {primaryImageAsset?.conceptTitle ?? "Not selected"} · Video concept: {primaryVideoConcept?.conceptTitle ?? "Not selected"}
+              </p>
+            </div>
+          ) : null}
+
+          {repurposingBundle ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Repurposing bundle</p>
+              <p className="mt-2">
+                Repurposed into {repurposingSummary?.count ?? repurposingBundle.outputs.length} variants with {repurposingSummary?.primaryPlatformLabel ?? "LinkedIn"} as the primary platform.
+              </p>
+              <p className="mt-2">
+                Selected variants: {selectedRepurposedOutputIds.length > 0 ? selectedRepurposedOutputIds.length : repurposingBundle.recommendedSubset?.length ?? 0}
+              </p>
+            </div>
+          ) : null}
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl bg-white/80 px-4 py-4">
@@ -596,6 +835,227 @@ export function FinalReviewWorkspace({
           </Card>
         ))}
       </div>
+
+      {assetBundle ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Asset Concepts</CardTitle>
+            <CardDescription>
+              Lightweight final review for the preferred visual or short-form video support. This stays prompt-and-script level only.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-2">
+                <Label htmlFor="review-primary-asset-type">Primary asset type</Label>
+                <Select
+                  id="review-primary-asset-type"
+                  value={formState.preferredAssetType}
+                  onChange={(event) => updateField("preferredAssetType", event.target.value as ReviewFormState["preferredAssetType"])}
+                >
+                  <option value="">Text-first</option>
+                  <option value="image">Image</option>
+                  <option value="video">Video</option>
+                  <option value="text_first">Text-first</option>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="review-image-concept">Image concept</Label>
+                <Select id="review-image-concept" value={formState.selectedImageAssetId} onChange={(event) => handleImageSelection(event.target.value)}>
+                  <option value="">No image concept</option>
+                  {assetBundle.imageAssets.map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.conceptTitle}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="review-video-concept">Video concept</Label>
+                <Select id="review-video-concept" value={formState.selectedVideoConceptId} onChange={(event) => handleVideoSelection(event.target.value)}>
+                  <option value="">No video concept</option>
+                  {assetBundle.videoConcepts.map((concept) => (
+                    <option key={concept.id} value={concept.id}>
+                      {concept.conceptTitle}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+                <p className="font-medium text-slate-900">Selected image concept</p>
+                <p className="mt-2">{primaryImageAsset?.conceptTitle ?? "No image concept selected"}</p>
+                <p className="mt-2 leading-6">{primaryImageAsset?.conceptDescription}</p>
+                {primaryImageAsset ? (
+                  <>
+                    <p className="mt-2">Style: {primaryImageAsset.visualStyle} · Ratio: {primaryImageAsset.aspectRatio}</p>
+                    <p className="mt-2">Platforms: {primaryImageAsset.platformSuggestions.join(" · ")}</p>
+                    {primaryImageAsset.textOverlay ? <p className="mt-2">Text overlay: {primaryImageAsset.textOverlay}</p> : null}
+                  </>
+                ) : null}
+              </div>
+              <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+                <p className="font-medium text-slate-900">Selected video concept</p>
+                <p className="mt-2">{primaryVideoConcept?.conceptTitle ?? "No video concept selected"}</p>
+                <p className="mt-2 leading-6">{primaryVideoConcept?.conceptDescription}</p>
+                {primaryVideoConcept ? (
+                  <>
+                    <p className="mt-2">Hook: {primaryVideoConcept.hook}</p>
+                    <p className="mt-2">Platforms: {primaryVideoConcept.platformSuggestions.join(" · ")}</p>
+                    <div className="mt-3 space-y-1">
+                      {primaryVideoConcept.shotList.map((shot) => (
+                        <p key={shot}>- {shot}</p>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="review-image-prompt">Editable image prompt</Label>
+                <Textarea id="review-image-prompt" value={formState.imagePrompt} onChange={(event) => handleImagePromptEdit(event.target.value)} className="min-h-[180px]" />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="review-video-script">Editable video script</Label>
+                <Textarea id="review-video-script" value={formState.videoScript} onChange={(event) => handleVideoScriptEdit(event.target.value)} className="min-h-[180px]" />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="button" variant="secondary" size="sm" onClick={handleGenerateImagePlaceholder}>
+                Generate image
+              </Button>
+              <p className="text-sm text-slate-500">
+                Provider-agnostic placeholder only for now. It stores a mock generated-image reference on the signal.
+              </p>
+            </div>
+            {formState.generatedImageUrl ? (
+              <div className="rounded-2xl bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
+                <p className="font-medium text-slate-900">Generated image reference</p>
+                <p className="mt-2 break-all">{formState.generatedImageUrl}</p>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {repurposingBundle ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Repurposed Outputs</CardTitle>
+            <CardDescription>
+              One strong idea expanded into a few bounded platform variants. Select the ones worth keeping, edit them, or remove weak variants.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Bundle summary</p>
+              <p className="mt-2">
+                {repurposingSummary
+                  ? `Repurposed into ${repurposingSummary.count} variants. Primary platform: ${repurposingSummary.primaryPlatformLabel}.`
+                  : "No repurposing summary available."}
+              </p>
+              {repurposingSummary?.previewLabels.length ? (
+                <p className="mt-2">Top previews: {repurposingSummary.previewLabels.join(" · ")}</p>
+              ) : null}
+            </div>
+
+            <div className="space-y-4">
+              {repurposingBundle.outputs.map((output) => {
+                const selected = selectedRepurposedOutputIds.includes(output.id);
+                const platformLabel =
+                  output.platform === "x"
+                    ? "X"
+                    : output.platform === "linkedin"
+                      ? "LinkedIn"
+                      : output.platform === "reddit"
+                        ? "Reddit"
+                        : output.platform === "email"
+                          ? "Email"
+                          : output.platform === "video"
+                            ? "Video"
+                            : output.platform === "carousel"
+                              ? "Carousel"
+                              : "Founder thought";
+
+                return (
+                  <div key={output.id} className="rounded-2xl bg-slate-50/80 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex rounded-full bg-slate-950 px-2.5 py-1 text-xs font-medium text-white">{platformLabel}</span>
+                        <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">{output.formatType}</span>
+                        <label className="flex items-center gap-2 text-sm text-slate-600">
+                          <input type="checkbox" checked={selected} onChange={() => toggleRepurposedOutput(output.id)} />
+                          Select
+                        </label>
+                      </div>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => removeRepurposedOutput(output.id)}>
+                        Remove variant
+                      </Button>
+                    </div>
+
+                    <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                      <div className="grid gap-2">
+                        <Label htmlFor={`${output.id}-title`}>Title</Label>
+                        <Input
+                          id={`${output.id}-title`}
+                          value={output.title ?? ""}
+                          onChange={(event) => updateRepurposedOutput(output.id, { title: event.target.value || null })}
+                          placeholder="Optional title"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor={`${output.id}-hook`}>Hook</Label>
+                        <Input
+                          id={`${output.id}-hook`}
+                          value={output.hook ?? ""}
+                          onChange={(event) => updateRepurposedOutput(output.id, { hook: event.target.value || null })}
+                          placeholder="Optional hook"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-2">
+                      <Label htmlFor={`${output.id}-content`}>Content</Label>
+                      <Textarea
+                        id={`${output.id}-content`}
+                        value={output.content}
+                        onChange={(event) => updateRepurposedOutput(output.id, { content: event.target.value })}
+                        className="min-h-[180px]"
+                      />
+                    </div>
+
+                    <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                      <div className="grid gap-2">
+                        <Label htmlFor={`${output.id}-cta`}>CTA</Label>
+                        <Input
+                          id={`${output.id}-cta`}
+                          value={output.CTA ?? ""}
+                          onChange={(event) => updateRepurposedOutput(output.id, { CTA: event.target.value || null })}
+                          placeholder="Optional CTA"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor={`${output.id}-notes`}>Notes</Label>
+                        <Input
+                          id={`${output.id}-notes`}
+                          value={output.notes ?? ""}
+                          onChange={(event) => updateRepurposedOutput(output.id, { notes: event.target.value || null })}
+                          placeholder="Optional operator note"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

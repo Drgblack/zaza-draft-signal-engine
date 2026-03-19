@@ -1,7 +1,46 @@
 # Codex Runs
 
 ## Current Run
-Run 41 adds Operator Tuning Controls:
+Run 42 adds Autonomous Approval Queue + Auto-Advance Pipeline:
+- new centralized automation rules in `lib/auto-advance.ts`
+- new bounded approval ranking in `lib/approval-ranking.ts`
+- new cron-compatible autonomous runner at:
+  - `GET /api/autonomous/run`
+  - `POST /api/autonomous/run`
+- the autonomous pass can now:
+  - ingest
+  - score missing candidates
+  - auto-interpret stronger signals
+  - auto-generate stronger interpreted signals
+  - classify generated records as approval-ready or held
+- approval-ready remains a derived queue classification rather than a disruptive new status field
+- `/review` now includes:
+  - a dedicated approval-ready queue
+  - ranked top candidates
+  - a separate auto-held section with explicit reasons
+- `/signals/[id]` now includes a compact autonomous queue status card so the operator can see whether a record is approval-ready or held and why
+- `/ingestion` now supports a dedicated autonomous queue run action and summary
+- autonomous run summaries now surface:
+  - auto-interpreted count
+  - auto-generated count
+  - approval-ready count
+  - held count
+  - top candidates
+  - held reasons
+- audit logging now supports:
+  - `AUTO_INTERPRETED`
+  - `AUTO_GENERATED`
+  - `AUTO_HELD_FOR_REVIEW`
+  - `AUTO_PROMOTED_TO_APPROVAL_QUEUE`
+- mock mode now persists autonomous signal updates in-memory well enough for queue testing during a local session
+- this run remains bounded:
+  - no auto-posting
+  - no scheduling automation
+  - no image or video generation APIs
+  - no large worker orchestration system
+
+## Previous Runs
+- Run 41 adds Operator Tuning Controls:
 - new centralized persistent tuning layer in `lib/tuning.ts`
 - pure shared tuning definitions now live in `lib/tuning-definitions.ts`
 - current operator controls are intentionally small and bounded:
@@ -38,8 +77,6 @@ Run 41 adds Operator Tuning Controls:
   - no multi-user settings
   - no automatic tuning or optimisation
   - no per-source custom rule editing
-
-## Previous Runs
 - Run 40 adds Editorial Confidence & Uncertainty Signals:
 - new centralized heuristic confidence model in `lib/editorial-confidence.ts`
 - confidence stays qualitative and operator-facing:
@@ -1132,3 +1169,111 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
 6. Add optional scenario-angle suggestion chaining into ingestion-to-review flows for indirect signals, but only when operator-triggered.
 7. Add explicit Airtable field-clearing semantics for update routes where needed.
 8. Improve operator control over pipeline thresholds and borderline keep/review decisions without turning the product into a tuning console.
+
+## Run 43
+- added a bounded campaign and calendar layer centered in `lib/campaigns.ts`
+- added persistent management UI on `/campaigns` for:
+  - campaigns
+  - content pillars
+  - audience segments
+- added new optional signal context fields:
+  - `campaignId`
+  - `pillarId`
+  - `audienceSegmentId`
+  - `funnelStage`
+  - `ctaGoal`
+- added heuristic default context assignment during interpretation, generation, and the autonomous pipeline when context is missing
+- extended approval ranking so active campaign alignment and underrepresented pillar or funnel mix can lift candidates, while recent repetition can reduce priority slightly
+- extended the approval-ready queue and signal detail view to show compact strategic context
+- extended `/insights` with campaign, pillar, and funnel distribution plus simple cadence notes
+- added campaign-related audit events:
+  - `CAMPAIGN_CREATED`
+  - `CAMPAIGN_UPDATED`
+  - `CONTENT_CONTEXT_ASSIGNED`
+  - `CONTEXT_AUTO_ASSIGNED`
+- kept the layer intentionally bounded:
+  - no drag-and-drop calendar
+  - no scheduling automation
+  - no marketing automation platform
+
+## Run 44
+- added a structured asset pipeline centered in `lib/assets.ts`
+- defined reusable asset models for:
+  - `ImageAsset`
+  - `VideoConcept`
+  - `AssetBundle`
+- generation now attaches a deterministic asset bundle to draft outputs, including:
+  - 1-2 image concepts
+  - 1-2 video concepts
+  - reusable image prompts
+  - short-form video scripts
+  - simple shot lists
+  - platform suggestions
+- persisted asset bundle state on signals with:
+  - `assetBundleJson`
+  - `preferredAssetType`
+  - `selectedImageAssetId`
+  - `selectedVideoConceptId`
+  - `generatedImageUrl`
+- extended generation and final review so the operator can:
+  - review asset concepts
+  - select preferred image and video concepts
+  - choose a preferred asset type
+  - edit the active image prompt
+  - edit the active short-form video script
+- added a provider-agnostic `Generate image` placeholder action that stores a mock generated-image reference without coupling the workflow to one image API
+- extended the approval-ready queue so candidates show compact asset summaries plus image and video concept titles
+- extended `/insights` with a lightweight asset-mix section showing:
+  - image vs video vs text-first usage
+  - simple strong-outcome correlation where posting-outcome history exists
+- added audit coverage for:
+  - `ASSETS_GENERATED`
+  - `ASSET_SELECTED`
+  - `IMAGE_GENERATED`
+- kept the layer intentionally bounded:
+  - no real image-provider integration yet
+  - no video rendering
+  - no asset library or CDN
+  - concept, prompt, and script level only
+
+## Run 45
+- added a bounded repurposing engine centered in `lib/repurposing.ts`
+- defined reusable repurposing models:
+  - `RepurposedOutput`
+  - `RepurposingBundle`
+- added persisted signal fields for:
+  - `repurposingBundleJson`
+  - `selectedRepurposedOutputIdsJson`
+- repurposing now expands stronger signals into a small differentiated bundle of variants such as:
+  - X
+  - LinkedIn
+  - Reddit
+  - Carousel
+  - Video
+  - Email
+  - optional founder-thought angle
+- trigger rules stay bounded and inspectable:
+  - core drafts must exist
+  - confidence cannot be low
+  - Scenario Angle must be usable or strong
+  - inactive or posted records do not repurpose
+- generation save and autonomous pipeline now both create repurposing bundles for eligible signals and clear stale bundles when a record no longer qualifies
+- approval queue now shows:
+  - repurposing bundle summary
+  - variant count
+  - primary platform
+  - compact preview labels
+- final review now supports:
+  - editing each repurposed variant
+  - selecting which variants to keep
+  - removing weak variants from the bundle
+- `/insights` now shows lightweight repurposing platform and format distribution plus simple strong-outcome correlation where selection history exists
+- added audit coverage for:
+  - `REPURPOSING_GENERATED`
+  - `REPURPOSED_OUTPUT_EDITED`
+  - `REPURPOSED_OUTPUT_SELECTED`
+- kept the layer intentionally bounded:
+  - no auto-posting
+  - no scheduling
+  - no uncontrolled content explosion
+  - no A/B testing system

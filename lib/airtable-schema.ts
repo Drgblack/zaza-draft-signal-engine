@@ -1,6 +1,8 @@
 import {
   EDITORIAL_MODES,
+  CTA_GOALS,
   FINAL_DRAFT_REVIEW_STATUSES,
+  FUNNEL_STAGES,
   KEEP_REJECT_RECOMMENDATIONS,
   OUTCOME_QUALITIES,
   PLATFORM_PRIORITIES,
@@ -119,8 +121,20 @@ export const AIRTABLE_SIGNAL_FIELD_DEFINITIONS: Record<SignalFieldKey, AirtableS
   anonymisedUserPattern: { label: "Anonymised User Pattern?", kind: "checkbox" },
   relatedZazaFrameworkTag: { label: "Related Zaza Framework Tag", kind: "text" },
   editorialMode: { label: "Editorial Mode", kind: "select", allowedValues: EDITORIAL_MODES },
+  campaignId: { label: "Campaign ID", kind: "text" },
+  pillarId: { label: "Pillar ID", kind: "text" },
+  audienceSegmentId: { label: "Audience Segment ID", kind: "text" },
+  funnelStage: { label: "Funnel Stage", kind: "select", allowedValues: FUNNEL_STAGES },
+  ctaGoal: { label: "CTA Goal", kind: "select", allowedValues: CTA_GOALS },
   generationModelVersion: { label: "Generation Model Version", kind: "text" },
   promptVersion: { label: "Prompt Version", kind: "text" },
+  assetBundleJson: { label: "Asset Bundle JSON", kind: "text" },
+  repurposingBundleJson: { label: "Repurposing Bundle JSON", kind: "text" },
+  selectedRepurposedOutputIdsJson: { label: "Selected Repurposed Output IDs JSON", kind: "text" },
+  preferredAssetType: { label: "Preferred Asset Type", kind: "select", allowedValues: ["image", "video", "text_first"] },
+  selectedImageAssetId: { label: "Selected Image Asset ID", kind: "text" },
+  selectedVideoConceptId: { label: "Selected Video Concept ID", kind: "text" },
+  generatedImageUrl: { label: "Generated Image URL", kind: "text" },
 };
 
 export const AIRTABLE_SIGNAL_FIELD_KEYS = Object.keys(AIRTABLE_SIGNAL_FIELD_DEFINITIONS) as SignalFieldKey[];

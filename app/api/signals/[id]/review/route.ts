@@ -117,6 +117,16 @@ export async function PATCH(
     linkedInReviewStatus: review.linkedInReviewStatus,
     redditReviewStatus: review.redditReviewStatus,
     finalReviewNotes: review.finalReviewNotes,
+    imagePrompt: review.imagePrompt ?? previousSignal.imagePrompt,
+    videoScript: review.videoScript ?? previousSignal.videoScript,
+    assetBundleJson: review.assetBundleJson ?? previousSignal.assetBundleJson,
+    preferredAssetType: review.preferredAssetType ?? previousSignal.preferredAssetType,
+    selectedImageAssetId: review.selectedImageAssetId ?? previousSignal.selectedImageAssetId,
+    selectedVideoConceptId: review.selectedVideoConceptId ?? previousSignal.selectedVideoConceptId,
+    generatedImageUrl: review.generatedImageUrl ?? previousSignal.generatedImageUrl,
+    repurposingBundleJson: review.repurposingBundleJson ?? previousSignal.repurposingBundleJson,
+    selectedRepurposedOutputIdsJson:
+      review.selectedRepurposedOutputIdsJson ?? previousSignal.selectedRepurposedOutputIdsJson,
     finalReviewStartedAt: startedAt,
     finalReviewedAt: previousSignal.finalReviewedAt,
   };
@@ -131,6 +141,16 @@ export async function PATCH(
     linkedInReviewStatus: review.linkedInReviewStatus,
     redditReviewStatus: review.redditReviewStatus,
     finalReviewNotes: review.finalReviewNotes,
+    imagePrompt: review.imagePrompt ?? previousSignal.imagePrompt,
+    videoScript: review.videoScript ?? previousSignal.videoScript,
+    assetBundleJson: review.assetBundleJson ?? previousSignal.assetBundleJson,
+    preferredAssetType: review.preferredAssetType ?? previousSignal.preferredAssetType,
+    selectedImageAssetId: review.selectedImageAssetId ?? previousSignal.selectedImageAssetId,
+    selectedVideoConceptId: review.selectedVideoConceptId ?? previousSignal.selectedVideoConceptId,
+    generatedImageUrl: review.generatedImageUrl ?? previousSignal.generatedImageUrl,
+    repurposingBundleJson: review.repurposingBundleJson ?? previousSignal.repurposingBundleJson,
+    selectedRepurposedOutputIdsJson:
+      review.selectedRepurposedOutputIdsJson ?? previousSignal.selectedRepurposedOutputIdsJson,
     finalReviewStartedAt: startedAt,
     finalReviewedAt,
   });
@@ -252,6 +272,60 @@ export async function PATCH(
         },
       });
     }
+  }
+
+  if (
+    previousSignal.preferredAssetType !== nextSignal.preferredAssetType ||
+    previousSignal.selectedImageAssetId !== nextSignal.selectedImageAssetId ||
+    previousSignal.selectedVideoConceptId !== nextSignal.selectedVideoConceptId
+  ) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "ASSET_SELECTED",
+      actor: "operator",
+      summary: "Updated preferred asset selection during final review.",
+      metadata: {
+        preferredAssetType: nextSignal.preferredAssetType,
+        selectedImageAssetId: nextSignal.selectedImageAssetId,
+        selectedVideoConceptId: nextSignal.selectedVideoConceptId,
+      },
+    });
+  }
+
+  if (!previousSignal.generatedImageUrl && nextSignal.generatedImageUrl) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "IMAGE_GENERATED",
+      actor: "operator",
+      summary: "Attached a generated image reference during final review.",
+      metadata: {
+        generatedImageUrl: nextSignal.generatedImageUrl,
+      },
+    });
+  }
+
+  if (previousSignal.repurposingBundleJson !== nextSignal.repurposingBundleJson) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "REPURPOSED_OUTPUT_EDITED",
+      actor: "operator",
+      summary: "Edited the repurposing bundle during final review.",
+      metadata: {
+        bundleChanged: true,
+      },
+    });
+  }
+
+  if (previousSignal.selectedRepurposedOutputIdsJson !== nextSignal.selectedRepurposedOutputIdsJson) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "REPURPOSED_OUTPUT_SELECTED",
+      actor: "operator",
+      summary: "Updated selected repurposed outputs during final review.",
+      metadata: {
+        selectedRepurposedOutputIdsJson: nextSignal.selectedRepurposedOutputIdsJson,
+      },
+    });
   }
 
   if (!previousSummary.completed && completedSummary.completed) {

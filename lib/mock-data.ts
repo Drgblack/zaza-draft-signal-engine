@@ -87,8 +87,20 @@ function createSignalRecord(
     anonymisedUserPattern: overrides.anonymisedUserPattern ?? null,
     relatedZazaFrameworkTag: overrides.relatedZazaFrameworkTag ?? null,
     editorialMode: overrides.editorialMode ?? null,
+    campaignId: overrides.campaignId ?? null,
+    pillarId: overrides.pillarId ?? null,
+    audienceSegmentId: overrides.audienceSegmentId ?? null,
+    funnelStage: overrides.funnelStage ?? null,
+    ctaGoal: overrides.ctaGoal ?? null,
     generationModelVersion: overrides.generationModelVersion ?? null,
     promptVersion: overrides.promptVersion ?? null,
+    assetBundleJson: overrides.assetBundleJson ?? null,
+    repurposingBundleJson: overrides.repurposingBundleJson ?? null,
+    selectedRepurposedOutputIdsJson: overrides.selectedRepurposedOutputIdsJson ?? null,
+    preferredAssetType: overrides.preferredAssetType ?? null,
+    selectedImageAssetId: overrides.selectedImageAssetId ?? null,
+    selectedVideoConceptId: overrides.selectedVideoConceptId ?? null,
+    generatedImageUrl: overrides.generatedImageUrl ?? null,
   };
 }
 
@@ -130,6 +142,11 @@ export const mockSignalRecords: SignalRecord[] = [
     reviewPriority: "High",
     status: "Interpreted",
     teacherVoiceSource: "Founder Observation",
+    campaignId: "campaign_first-week-confidence",
+    pillarId: "pillar_practical-tips",
+    audienceSegmentId: "audience_new-teachers",
+    funnelStage: "Trust",
+    ctaGoal: "Share / engage",
   }),
   createSignalRecord({
     recordId: "mock_sig_002",
@@ -173,6 +190,11 @@ export const mockSignalRecords: SignalRecord[] = [
     reviewPriority: "Urgent",
     teacherVoiceSource: "External Public Signal",
     editorialMode: "reassurance_deescalation",
+    campaignId: "campaign_teacher-protection",
+    pillarId: "pillar_teacher-protection",
+    audienceSegmentId: "audience_primary-teachers",
+    funnelStage: "Trust",
+    ctaGoal: "Share / engage",
     finalXDraft: "Teachers are being asked to absorb an always-on expectation system. That is not a small boundary issue.",
     finalLinkedInDraft:
       "One of the clearest teacher pressure signals right now is not workload alone. It is the expectation that care stays available after hours.\n\nThat changes the emotional shape of the job.\n\nIt is also why calmer boundary language matters so much.",
@@ -202,6 +224,11 @@ export const mockSignalRecords: SignalRecord[] = [
     needsHumanReview: true,
     reviewPriority: "Medium",
     teacherVoiceSource: "Support Pattern",
+    campaignId: "campaign_first-week-confidence",
+    pillarId: "pillar_practical-tips",
+    audienceSegmentId: "audience_new-teachers",
+    funnelStage: "Consideration",
+    ctaGoal: "Try product",
     finalXDraft: "Teachers often need wording before they need more strategy.",
     xReviewStatus: "needs_edit",
     linkedInReviewStatus: "ready",
@@ -233,6 +260,11 @@ export const mockSignalRecords: SignalRecord[] = [
     repurposeLater: true,
     repurposeIdeas: "Turn into a side-by-side visual: reactive planning vs reusable structure.",
     editorialMode: "thought_leadership",
+    campaignId: "campaign_first-week-confidence",
+    pillarId: "pillar_practical-tips",
+    audienceSegmentId: "audience_primary-teachers",
+    funnelStage: "Awareness",
+    ctaGoal: "Awareness",
   }),
   createSignalRecord({
     recordId: "mock_sig_005",
@@ -255,6 +287,11 @@ export const mockSignalRecords: SignalRecord[] = [
     status: "Scheduled",
     scheduledDate: "2026-03-24T08:00:00.000Z",
     teacherVoiceSource: "Internal User Signal",
+    campaignId: "campaign_teacher-protection",
+    pillarId: "pillar_teacher-protection",
+    audienceSegmentId: "audience_primary-teachers",
+    funnelStage: "Awareness",
+    ctaGoal: "Awareness",
   }),
   createSignalRecord({
     recordId: "mock_sig_006",
@@ -296,6 +333,11 @@ export const mockSignalRecords: SignalRecord[] = [
     xDraft: "Documentation is not only about evidence. It is about tone under pressure.",
     teacherVoiceSource: "External Public Signal",
     editorialMode: "professional_guidance",
+    campaignId: "campaign_teacher-protection",
+    pillarId: "pillar_teacher-protection",
+    audienceSegmentId: "audience_primary-teachers",
+    funnelStage: "Trust",
+    ctaGoal: "Share / engage",
     finalLinkedInDraft:
       "A lot of teacher stress sits inside documentation tone.\n\nThe issue is not only whether something gets recorded. It is whether the wording stays factual enough to protect the next conversation.\n\nThat is often the real professional judgement call.",
     xReviewStatus: "needs_edit",
@@ -336,6 +378,11 @@ export const mockSignalRecords: SignalRecord[] = [
     reviewPriority: "High",
     status: "Interpreted",
     teacherVoiceSource: "Support Pattern",
+    campaignId: "campaign_teacher-protection",
+    pillarId: "pillar_teacher-protection",
+    audienceSegmentId: "audience_new-teachers",
+    funnelStage: "Trust",
+    ctaGoal: "Share / engage",
   }),
   createSignalRecord({
     recordId: "mock_sig_008",
@@ -371,6 +418,11 @@ export const mockSignalRecords: SignalRecord[] = [
     reviewPriority: "High",
     status: "Interpreted",
     teacherVoiceSource: "External Public Signal",
+    campaignId: "campaign_teacher-protection",
+    pillarId: "pillar_teacher-protection",
+    audienceSegmentId: "audience_primary-teachers",
+    funnelStage: "Trust",
+    ctaGoal: "Share / engage",
   }),
   createSignalRecord({
     recordId: "mock_sig_009",
@@ -2084,6 +2136,11 @@ export function buildMockCreatedSignal(input: SignalCreatePayload): SignalRecord
     autoGenerated: input.autoGenerated ?? null,
     needsHumanReview: input.needsHumanReview ?? null,
     reviewPriority: input.reviewPriority ?? null,
+    campaignId: input.campaignId ?? null,
+    pillarId: input.pillarId ?? null,
+    audienceSegmentId: input.audienceSegmentId ?? null,
+    funnelStage: input.funnelStage ?? null,
+    ctaGoal: input.ctaGoal ?? null,
     status: input.status,
   });
 }
@@ -2104,9 +2161,16 @@ export function buildMockUpdatedSignal(recordId: string, updates: Partial<Signal
     return null;
   }
 
-  return {
+  const nextSignal = {
     ...existing,
     ...updates,
     recordId: existing.recordId,
   };
+  const index = mockSignalRecords.findIndex((signal) => signal.recordId === recordId);
+
+  if (index >= 0) {
+    mockSignalRecords[index] = nextSignal;
+  }
+
+  return nextSignal;
 }

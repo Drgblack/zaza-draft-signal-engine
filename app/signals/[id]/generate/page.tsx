@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAuditEvents, listAuditEvents } from "@/lib/audit";
 import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
+import { getCampaignStrategy } from "@/lib/campaigns";
 import { suggestEditorialMode } from "@/lib/editorial-modes";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { buildInitialGenerationFromSignal, toGenerationInputFromSignal } from "@/lib/generator";
@@ -94,6 +95,7 @@ export default async function GenerateSignalPage({
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(allBundles);
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const strategy = await getCampaignStrategy();
   const relatedPatterns = findRelatedPatterns(result.signal, allPatterns, { limit: 3 });
   const auditEvents = await getAuditEvents(result.signal.recordId);
   const allAuditEvents = await listAuditEvents();
@@ -218,6 +220,9 @@ export default async function GenerateSignalPage({
         suggestedEditorialMode={suggestedEditorialMode}
         bundleSummariesByPatternId={bundleSummariesByPatternId}
         initialSelectedPatternBundles={initialSelectedPatternBundles}
+        campaigns={strategy.campaigns}
+        pillars={strategy.pillars}
+        audienceSegments={strategy.audienceSegments}
       />
 
       <FeedbackPanel

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { appendAuditEventsSafe, buildOperatorOverrideEvent, buildRecommendationEvent, listAuditEvents } from "@/lib/audit";
+import { appendAuditEventsSafe, buildOperatorOverrideEvent, buildRecommendationEvent, listAuditEvents, type AuditEventInput } from "@/lib/audit";
 import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { assignSignalContentContext, getCampaignStrategy } from "@/lib/campaigns";
+import { buildSignalAssetBundle } from "@/lib/assets";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
@@ -14,6 +16,12 @@ import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPatterns } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import {
+  assessRepurposingEligibility,
+  buildRepurposingBundle,
+  stringifyRepurposingBundle,
+  stringifySelectedRepurposedOutputIds,
+} from "@/lib/repurposing";
 import { getOperatorTuning } from "@/lib/tuning";
 import { saveGenerationRequestSchema, toGenerationSavePayload, type SaveGenerationResponse } from "@/types/api";
 
@@ -44,6 +52,36 @@ export async function PATCH(
   const generation = toGenerationSavePayload(parsed.data);
   const tuning = await getOperatorTuning();
   const previousSignalResult = await getSignalWithFallback(id);
+  const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
+  const strategy = await getCampaignStrategy();
+  const baseSignal = previousSignalResult.signal ?? allSignals.find((signal) => signal.recordId === id) ?? null;
+  const signalForAssignment = baseSignal
+      ? {
+        ...baseSignal,
+        xDraft: generation.xDraft,
+        linkedInDraft: generation.linkedInDraft,
+        redditDraft: generation.redditDraft,
+        imagePrompt: generation.imagePrompt,
+        videoScript: generation.videoScript,
+        ctaOrClosingLine: generation.ctaOrClosingLine,
+        hashtagsOrKeywords: generation.hashtagsOrKeywords,
+        assetBundleJson: generation.assetBundleJson ?? null,
+        preferredAssetType: generation.preferredAssetType ?? null,
+        selectedImageAssetId: generation.selectedImageAssetId ?? null,
+        selectedVideoConceptId: generation.selectedVideoConceptId ?? null,
+        generatedImageUrl: generation.generatedImageUrl ?? null,
+        editorialMode: generation.editorialMode,
+      }
+    : null;
+  const contextAssignment = signalForAssignment
+    ? assignSignalContentContext(signalForAssignment, strategy, {
+        campaignId: generation.campaignId,
+        pillarId: generation.pillarId,
+        audienceSegmentId: generation.audienceSegmentId,
+        funnelStage: generation.funnelStage,
+        ctaGoal: generation.ctaGoal,
+      })
+    : null;
   const result = await saveSignalWithFallback(id, {
     xDraft: generation.xDraft,
     linkedInDraft: generation.linkedInDraft,
@@ -52,9 +90,19 @@ export async function PATCH(
     videoScript: generation.videoScript,
     ctaOrClosingLine: generation.ctaOrClosingLine,
     hashtagsOrKeywords: generation.hashtagsOrKeywords,
+    assetBundleJson: generation.assetBundleJson ?? null,
+    preferredAssetType: generation.preferredAssetType ?? null,
+    selectedImageAssetId: generation.selectedImageAssetId ?? null,
+    selectedVideoConceptId: generation.selectedVideoConceptId ?? null,
+    generatedImageUrl: generation.generatedImageUrl ?? null,
     generationModelVersion: generation.generationModelVersion,
     promptVersion: generation.promptVersion,
     editorialMode: generation.editorialMode,
+    campaignId: contextAssignment?.context.campaignId ?? generation.campaignId ?? null,
+    pillarId: contextAssignment?.context.pillarId ?? generation.pillarId ?? null,
+    audienceSegmentId: contextAssignment?.context.audienceSegmentId ?? generation.audienceSegmentId ?? null,
+    funnelStage: contextAssignment?.context.funnelStage ?? generation.funnelStage ?? null,
+    ctaGoal: contextAssignment?.context.ctaGoal ?? generation.ctaGoal ?? null,
     status: generation.status ?? "Draft Generated",
   });
 
@@ -72,12 +120,36 @@ export async function PATCH(
     );
   }
 
-  const nextSignal = result.signal;
-  const auditEvents = [];
+  let nextSignal = result.signal;
+  const auditEvents: AuditEventInput[] = [];
   if (previousSignalResult.signal) {
     const overrideEvent = buildOperatorOverrideEvent(previousSignalResult.signal, "generate", tuning.settings);
     if (overrideEvent) {
       auditEvents.push(overrideEvent);
+    }
+
+    const nextContext = contextAssignment?.context;
+    if (
+      nextContext &&
+      (nextContext.campaignId !== previousSignalResult.signal.campaignId ||
+        nextContext.pillarId !== previousSignalResult.signal.pillarId ||
+        nextContext.audienceSegmentId !== previousSignalResult.signal.audienceSegmentId ||
+        nextContext.funnelStage !== previousSignalResult.signal.funnelStage ||
+        nextContext.ctaGoal !== previousSignalResult.signal.ctaGoal)
+    ) {
+      auditEvents.push({
+        signalId: id,
+        eventType: contextAssignment.autoAssignedKeys.length > 0 ? "CONTEXT_AUTO_ASSIGNED" : "CONTENT_CONTEXT_ASSIGNED",
+        actor: "system",
+        summary: contextAssignment.summary,
+        metadata: {
+          campaignId: nextContext.campaignId,
+          pillarId: nextContext.pillarId,
+          audienceSegmentId: nextContext.audienceSegmentId,
+          funnelStage: nextContext.funnelStage,
+          ctaGoal: nextContext.ctaGoal,
+        },
+      });
     }
   }
 
@@ -88,7 +160,6 @@ export async function PATCH(
   const playbookCards = await listPlaybookCards();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
-  const { signals: allSignals } = await listSignalsWithFallback({ limit: 1000 });
   const allAuditEvents = await listAuditEvents();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const updatedSignals = allSignals.map((signal) => (signal.recordId === id ? nextSignal : signal));
@@ -156,6 +227,17 @@ export async function PATCH(
         editorialMode: generation.editorialMode,
       },
     },
+    {
+      signalId: id,
+      eventType: "ASSETS_GENERATED" as const,
+      actor: "system" as const,
+      summary: "Structured image and video asset concepts were generated for review.",
+      metadata: {
+        preferredAssetType: generation.preferredAssetType ?? "text_first",
+        imageAssetSelected: generation.selectedImageAssetId ?? null,
+        videoConceptSelected: generation.selectedVideoConceptId ?? null,
+      },
+    },
     buildRecommendationEvent(nextSignal, tuning.settings),
   );
   const confidenceSnapshot = assembleGuidanceForSignal({
@@ -182,6 +264,43 @@ export async function PATCH(
       topUncertaintyFlag: confidenceSnapshot.confidence.uncertaintyFlags[0]?.code ?? null,
     },
   });
+
+  const repurposingEligibility = assessRepurposingEligibility({
+    signal: nextSignal,
+    confidenceLevel: confidenceSnapshot.confidence.confidenceLevel,
+  });
+  if (repurposingEligibility.eligible) {
+    const repurposingBundle = buildRepurposingBundle({
+      signal: nextSignal,
+      assetBundle: buildSignalAssetBundle(nextSignal),
+    });
+    const repurposingSave = await saveSignalWithFallback(id, {
+      repurposingBundleJson: stringifyRepurposingBundle(repurposingBundle),
+      selectedRepurposedOutputIdsJson: stringifySelectedRepurposedOutputIds(repurposingBundle.recommendedSubset ?? []),
+    });
+
+    if (repurposingSave.signal) {
+      nextSignal = repurposingSave.signal;
+      auditEvents.push({
+        signalId: id,
+        eventType: "REPURPOSING_GENERATED",
+        actor: "system",
+        summary: `Generated ${repurposingBundle.outputs.length} bounded repurposed variants for review.`,
+        metadata: {
+          primaryPlatform: repurposingBundle.primaryPlatform,
+          variantCount: repurposingBundle.outputs.length,
+        },
+      });
+    }
+  } else if (nextSignal.repurposingBundleJson || nextSignal.selectedRepurposedOutputIdsJson) {
+    const clearedRepurposing = await saveSignalWithFallback(id, {
+      repurposingBundleJson: null,
+      selectedRepurposedOutputIdsJson: null,
+    });
+    if (clearedRepurposing.signal) {
+      nextSignal = clearedRepurposing.signal;
+    }
+  }
   await appendAuditEventsSafe(auditEvents);
 
   return NextResponse.json<SaveGenerationResponse>({
