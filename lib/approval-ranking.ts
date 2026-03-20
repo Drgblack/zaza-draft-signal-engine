@@ -2,6 +2,11 @@ import type { AutoAdvanceAssessment } from "@/lib/auto-advance";
 import type { CampaignCadenceSummary, CampaignStrategy } from "@/lib/campaigns";
 import { getSignalContentContextSummary } from "@/lib/campaigns";
 import { evaluateApprovalPackageCompleteness, type ApprovalPackageCompleteness } from "@/lib/completeness";
+import { assessAutomationConfidence, type AutomationConfidenceAssessment } from "@/lib/confidence";
+import { assessConversionIntent, type ConversionIntentAssessment } from "@/lib/conversion-intent";
+import { assessCandidateConflicts, type ConflictAssessment } from "@/lib/conflicts";
+import { buildAttributionRecordsFromInputs } from "@/lib/attribution";
+import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { assessExpectedOutcome, type ExpectedOutcomeAssessment } from "@/lib/expected-outcome-ranking";
 import type { ManualExperiment } from "@/lib/experiments";
 import { buildFatigueModel, type FatigueAssessment } from "@/lib/fatigue";
@@ -11,11 +16,17 @@ import type { PostingOutcome } from "@/lib/outcomes";
 import { applyApprovalPackageAutofill, type PackageAutofillResult } from "@/lib/package-filler";
 import type { PostingLogEntry } from "@/lib/posting-memory";
 import { buildSignalRepurposingBundle } from "@/lib/repurposing";
+import {
+  assessStaleQueueCandidate,
+  readStaleQueueOperatorStateMapSync,
+  type StaleQueueAssessment,
+} from "@/lib/stale-queue";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import type { WeeklyPlan, WeeklyPlanState } from "@/lib/weekly-plan";
 import { getWeeklyPlanAlignment } from "@/lib/weekly-plan";
 import type { SignalRecord } from "@/types/signal";
 import type { DuplicateCluster } from "@/lib/duplicate-clusters";
+import { buildRevenueSignalsFromInputs } from "@/lib/revenue-signals";
 
 export interface ApprovalQueueCandidate {
   signal: SignalRecord;
@@ -25,7 +36,11 @@ export interface ApprovalQueueCandidate {
   fatigue: FatigueAssessment;
   hypothesis: CandidateHypothesis;
   expectedOutcome: ExpectedOutcomeAssessment;
+  conflicts: ConflictAssessment;
+  conversionIntent: ConversionIntentAssessment;
+  automationConfidence: AutomationConfidenceAssessment;
   packageAutofill: PackageAutofillResult;
+  stale: StaleQueueAssessment;
   rankScore: number;
   rankReasons: string[];
 }
@@ -71,6 +86,7 @@ export function rankApprovalCandidates(
     experiments?: ManualExperiment[];
   },
 ): ApprovalQueueCandidate[] {
+  const now = new Date();
   const fatigueModel = buildFatigueModel({
     subjects: candidates.map((candidate) => ({
       id: candidate.signal.recordId,
@@ -80,14 +96,108 @@ export function rankApprovalCandidates(
     signals: candidates.map((candidate) => candidate.signal),
     postingEntries: options?.postingEntries ?? [],
   });
+  const staleOperatorStatesBySignalId = readStaleQueueOperatorStateMapSync(now);
+  const attributionRecords = buildAttributionRecordsFromInputs({
+    postingEntries: options?.postingEntries ?? [],
+    strategicOutcomes: options?.strategicOutcomes ?? [],
+    signals: options?.allSignals ?? candidates.map((item) => item.signal),
+  });
+  const revenueSignals = buildRevenueSignalsFromInputs({
+    postingEntries: options?.postingEntries ?? [],
+    strategicOutcomes: options?.strategicOutcomes ?? [],
+    signals: options?.allSignals ?? candidates.map((item) => item.signal),
+  });
+  const audienceMemory = options?.strategy
+    ? buildAudienceMemoryState({
+        strategy: options.strategy,
+        signals: options?.allSignals ?? candidates.map((item) => item.signal),
+        postingEntries: options?.postingEntries ?? [],
+        strategicOutcomes: options?.strategicOutcomes ?? [],
+        attributionRecords,
+        revenueSignals,
+      })
+    : null;
 
   return candidates
     .map((candidate) => {
       let rankScore = 0;
       const rankReasons: string[] = [];
+      const baseRepurposingBundle = buildSignalRepurposingBundle(candidate.signal);
+      const confirmedCluster = options?.confirmedClustersByCanonicalSignalId?.[candidate.signal.recordId] ?? null;
+      const planAlignment =
+        options?.strategy && options?.weeklyPlan
+          ? getWeeklyPlanAlignment(
+              candidate.signal,
+              options.weeklyPlan,
+              options.strategy,
+              options.weeklyPlanState,
+            )
+          : null;
+      const baseCompleteness = evaluateApprovalPackageCompleteness({
+        signal: candidate.signal,
+        guidanceConfidenceLevel: candidate.guidance.confidence.confidenceLevel,
+      });
+      const fatigue = fatigueModel.assessmentsById[candidate.signal.recordId] ?? {
+        warnings: [],
+        scorePenalty: 0,
+        summary: "No clear fatigue signal surfaced.",
+      };
+      const baseHypothesis = buildCandidateHypothesis({
+        signal: candidate.signal,
+        guidance: candidate.guidance,
+        assessment: candidate.assessment,
+        strategy: options?.strategy,
+        weeklyBoosts: planAlignment?.boosts,
+        weeklyCautions: planAlignment?.cautions,
+      });
+      const baseExpectedOutcome = assessExpectedOutcome({
+        signal: candidate.signal,
+        guidance: candidate.guidance,
+        assessment: candidate.assessment,
+        completeness: baseCompleteness,
+        fatigue,
+        hypothesis: baseHypothesis,
+        allSignals: options?.allSignals ?? candidates.map((item) => item.signal),
+        postingEntries: options?.postingEntries ?? [],
+        postingOutcomes: options?.postingOutcomes ?? [],
+        strategicOutcomes: options?.strategicOutcomes ?? [],
+        attributionRecords,
+        revenueSignals,
+        audienceMemory,
+        experiments: options?.experiments ?? [],
+        strategy: options?.strategy,
+        cadence: options?.cadence,
+      });
+      const baseConflicts = assessCandidateConflicts({
+        signal: candidate.signal,
+        hypothesis: baseHypothesis,
+        expectedOutcome: baseExpectedOutcome,
+        fatigue,
+        strategy: options?.strategy,
+        experiments: options?.experiments ?? [],
+      });
+      const automationConfidence = assessAutomationConfidence({
+        signal: candidate.signal,
+        guidance: candidate.guidance,
+        completeness: baseCompleteness,
+        conflicts: baseConflicts,
+        expectedOutcome: baseExpectedOutcome,
+        hypothesis: baseHypothesis,
+        fatigue,
+      });
+      const baseConversionIntent = assessConversionIntent({
+        signal: candidate.signal,
+        strategy: options?.strategy,
+        conflicts: baseConflicts,
+        attributionRecords,
+        revenueSignals,
+        audienceMemory,
+      });
       const packageAutofill = applyApprovalPackageAutofill({
         signal: candidate.signal,
         guidanceConfidenceLevel: candidate.guidance.confidence.confidenceLevel,
+        automationConfidenceLevel: automationConfidence.level,
+        conversionIntent: baseConversionIntent,
         assessment: candidate.assessment,
         allSignals: options?.allSignals ?? candidates.map((item) => item.signal),
         postingEntries: options?.postingEntries ?? [],
@@ -98,49 +208,64 @@ export function rankApprovalCandidates(
       const rankedSignal = packageAutofill.signal;
       const resolvedContext =
         options?.strategy ? getSignalContentContextSummary(rankedSignal, options.strategy) : null;
-      const repurposingBundle = buildSignalRepurposingBundle(rankedSignal);
-      const confirmedCluster = options?.confirmedClustersByCanonicalSignalId?.[rankedSignal.recordId] ?? null;
-      const planAlignment =
-        options?.strategy && options?.weeklyPlan
-          ? getWeeklyPlanAlignment(
-              rankedSignal,
-              options.weeklyPlan,
-              options.strategy,
-              options.weeklyPlanState,
-            )
-          : null;
-      const completeness = evaluateApprovalPackageCompleteness({
-        signal: rankedSignal,
-        guidanceConfidenceLevel: candidate.guidance.confidence.confidenceLevel,
-      });
-      const fatigue = fatigueModel.assessmentsById[rankedSignal.recordId] ?? {
-        warnings: [],
-        scorePenalty: 0,
-        summary: "No clear fatigue signal surfaced.",
-      };
-      const hypothesis = buildCandidateHypothesis({
-        signal: rankedSignal,
-        guidance: candidate.guidance,
-        assessment: candidate.assessment,
-        strategy: options?.strategy,
-        weeklyBoosts: planAlignment?.boosts,
-        weeklyCautions: planAlignment?.cautions,
-      });
-      const expectedOutcome = assessExpectedOutcome({
-        signal: rankedSignal,
-        guidance: candidate.guidance,
-        assessment: candidate.assessment,
-        completeness,
-        fatigue,
-        hypothesis,
-        allSignals: options?.allSignals ?? candidates.map((item) => item.signal),
-        postingEntries: options?.postingEntries ?? [],
-        postingOutcomes: options?.postingOutcomes ?? [],
-        strategicOutcomes: options?.strategicOutcomes ?? [],
-        experiments: options?.experiments ?? [],
-        strategy: options?.strategy,
-        cadence: options?.cadence,
-      });
+      const completeness =
+        packageAutofill.mode === "applied"
+          ? packageAutofill.completenessAfter
+          : baseCompleteness;
+      const hypothesis =
+        packageAutofill.mode === "applied"
+          ? buildCandidateHypothesis({
+              signal: rankedSignal,
+              guidance: candidate.guidance,
+              assessment: candidate.assessment,
+              strategy: options?.strategy,
+              weeklyBoosts: planAlignment?.boosts,
+              weeklyCautions: planAlignment?.cautions,
+            })
+          : baseHypothesis;
+      const expectedOutcome =
+        packageAutofill.mode === "applied"
+          ? assessExpectedOutcome({
+              signal: rankedSignal,
+              guidance: candidate.guidance,
+              assessment: candidate.assessment,
+              completeness,
+              fatigue,
+              hypothesis,
+              allSignals: options?.allSignals ?? candidates.map((item) => item.signal),
+              postingEntries: options?.postingEntries ?? [],
+              postingOutcomes: options?.postingOutcomes ?? [],
+              strategicOutcomes: options?.strategicOutcomes ?? [],
+              attributionRecords,
+              revenueSignals,
+              audienceMemory,
+              experiments: options?.experiments ?? [],
+              strategy: options?.strategy,
+              cadence: options?.cadence,
+            })
+          : baseExpectedOutcome;
+      const conflicts =
+        packageAutofill.mode === "applied"
+          ? assessCandidateConflicts({
+              signal: rankedSignal,
+              hypothesis,
+              expectedOutcome,
+              fatigue,
+              strategy: options?.strategy,
+              experiments: options?.experiments ?? [],
+            })
+          : baseConflicts;
+      const conversionIntent =
+        packageAutofill.mode === "applied"
+          ? assessConversionIntent({
+              signal: rankedSignal,
+              strategy: options?.strategy,
+              conflicts,
+              attributionRecords,
+              revenueSignals,
+              audienceMemory,
+            })
+          : baseConversionIntent;
 
       rankScore += scoreConfidence(candidate.guidance.confidence.confidenceLevel);
       if (candidate.guidance.confidence.confidenceLevel === "high") {
@@ -189,7 +314,7 @@ export function rankApprovalCandidates(
         uniquePush(rankReasons, "Strong novelty");
       }
 
-      if ((repurposingBundle?.outputs.length ?? 0) >= 4) {
+      if ((baseRepurposingBundle?.outputs.length ?? 0) >= 4) {
         rankScore += 1;
         uniquePush(rankReasons, "Repurposes well across formats");
       }
@@ -209,9 +334,14 @@ export function rankApprovalCandidates(
         uniquePush(rankReasons, `Missing ${completeness.missingElements[0] ?? "package pieces"}`);
       }
 
-      if (packageAutofill.notes.length > 0) {
+      rankScore += automationConfidence.rankAdjustment;
+      uniquePush(rankReasons, automationConfidence.summary);
+
+      if (packageAutofill.mode === "applied" && packageAutofill.notes.length > 0) {
         rankScore += Math.min(2, packageAutofill.notes.length);
         uniquePush(rankReasons, `Approval autopilot filled ${packageAutofill.notes.slice(0, 2).map((note) => note.field.replaceAll("_", " ")).join(" and ")}`);
+      } else if (packageAutofill.mode === "suggested" && packageAutofill.notes.length > 0) {
+        uniquePush(rankReasons, `Approval autopilot suggests ${packageAutofill.notes[0]?.field.replaceAll("_", " ") ?? "package fixes"}`);
       }
 
       rankScore += expectedOutcome.expectedOutcomeScore;
@@ -220,6 +350,12 @@ export function rankApprovalCandidates(
         `${expectedOutcome.expectedOutcomeTier === "high" ? "High" : expectedOutcome.expectedOutcomeTier === "medium" ? "Medium" : "Low"} expected value`,
       );
       uniquePush(rankReasons, expectedOutcome.expectedOutcomeReasons[0]);
+      rankScore += conversionIntent.rankAdjustment;
+      uniquePush(rankReasons, `Conversion posture: ${conversionIntent.posture.replaceAll("_", " ")}`);
+      uniquePush(rankReasons, conversionIntent.whyChosen[0]);
+      if (conflicts.summary[0]) {
+        uniquePush(rankReasons, `Conflict: ${conflicts.summary[0]}`);
+      }
 
       if (planAlignment) {
         rankScore += planAlignment.scoreDelta;
@@ -278,6 +414,20 @@ export function rankApprovalCandidates(
         rankScore -= 1;
       }
 
+      const stale = assessStaleQueueCandidate({
+        signal: rankedSignal,
+        fatigue,
+        expectedOutcome,
+        rankReasons,
+        planAlignment,
+        strategy: options?.strategy,
+        operatorState: staleOperatorStatesBySignalId[rankedSignal.recordId] ?? null,
+        now,
+      });
+
+      rankScore -= conflicts.rankPenalty;
+      rankScore -= stale.rankPenalty;
+
       return {
         ...candidate,
         signal: rankedSignal,
@@ -285,7 +435,11 @@ export function rankApprovalCandidates(
         fatigue,
         hypothesis,
         expectedOutcome,
+        conflicts,
+        conversionIntent,
+        automationConfidence,
         packageAutofill,
+        stale,
         rankScore,
         rankReasons: rankReasons.slice(0, 4),
       };

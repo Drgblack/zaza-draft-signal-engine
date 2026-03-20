@@ -9,6 +9,8 @@ export const CONFIDENCE_STRICTNESS_VALUES = ["cautious", "balanced", "trusting"]
 export const COPILOT_CONSERVATISM_VALUES = ["conservative", "balanced", "action_oriented"] as const;
 export const TRANSFORMABILITY_RESCUE_VALUES = ["low", "medium", "high"] as const;
 export const PATTERN_SUGGESTION_STRICTNESS_VALUES = ["sparse", "balanced", "helpful"] as const;
+export const SAFE_MODE_POSTING_VALUES = ["disabled", "enabled"] as const;
+export const SAFE_MODE_CONFIRMATION_VALUES = ["required", "not_required"] as const;
 
 export type TuningPreset = (typeof TUNING_PRESETS)[number];
 export type StoredTuningPreset = (typeof STORED_TUNING_PRESETS)[number];
@@ -18,6 +20,8 @@ export type ConfidenceStrictness = (typeof CONFIDENCE_STRICTNESS_VALUES)[number]
 export type CopilotConservatism = (typeof COPILOT_CONSERVATISM_VALUES)[number];
 export type TransformabilityRescueStrength = (typeof TRANSFORMABILITY_RESCUE_VALUES)[number];
 export type PatternSuggestionStrictness = (typeof PATTERN_SUGGESTION_STRICTNESS_VALUES)[number];
+export type SafeModePosting = (typeof SAFE_MODE_POSTING_VALUES)[number];
+export type SafeModePostingConfirmation = (typeof SAFE_MODE_CONFIRMATION_VALUES)[number];
 
 export const operatorTuningSettingsSchema = z.object({
   sourceStrictness: z.enum(SOURCE_STRICTNESS_VALUES),
@@ -26,6 +30,8 @@ export const operatorTuningSettingsSchema = z.object({
   copilotConservatism: z.enum(COPILOT_CONSERVATISM_VALUES),
   transformabilityRescueStrength: z.enum(TRANSFORMABILITY_RESCUE_VALUES),
   patternSuggestionStrictness: z.enum(PATTERN_SUGGESTION_STRICTNESS_VALUES),
+  safeModePosting: z.enum(SAFE_MODE_POSTING_VALUES),
+  safeModePostingConfirmation: z.enum(SAFE_MODE_CONFIRMATION_VALUES),
 });
 
 export const operatorTuningSchema = z.object({
@@ -69,6 +75,8 @@ export const TUNING_PRESET_DEFAULTS: Record<TuningPreset, OperatorTuningSettings
     copilotConservatism: "conservative",
     transformabilityRescueStrength: "low",
     patternSuggestionStrictness: "sparse",
+    safeModePosting: "disabled",
+    safeModePostingConfirmation: "required",
   },
   balanced: {
     sourceStrictness: "balanced",
@@ -77,6 +85,8 @@ export const TUNING_PRESET_DEFAULTS: Record<TuningPreset, OperatorTuningSettings
     copilotConservatism: "balanced",
     transformabilityRescueStrength: "medium",
     patternSuggestionStrictness: "balanced",
+    safeModePosting: "disabled",
+    safeModePostingConfirmation: "required",
   },
   exploratory: {
     sourceStrictness: "exploratory",
@@ -85,6 +95,8 @@ export const TUNING_PRESET_DEFAULTS: Record<TuningPreset, OperatorTuningSettings
     copilotConservatism: "action_oriented",
     transformabilityRescueStrength: "high",
     patternSuggestionStrictness: "helpful",
+    safeModePosting: "disabled",
+    safeModePostingConfirmation: "required",
   },
 };
 
@@ -95,6 +107,8 @@ export const TUNING_CONTROL_DEFINITIONS: {
   copilotConservatism: TuningControlDefinition<CopilotConservatism>;
   transformabilityRescueStrength: TuningControlDefinition<TransformabilityRescueStrength>;
   patternSuggestionStrictness: TuningControlDefinition<PatternSuggestionStrictness>;
+  safeModePosting: TuningControlDefinition<SafeModePosting>;
+  safeModePostingConfirmation: TuningControlDefinition<SafeModePostingConfirmation>;
 } = {
   sourceStrictness: {
     label: "Source strictness",
@@ -148,6 +162,22 @@ export const TUNING_CONTROL_DEFINITIONS: {
       { value: "sparse", label: "Sparse", description: "Show only stronger pattern matches." },
       { value: "balanced", label: "Balanced", description: "Keep suggestion thresholds near the current default." },
       { value: "helpful", label: "Helpful", description: "Surface weaker-but-still-usable support more readily." },
+    ],
+  },
+  safeModePosting: {
+    label: "Safe-mode posting",
+    description: "Controls whether the strict guardrail semi-autonomous posting path is available at all.",
+    options: [
+      { value: "disabled", label: "Disabled", description: "Keep safe-mode posting fully off. All posting stays manual." },
+      { value: "enabled", label: "Enabled", description: "Allow the narrow safe-mode posting path, but only for clearly eligible staged items." },
+    ],
+  },
+  safeModePostingConfirmation: {
+    label: "Safe-post confirmation",
+    description: "Controls whether eligible items still require a final operator confirmation step before send.",
+    options: [
+      { value: "required", label: "Required", description: "Show a final confirmation summary before every safe-mode posting action." },
+      { value: "not_required", label: "Not required", description: "Allow one-click safe-mode posting for already eligible staged items." },
     ],
   },
 };
@@ -235,8 +265,9 @@ export function getOperatorTuningSummary(tuning: OperatorTuning): string {
     "transformabilityRescueStrength",
     tuning.settings.transformabilityRescueStrength,
   );
+  const safeModeLabel = getControlOptionLabel("safeModePosting", tuning.settings.safeModePosting);
 
-  return `${presetLabel} mode. Transformability rescue is ${rescueLabel.toLowerCase()}.`;
+  return `${presetLabel} mode. Transformability rescue is ${rescueLabel.toLowerCase()}. Safe-mode posting is ${safeModeLabel.toLowerCase()}.`;
 }
 
 export function getSourceStrictnessConfig(tuning?: OperatorTuning | OperatorTuningSettings | null) {

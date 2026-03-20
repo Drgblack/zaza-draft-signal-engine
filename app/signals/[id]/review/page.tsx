@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { getAuditEvents } from "@/lib/audit";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
-import { getCampaignStrategy } from "@/lib/campaigns";
+import { rankApprovalCandidates } from "@/lib/approval-ranking";
+import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildEditPatternSuggestions, listLearnedEditPatterns } from "@/lib/edit-patterns";
 import { buildEvergreenSummary, getEvergreenCandidateById } from "@/lib/evergreen";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
@@ -17,11 +18,15 @@ import { buildFinalReviewSummary } from "@/lib/final-review";
 import { getExperimentStatusLabel, listExperiments, listExperimentsForSignal } from "@/lib/experiments";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
 import { appendAuditEventsSafe } from "@/lib/audit";
-import { buildCandidateHypothesis } from "@/lib/hypotheses";
 import { listPostingOutcomes } from "@/lib/outcomes";
+import {
+  buildSignalNarrativeSequence,
+  findNarrativeSequenceStep,
+} from "@/lib/narrative-sequences";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPlaybookCards } from "@/lib/playbook-cards";
+import { matchPlaybookPacksForSignal, syncPlaybookPacks } from "@/lib/playbook-packs";
 import { listPatterns } from "@/lib/patterns";
 import { getPostingLogEntries, listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
@@ -30,6 +35,9 @@ import { applyApprovalPackageAutofill } from "@/lib/package-filler";
 import { buildRevisionGuidance } from "@/lib/revision-guidance";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanAlignment } from "@/lib/weekly-plan";
+import { buildWeeklyRecap } from "@/lib/weekly-recap";
+import { assessAutomationConfidence } from "@/lib/confidence";
+import { assessConversionIntent } from "@/lib/conversion-intent";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +91,23 @@ export default async function FinalReviewPage({
     postingOutcomes,
     bundleSummariesByPatternId,
   });
+  const weeklyRecap = buildWeeklyRecap({
+    signals: allSignals,
+    postingEntries: allPostingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    bundleSummariesByPatternId,
+  });
+  const playbookPacks = await syncPlaybookPacks({
+    signals: allSignals,
+    postingEntries: allPostingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    reuseMemoryCases,
+    recap: weeklyRecap,
+  });
   const playbookCoverageSummary = buildPlaybookCoverageSummary({
     signals: allSignals,
     playbookCards,
@@ -96,6 +121,33 @@ export default async function FinalReviewPage({
     signals: allSignals,
     excludeSignalId: signal.recordId,
   });
+  const reviewableSignals = allSignals
+    .filter(
+      (item) =>
+        Boolean(item.xDraft) &&
+        Boolean(item.linkedInDraft) &&
+        Boolean(item.redditDraft) &&
+        item.status !== "Archived" &&
+        item.status !== "Rejected" &&
+        item.status !== "Posted",
+    )
+    .sort((left, right) => new Date(right.createdDate ?? 0).getTime() - new Date(left.createdDate ?? 0).getTime());
+  const reviewableIndex = reviewableSignals.findIndex((item) => item.recordId === signal.recordId);
+  const navigation =
+    reviewableIndex >= 0
+      ? {
+          previousHref:
+            reviewableSignals[reviewableIndex - 1]
+              ? `/signals/${reviewableSignals[reviewableIndex - 1].recordId}/review`
+              : null,
+          nextHref:
+            reviewableSignals[reviewableIndex + 1]
+              ? `/signals/${reviewableSignals[reviewableIndex + 1].recordId}/review`
+              : null,
+          index: reviewableIndex + 1,
+          total: reviewableSignals.length,
+        }
+      : null;
   const editSuggestions = buildEditPatternSuggestions(signal, learnedEditPatterns);
   const revisionGuidance = buildRevisionGuidance({
     signal,
@@ -107,6 +159,16 @@ export default async function FinalReviewPage({
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
   const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, allSignals, allPostingEntries);
   const weeklyPlanAlignment = getWeeklyPlanAlignment(signal, weeklyPlan, strategy, weeklyPlanState);
+  const narrativeSequence = buildSignalNarrativeSequence({
+    signal,
+    strategy,
+  });
+  const narrativeSequenceSteps = {
+    x: findNarrativeSequenceStep(narrativeSequence, "x"),
+    linkedin: findNarrativeSequenceStep(narrativeSequence, "linkedin"),
+    reddit: findNarrativeSequenceStep(narrativeSequence, "reddit"),
+  };
+  const cadence = buildCampaignCadenceSummary(allSignals, strategy, allPostingEntries);
   const evergreenSummary = buildEvergreenSummary({
     signals: allSignals,
     postingEntries: allPostingEntries,
@@ -119,6 +181,7 @@ export default async function FinalReviewPage({
     maxCandidates: 10,
   });
   const evergreenContext = getEvergreenCandidateById(evergreenSummary, evergreenCandidateId);
+  const playbookPackMatches = matchPlaybookPacksForSignal(signal, playbookPacks);
   const guidance = assembleGuidanceForSignal({
     signal,
     context: "review",
@@ -131,23 +194,89 @@ export default async function FinalReviewPage({
     playbookCoverageSummary,
     tuning: tuning.settings,
   });
-  const hypothesis = buildCandidateHypothesis({
+  const autonomousAssessment = assessAutonomousSignal(signal, guidance);
+  const rankedCandidate =
+    rankApprovalCandidates(
+      [
+        {
+          signal,
+          guidance,
+          assessment: autonomousAssessment,
+        },
+      ],
+      1,
+      {
+        strategy,
+        cadence,
+        weeklyPlan,
+        weeklyPlanState,
+        allSignals,
+        postingEntries: allPostingEntries,
+        postingOutcomes,
+        strategicOutcomes,
+        experiments,
+      },
+    )[0] ?? null;
+  const staleAssessment = rankedCandidate?.stale ?? null;
+  const conflictAssessment = rankedCandidate?.conflicts ?? null;
+  const hypothesis =
+    rankedCandidate?.hypothesis ?? {
+      objective: "review manually",
+      whyItMayWork: "This package still needs direct operator judgement before approval.",
+      keyLevers: [],
+      riskNote: "Confidence is still unresolved.",
+    };
+  const fallbackConversionIntent = assessConversionIntent({
     signal,
-    guidance,
     strategy,
-    weeklyBoosts: weeklyPlanAlignment.boosts,
-    weeklyCautions: weeklyPlanAlignment.cautions,
+    conflicts: conflictAssessment,
   });
-  const packageAutofill = applyApprovalPackageAutofill({
-    signal,
-    guidanceConfidenceLevel: guidance.confidence.confidenceLevel,
-    assessment: assessAutonomousSignal(signal, guidance),
-    allSignals,
-    postingEntries: allPostingEntries,
-    postingOutcomes,
-    strategicOutcomes,
-    experiments,
-  });
+  const packageAutofill =
+    rankedCandidate?.packageAutofill ??
+    applyApprovalPackageAutofill({
+      signal,
+      guidanceConfidenceLevel: guidance.confidence.confidenceLevel,
+      automationConfidenceLevel: "medium",
+      conversionIntent: fallbackConversionIntent,
+      assessment: autonomousAssessment,
+      allSignals,
+      postingEntries: allPostingEntries,
+      postingOutcomes,
+      strategicOutcomes,
+      experiments,
+    });
+  const automationConfidence =
+    rankedCandidate?.automationConfidence ??
+    assessAutomationConfidence({
+      signal,
+      guidance,
+      completeness: packageAutofill.completenessAfter,
+      conflicts:
+        conflictAssessment ?? {
+          highestSeverity: null,
+          requiresJudgement: false,
+          summary: [],
+        },
+      expectedOutcome:
+        rankedCandidate?.expectedOutcome ?? {
+          expectedOutcomeTier: "medium",
+          expectedOutcomeReasons: [],
+          positiveSignals: [],
+          riskSignals: [],
+        },
+      hypothesis,
+      fatigue:
+        rankedCandidate?.fatigue ?? {
+          warnings: [],
+        },
+    });
+  const conversionIntent =
+    rankedCandidate?.conversionIntent ??
+    assessConversionIntent({
+      signal: packageAutofill.signal,
+      strategy,
+      conflicts: conflictAssessment,
+    });
   await appendAuditEventsSafe([
     {
       signalId: signal.recordId,
@@ -160,7 +289,31 @@ export default async function FinalReviewPage({
         riskNote: hypothesis.riskNote,
       },
     },
-    ...(packageAutofill.notes.length > 0
+    {
+      signalId: signal.recordId,
+      eventType: "CONVERSION_INTENT_ASSIGNED",
+      actor: "system",
+      summary: `Assigned ${conversionIntent.posture.replaceAll("_", " ")} conversion posture for ${signal.sourceTitle}.`,
+      metadata: {
+        posture: conversionIntent.posture,
+        preferredCtaVariant: conversionIntent.preferredCtaVariant,
+        topReason: conversionIntent.whyChosen[0] ?? null,
+      },
+    },
+    {
+      signalId: signal.recordId,
+      eventType: "CONFIDENCE_ASSIGNED",
+      actor: "system",
+      summary: `${automationConfidence.summary}.`,
+      metadata: {
+        level: automationConfidence.level,
+        allowAutofill: automationConfidence.allowAutofill,
+        allowBatchInclusion: automationConfidence.allowBatchInclusion,
+        allowExperimentProposal: automationConfidence.allowExperimentProposal,
+        topReason: automationConfidence.reasons[0] ?? null,
+      },
+    },
+    ...(packageAutofill.mode === "applied" && packageAutofill.notes.length > 0
       ? [
           {
             signalId: signal.recordId,
@@ -176,6 +329,32 @@ export default async function FinalReviewPage({
         ]
       : []),
   ]);
+  if (signal.platformPriority) {
+    const platform =
+      signal.platformPriority === "X First"
+        ? "x"
+        : signal.platformPriority === "Reddit First"
+          ? "reddit"
+          : "linkedin";
+    const sequenceStep = findNarrativeSequenceStep(narrativeSequence, platform);
+    if (sequenceStep) {
+      await appendAuditEventsSafe([
+        {
+          signalId: signal.recordId,
+          eventType: "NARRATIVE_SEQUENCE_REFERENCED",
+          actor: "operator",
+          summary: `Referenced ${sequenceStep.narrativeLabel} from final review.`,
+          metadata: {
+            sequenceId: sequenceStep.sequenceId,
+            role: sequenceStep.contentRole,
+            order: sequenceStep.stepNumber,
+            platform: sequenceStep.platform,
+            source: "final_review",
+          },
+        },
+      ]);
+    }
+  }
   const experimentContexts = listExperimentsForSignal(experiments, signal.recordId, allPostingEntries)
     .map((experiment) => {
       const matchingVariants = experiment.variants.filter((variant) => variant.linkedSignalIds.includes(signal.recordId));
@@ -247,8 +426,12 @@ export default async function FinalReviewPage({
           <span>{signal.sourceTitle}</span>
           <span>{signal.editorialMode ? getEditorialModeDefinition(signal.editorialMode).label : "Editorial mode not set"}</span>
           {appliedPatternName ? <span>Pattern: {appliedPatternName}</span> : null}
+          {navigation ? <span>Queue position {navigation.index} / {navigation.total}</span> : null}
           <Link href={`/signals/${signal.recordId}`} className="text-[color:var(--accent)] underline underline-offset-4">
             Back to record
+          </Link>
+          <Link href={`/signals/${signal.recordId}/outreach`} className="text-[color:var(--accent)] underline underline-offset-4">
+            Open outreach branch
           </Link>
         </CardContent>
       </Card>
@@ -267,11 +450,37 @@ export default async function FinalReviewPage({
         editSuggestions={editSuggestions}
         revisionGuidance={revisionGuidance.insightsByPlatform}
         guidanceConfidenceLevel={guidance.confidence.confidenceLevel}
+        automationConfidence={automationConfidence}
         hypothesis={hypothesis}
+        packageAutofillMode={packageAutofill.mode}
         packageAutofillNotes={packageAutofill.notes}
+        conversionIntent={conversionIntent}
         experimentContexts={experimentContexts}
         initialPostingEntries={postingEntries}
         evergreenContext={evergreenContext?.signalId === signal.recordId ? evergreenContext : null}
+        staleContext={staleAssessment}
+        conflicts={conflictAssessment}
+        playbookPackMatches={playbookPackMatches}
+        narrativeSequenceSteps={{
+          x: narrativeSequenceSteps.x
+            ? {
+                ...narrativeSequenceSteps.x,
+                roleLabel: narrativeSequenceSteps.x.contentRole.replaceAll("_", " "),
+              }
+            : undefined,
+          linkedin: narrativeSequenceSteps.linkedin
+            ? {
+                ...narrativeSequenceSteps.linkedin,
+                roleLabel: narrativeSequenceSteps.linkedin.contentRole.replaceAll("_", " "),
+              }
+            : undefined,
+          reddit: narrativeSequenceSteps.reddit
+            ? {
+                ...narrativeSequenceSteps.reddit,
+                roleLabel: narrativeSequenceSteps.reddit.contentRole.replaceAll("_", " "),
+              }
+            : undefined,
+        }}
         weeklyPlanContext={{
           weekLabel: weeklyPlanState.weekLabel,
           theme: weeklyPlan.theme,
@@ -279,6 +488,7 @@ export default async function FinalReviewPage({
           boosts: weeklyPlanAlignment.boosts,
           cautions: weeklyPlanAlignment.cautions,
         }}
+        navigation={navigation}
       />
     </div>
   );

@@ -7,6 +7,7 @@ export const NAV_ITEMS = [
   { href: "/playbook", label: "Playbook" },
   { href: "/campaigns", label: "Campaigns" },
   { href: "/plan", label: "Plan" },
+  { href: "/recap", label: "Recap" },
   { href: "/insights", label: "Insights" },
   { href: "/settings", label: "Settings" },
   { href: "/ingestion", label: "Ingestion" },

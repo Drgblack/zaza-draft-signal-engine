@@ -4,10 +4,11 @@ import {
   PLATFORM_INTENT_PROFILES,
   describeModeForPlatform,
 } from "@/lib/platform-profiles";
+import { buildFounderVoicePromptBlock, FOUNDER_VOICE_PRINCIPLES } from "@/lib/founder-voice";
 import type { PatternSummary, SignalPattern } from "@/lib/pattern-definitions";
 import type { SignalGenerationInput } from "@/types/signal";
 import { getScenarioPriority } from "@/lib/scenario-angle";
-import type { EditorialMode } from "@/types/signal";
+import type { EditorialMode, FounderVoiceMode } from "@/types/signal";
 
 export const GENERATION_PROMPT_VERSION = "v1.3.0";
 
@@ -34,7 +35,10 @@ export const GENERATION_JSON_SCHEMA = {
   },
 } as const;
 
-export function buildGenerationSystemPrompt(editorialMode: EditorialMode): string {
+export function buildGenerationSystemPrompt(
+  editorialMode: EditorialMode,
+  founderVoiceMode: FounderVoiceMode = "founder_voice_on",
+): string {
   const mode = getEditorialModeDefinition(editorialMode);
   const xProfile = PLATFORM_INTENT_PROFILES.x;
   const linkedInProfile = PLATFORM_INTENT_PROFILES.linkedin;
@@ -76,6 +80,7 @@ export function buildGenerationSystemPrompt(editorialMode: EditorialMode): strin
     "Video Script: 10 to 20 second short-form script with hook, issue, takeaway, and optional soft close.",
     "CTA / Closing Line: subtle only.",
     "Hashtags / Keywords: light touch only, natural, not stuffed.",
+    ...buildFounderVoicePromptBlock(founderVoiceMode),
     "Editorial mode guardrails:",
     ...mode.promptRules.map((rule) => `- ${rule}`),
     "Avoid explicitly:",
@@ -128,6 +133,7 @@ export function buildGenerationUserPrompt(
   options?: {
     pattern?: SignalPattern | null;
     editorialMode: EditorialMode;
+    founderVoiceMode?: FounderVoiceMode;
   },
 ): string {
   const scenarioPriority = getScenarioPriority({
@@ -150,6 +156,10 @@ export function buildGenerationUserPrompt(
         platformFit: mode.platformFit,
         avoid: mode.avoid,
         promptRules: mode.promptRules,
+      },
+      founderVoice: {
+        mode: options?.founderVoiceMode ?? "founder_voice_on",
+        principles: FOUNDER_VOICE_PRINCIPLES,
       },
       platformProfiles: {
         version: PLATFORM_INTENT_PROFILE_VERSION,

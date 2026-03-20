@@ -214,6 +214,24 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - explicit preservation of operator selections and experiment-linked field ambiguity
   - compact autofill visibility in `/review`, `/signals/[id]/review`, and `/insights`
   - no auto-posting, hidden locking, or unbounded rewriting
+- Outcome follow-up autopilot with:
+  - centralized task generation and persistence in `lib/follow-up.ts`
+  - bounded task types for qualitative post outcome rating, strategic outcome completion, experiment-result completion, and weekly-pack outcome review
+  - simple due-window rules rather than notifications or analytics syncing
+  - stable deduped task ids so repeated reminders do not multiply
+  - `/digest` and `/follow-up` surfaces for viewing, completing, or dismissing tasks
+  - automatic task reconciliation when matching outcome or experiment data is later recorded
+  - light follow-up coverage visibility on `/insights`
+  - no notifications, email, push system, or automatic experiment closure
+- Batch approval prep with:
+  - centralized staging logic in `lib/batch-approval.ts`
+  - bounded 3-5 item selection from the strongest approval-ready candidates
+  - explicit balancing by expected value, completeness, confidence, weekly-plan fit, fatigue, and campaign mix
+  - package autofill applied before staging so near-final package gaps are already reduced
+  - dedicated `/review/batch` surface for light inline edits to hook, CTA, destination, timing, and draft preview
+  - fast actions for approve, hold, skip, and convert-to-experiment flows without opening every record separately
+  - digest link visibility and compact batch-usage summaries on `/insights`
+  - no bulk publishing, scheduling, or hidden auto-approval behavior
 - Strategic outcome loop with:
   - centralized manual business-outcome storage in `lib/strategic-outcomes.ts`
   - one strategic outcome record per posting-log entry
@@ -1179,3 +1197,21 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Decide whether saved draft records later need a lightweight first-class “pattern used” field, or whether audit-only traceability is sufficient
 - Tighten weak source definitions and query wording based on observed usefulness
 - Keep the workflow single-operator and human-in-the-loop without auth or posting integrations
+
+## Review Command Center Compression
+- `/review` is the operational command center, not just a flat queue.
+- Command-center presets narrow work quickly into bounded lanes such as:
+  - ready to approve
+  - needs judgement
+  - missing outcomes
+  - experiment-linked
+  - fatigued
+  - campaign-critical
+  - evergreen
+  - auto-repaired
+- Approval-ready cards default to compact summaries and reveal deeper support only when expanded.
+- Final review keeps a sticky action rail visible for save, approve, hold, suggestion application, posting-log entry, and experiments access.
+- Keyboard shortcuts are discoverable in the final review help panel and remain bounded to high-frequency safe actions.
+- Diff-first editing is intentionally lightweight:
+  - generated vs final deltas are surfaced clearly
+  - no full Git-style diff or merge workflow

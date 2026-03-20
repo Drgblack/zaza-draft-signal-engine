@@ -1,10 +1,12 @@
 import type { CampaignStrategy } from "@/lib/campaigns";
+import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { EDITORIAL_MODE_DEFINITIONS } from "@/lib/editorial-modes";
 import { buildEvergreenSummary } from "@/lib/evergreen";
 import type { PostingOutcome } from "@/lib/outcome-memory";
 import type { PostingLogEntry, PostingPlatform } from "@/lib/posting-memory";
 import { getPostingPlatformLabel } from "@/lib/posting-memory";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
+import type { WeeklyRecap } from "@/lib/weekly-recap";
 import {
   WEEKLY_PLAN_FUNNEL_LABELS,
   type WeeklyPlan,
@@ -177,6 +179,7 @@ export function buildWeeklyPlanAutoDraft(input: {
   postingOutcomes: PostingOutcome[];
   strategicOutcomes: StrategicOutcome[];
   plans: WeeklyPlan[];
+  weeklyRecap?: WeeklyRecap | null;
   now?: Date;
 }): WeeklyPlanAutoDraft {
   const now = input.now ?? new Date();
@@ -187,6 +190,12 @@ export function buildWeeklyPlanAutoDraft(input: {
   const signalById = new Map(input.signals.map((signal) => [signal.recordId, signal]));
 
   const activeCampaigns = input.strategy.campaigns.filter((campaign) => campaign.status === "active");
+  const audienceMemory = buildAudienceMemoryState({
+    strategy: input.strategy,
+    signals: input.signals,
+    postingEntries: input.postingEntries,
+    strategicOutcomes: input.strategicOutcomes,
+  });
   const evergreenSummary = buildEvergreenSummary({
     signals: input.signals,
     postingEntries: input.postingEntries,
@@ -202,6 +211,7 @@ export function buildWeeklyPlanAutoDraft(input: {
   const modeCounts = new Map<EditorialMode, number>();
   const platformCounts = new Map<PostingPlatform, number>();
   const destinationCounts = new Map<string, number>();
+  const audienceCounts = new Map<string, number>();
   const reusableWinnerCounts = new Map<EditorialMode, number>();
   const queuePlatformCounts = new Map<PostingPlatform, number>();
 
@@ -209,6 +219,7 @@ export function buildWeeklyPlanAutoDraft(input: {
     increment(campaignCounts, signal.campaignId);
     increment(funnelCounts, signal.funnelStage);
     increment(modeCounts, signal.editorialMode);
+    increment(audienceCounts, signal.audienceSegmentId);
   }
 
   for (const entry of recentPostingEntries) {
@@ -314,6 +325,26 @@ export function buildWeeklyPlanAutoDraft(input: {
     );
   }
 
+  const strongestAudienceSegment = audienceMemory.segments[0] ?? null;
+  if (strongestAudienceSegment) {
+    const recentAudienceCount = audienceCounts.get(strongestAudienceSegment.segmentId) ?? 0;
+    if (recentAudienceCount <= 1) {
+      uniquePush(
+        proposalReasons,
+        `${strongestAudienceSegment.segmentName} is showing the clearest response pattern, so next week's plan should keep that segment visible.`,
+      );
+    }
+    if (strongestAudienceSegment.strongestModes[0]) {
+      uniquePush(
+        proposalReasons,
+        `${strongestAudienceSegment.segmentName} currently responds best to ${strongestAudienceSegment.strongestModes[0].label}.`,
+      );
+    }
+    if (strongestAudienceSegment.toneCautions[0]) {
+      uniquePush(identifiedGaps, strongestAudienceSegment.toneCautions[0]);
+    }
+  }
+
   if (strongestPlatform && (platformOutcomeScores.get(strongestPlatform) ?? 0) > 0) {
     if (!proposedTargetPlatforms.includes(strongestPlatform)) {
       proposedTargetPlatforms = normalizePlatforms([strongestPlatform, ...proposedTargetPlatforms]);
@@ -412,6 +443,29 @@ export function buildWeeklyPlanAutoDraft(input: {
   }
   if (proposedTargetPlatforms.includes("reddit") && recentPostingEntries.every((entry) => entry.platform !== "reddit")) {
     uniquePush(proposedGoals, "Restore some Reddit coverage with a discussion-safe post.");
+  }
+
+  const recapWinner = input.weeklyRecap?.winners[0] ?? null;
+  const recapReuse = input.weeklyRecap?.reuseCandidates[0] ?? null;
+  const recapPause = input.weeklyRecap?.pauseCandidates[0] ?? null;
+
+  if (recapWinner?.platform && !proposedTargetPlatforms.includes(recapWinner.platform)) {
+    proposedTargetPlatforms = normalizePlatforms([recapWinner.platform, ...proposedTargetPlatforms]);
+    uniquePush(proposalReasons, `Weekly recap still points toward ${getPostingPlatformLabel(recapWinner.platform)} as the clearest winner.`);
+  }
+
+  if (recapReuse?.editorialMode) {
+    proposedTargetModeMix[recapReuse.editorialMode] = clampPriority(
+      Math.max(proposedTargetModeMix[recapReuse.editorialMode], 2),
+    );
+    proposedTargetContentSources.reusedHighPerformers = clampPriority(
+      Math.max(proposedTargetContentSources.reusedHighPerformers, 2),
+    );
+    uniquePush(proposalReasons, `Weekly recap still supports reusing ${recapReuse.label.toLowerCase()}.`);
+  }
+
+  if (recapPause) {
+    uniquePush(identifiedGaps, `Weekly recap flagged ${recapPause.label.toLowerCase()} for reduced emphasis.`);
   }
 
   const proposedTheme =

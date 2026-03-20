@@ -70,9 +70,10 @@ export async function PATCH(
         preferredAssetType: generation.preferredAssetType ?? null,
         selectedImageAssetId: generation.selectedImageAssetId ?? null,
         selectedVideoConceptId: generation.selectedVideoConceptId ?? null,
-        generatedImageUrl: generation.generatedImageUrl ?? null,
-        editorialMode: generation.editorialMode,
-      }
+      generatedImageUrl: generation.generatedImageUrl ?? null,
+      editorialMode: generation.editorialMode,
+      founderVoiceMode: generation.founderVoiceMode,
+    }
     : null;
   const contextAssignment = signalForAssignment
     ? assignSignalContentContext(signalForAssignment, strategy, {
@@ -100,6 +101,11 @@ export async function PATCH(
     generationModelVersion: generation.generationModelVersion,
     promptVersion: generation.promptVersion,
     editorialMode: generation.editorialMode,
+    founderVoiceMode: generation.founderVoiceMode,
+    founderVoiceAppliedAt:
+      generation.founderVoiceMode === "founder_voice_on"
+        ? generation.founderVoiceAppliedAt ?? generation.generatedAt
+        : null,
     campaignId: contextAssignment?.context.campaignId ?? generation.campaignId ?? null,
     pillarId: contextAssignment?.context.pillarId ?? generation.pillarId ?? null,
     audienceSegmentId: contextAssignment?.context.audienceSegmentId ?? generation.audienceSegmentId ?? null,
@@ -227,6 +233,7 @@ export async function PATCH(
         generationSource: generation.generationSource,
         promptVersion: generation.promptVersion,
         editorialMode: generation.editorialMode,
+        founderVoiceMode: generation.founderVoiceMode,
       },
     },
     {
@@ -240,6 +247,18 @@ export async function PATCH(
         videoConceptSelected: generation.selectedVideoConceptId ?? null,
       },
     },
+    ...(generation.founderVoiceMode === "founder_voice_on"
+      ? [{
+          signalId: id,
+          eventType: "FOUNDER_VOICE_APPLIED" as const,
+          actor: "system" as const,
+          summary: "Founder Voice Mode was saved on the draft package.",
+          metadata: {
+            founderVoiceMode: generation.founderVoiceMode,
+            editorialMode: generation.editorialMode,
+          },
+        }]
+      : []),
     buildRecommendationEvent(nextSignal, tuning.settings),
   );
   const confidenceSnapshot = assembleGuidanceForSignal({

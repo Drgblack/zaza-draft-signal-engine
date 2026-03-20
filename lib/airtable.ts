@@ -364,6 +364,11 @@ function mapRecordFromAirtable(record: AirtableRecord<AirtableFields>): SignalRe
       getFieldValue(fields, "editorialMode"),
       AIRTABLE_SIGNAL_FIELD_DEFINITIONS.editorialMode.allowedValues ?? [],
     ) as SignalRecord["editorialMode"],
+    founderVoiceMode: parseSelect(
+      getFieldValue(fields, "founderVoiceMode"),
+      AIRTABLE_SIGNAL_FIELD_DEFINITIONS.founderVoiceMode.allowedValues ?? [],
+    ) as SignalRecord["founderVoiceMode"],
+    founderVoiceAppliedAt: parseText(getFieldValue(fields, "founderVoiceAppliedAt")),
     campaignId: parseText(getFieldValue(fields, "campaignId")),
     pillarId: parseText(getFieldValue(fields, "pillarId")),
     audienceSegmentId: parseText(getFieldValue(fields, "audienceSegmentId")),

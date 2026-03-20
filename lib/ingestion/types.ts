@@ -55,6 +55,7 @@ export const ingestionSourceOverrideSchema = z.object({
   enabled: z.boolean().optional(),
   maxItemsPerRun: z.number().int().positive().max(100).optional(),
   priority: z.enum(INGESTION_SOURCE_PRIORITIES).optional(),
+  query: z.string().trim().min(1).optional(),
   notes: z.string().trim().optional(),
 });
 

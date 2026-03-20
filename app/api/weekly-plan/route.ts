@@ -6,8 +6,10 @@ import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
 import { listSignalsWithFallback } from "@/lib/airtable";
 import { getCampaignStrategy } from "@/lib/campaigns";
 import { listPostingOutcomes } from "@/lib/outcomes";
+import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
+import { buildWeeklyRecap } from "@/lib/weekly-recap";
 import { buildWeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import {
   getCurrentWeeklyPlan,
@@ -70,6 +72,14 @@ export async function POST(request: Request) {
         const postingEntries = await listPostingLogEntries();
         const postingOutcomes = await listPostingOutcomes();
         const strategicOutcomes = await listStrategicOutcomes();
+        const bundles = await listPatternBundles();
+        const weeklyRecap = buildWeeklyRecap({
+          signals,
+          postingEntries,
+          postingOutcomes,
+          strategicOutcomes,
+          bundleSummariesByPatternId: indexBundleSummariesByPatternId(bundles),
+        });
         const draft = buildWeeklyPlanAutoDraft({
           strategy,
           signals,
@@ -77,6 +87,7 @@ export async function POST(request: Request) {
           postingOutcomes,
           strategicOutcomes,
           plans: store.plans,
+          weeklyRecap,
         });
 
         await appendAuditEventsSafe([

@@ -1,25 +1,37 @@
 import Link from "next/link";
 
+import { FlywheelOptimisationPanel } from "@/components/optimisation/flywheel-optimisation-panel";
+import { PlaybookPackSuggestions } from "@/components/playbook/playbook-pack-suggestions";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { buildAudienceMemoryInsights, syncAudienceMemory } from "@/lib/audience-memory";
+import { buildAttributionInsights, syncAttributionMemory } from "@/lib/attribution";
 import { appendAuditEventsSafe, listAuditEvents } from "@/lib/audit";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
+import { buildBatchApprovalPrep } from "@/lib/batch-approval";
 import { BUNDLE_COVERAGE_STRENGTH_LABELS, type BundleCoverageStrength } from "@/lib/bundle-coverage";
 import { buildCampaignCadenceSummary, buildCampaignDistributionInsights, getCampaignStrategy } from "@/lib/campaigns";
+import { buildConflictInsights } from "@/lib/conflicts";
+import { buildConversionIntentInsights, getConversionIntentLabel } from "@/lib/conversion-intent";
 import {
   filterSignalsForActiveReviewQueue,
   indexConfirmedClusterByCanonicalSignalId,
   listDuplicateClusters,
 } from "@/lib/duplicate-clusters";
 import { buildExpectedOutcomeInsights } from "@/lib/expected-outcome-ranking";
+import { buildEvergreenSummary } from "@/lib/evergreen";
 import { buildExperimentInsights, listExperiments } from "@/lib/experiments";
 import { buildAutonomousExperimentProposals, buildExperimentProposalInsights, listExperimentProposals } from "@/lib/experiment-proposals";
 import { buildFatigueModel } from "@/lib/fatigue";
 import { listFeedbackEntries } from "@/lib/feedback";
+import { listFollowUpTasks } from "@/lib/follow-up";
+import { buildFlywheelOptimisation } from "@/lib/flywheel-optimisation";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
+import { buildNarrativeSequenceInsights, buildNarrativeSequencesForSignals } from "@/lib/narrative-sequences";
+import { buildOperatorTaskSummary, listOperatorTasks } from "@/lib/operator-tasks";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { buildPatternBundleUsageRows, indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
@@ -27,12 +39,21 @@ import { buildPatternHealthAssessments, buildPatternHealthSummary } from "@/lib/
 import { PATTERN_TYPE_LABELS } from "@/lib/pattern-definitions";
 import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
 import { buildPatternEffectivenessSummaries, listPatterns } from "@/lib/patterns";
+import { listPostingAssistantPackages } from "@/lib/posting-assistant";
 import { listPostingLogEntries } from "@/lib/posting-log";
+import { buildRevenueSignalInsights, syncRevenueSignals } from "@/lib/revenue-signals";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { syncPlaybookPacks } from "@/lib/playbook-packs";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { buildSafePostingEligibilityMap, buildSafePostingInsights } from "@/lib/safe-posting";
+import { listIngestionSources } from "@/lib/ingestion/sources";
+import { buildStaleQueueOverview } from "@/lib/stale-queue";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
+import { buildSourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import { getOperatorTuning } from "@/lib/tuning";
+import { buildWeeklyPostingPack, buildWeeklyPostingPackInsights } from "@/lib/weekly-posting-pack";
 import { buildWeeklyPlanInsights, buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanStore } from "@/lib/weekly-plan";
+import { buildWeeklyRecap } from "@/lib/weekly-recap";
 import { buildSignalInsights, INSIGHT_WINDOWS, type InsightObservation, type InsightWindow } from "@/lib/insights";
 
 export const dynamic = "force-dynamic";
@@ -95,6 +116,18 @@ function confidenceClasses(level: "high" | "moderate" | "low"): string {
   }
 
   return "bg-slate-100 text-slate-700 ring-slate-200";
+}
+
+function automationConfidenceClasses(level: "high" | "medium" | "low"): string {
+  if (level === "high") {
+    return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  }
+
+  if (level === "low") {
+    return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+
+  return "bg-sky-50 text-sky-700 ring-sky-200";
 }
 
 function expectedOutcomeClasses(tier: "high" | "medium" | "low"): string {
@@ -164,6 +197,7 @@ export default async function InsightsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
+  const renderNow = new Date();
   const windowParam = getSingleValue(params.window);
   const window = INSIGHT_WINDOWS.includes(windowParam as InsightWindow) ? (windowParam as InsightWindow) : "all";
 
@@ -173,6 +207,7 @@ export default async function InsightsPage({
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
   const strategicOutcomes = await listStrategicOutcomes();
+  const ingestionSources = await listIngestionSources();
   const experiments = await listExperiments();
   const storedExperimentProposals = await listExperimentProposals();
   const patterns = await listPatterns();
@@ -185,12 +220,52 @@ export default async function InsightsPage({
   const currentWeeklyPlan = await getCurrentWeeklyPlan(strategy);
   const weeklyPlanStore = await getWeeklyPlanStore(strategy);
   const duplicateClusters = await listDuplicateClusters();
+  const postingAssistantPackages = await listPostingAssistantPackages();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
     signals,
     postingEntries,
     postingOutcomes,
     bundleSummariesByPatternId,
+  });
+  const weeklyRecap = buildWeeklyRecap({
+    signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    bundleSummariesByPatternId,
+  });
+  const attributionRecords = await syncAttributionMemory({
+    signals,
+    postingEntries,
+    strategicOutcomes,
+  });
+  const attributionInsights = buildAttributionInsights(attributionRecords);
+  const revenueSignals = await syncRevenueSignals({
+    signals,
+    postingEntries,
+    strategicOutcomes,
+  });
+  const revenueInsights = buildRevenueSignalInsights(revenueSignals);
+  const audienceMemory = await syncAudienceMemory({
+    strategy,
+    signals,
+    postingEntries,
+    strategicOutcomes,
+    attributionRecords,
+    revenueSignals,
+  });
+  const audienceInsights = buildAudienceMemoryInsights(audienceMemory);
+  const playbookPacks = await syncPlaybookPacks({
+    signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    reuseMemoryCases,
+    recap: weeklyRecap,
+    revenueSignals,
   });
   const playbookCoverageSummary = buildPlaybookCoverageSummary({
     signals,
@@ -239,6 +314,34 @@ export default async function InsightsPage({
     strategicOutcomes,
     tuning,
   });
+  const sourceAutopilot = await buildSourceAutopilotV2State({
+    source,
+    sourceRegistry: ingestionSources,
+    signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+  });
+  const operatorTasks = await listOperatorTasks({
+    signals,
+    feedbackEntries,
+    patterns,
+    playbookCards,
+    bundles,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    duplicateClusters,
+    strategy,
+    cadence: buildCampaignCadenceSummary(signals, strategy, postingEntries),
+    weeklyPlan: currentWeeklyPlan,
+    weeklyPlanState: buildWeeklyPlanState(currentWeeklyPlan, strategy, signals, postingEntries),
+    tuning: tuning.settings,
+    experiments,
+    sourceAutopilotState: sourceAutopilot,
+    now: renderNow,
+  });
+  const operatorTaskSummary = buildOperatorTaskSummary(operatorTasks);
   const campaignInsights = buildCampaignDistributionInsights(signals, strategy, postingEntries);
   const campaignCadence = buildCampaignCadenceSummary(signals, strategy, postingEntries);
   const weeklyPlanState = buildWeeklyPlanState(currentWeeklyPlan, strategy, signals, postingEntries);
@@ -264,7 +367,7 @@ export default async function InsightsPage({
   }));
   const approvalReadyCandidates = rankApprovalCandidates(
     autonomousAssessments.filter((item) => item.assessment.decision === "approval_ready"),
-    12,
+    24,
     {
       strategy,
       cadence: campaignCadence,
@@ -278,10 +381,146 @@ export default async function InsightsPage({
       experiments,
     },
   );
+  const evergreenSummary = buildEvergreenSummary({
+    signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    strategy,
+    cadence: campaignCadence,
+    weeklyPlan: currentWeeklyPlan,
+    weeklyPlanState,
+  });
+  const weeklyPostingPack = await buildWeeklyPostingPack({
+    approvalCandidates: approvalReadyCandidates,
+    evergreenSummary,
+    strategy,
+    weeklyPlan: currentWeeklyPlan,
+    weeklyPlanState,
+    postingEntries,
+    now: renderNow,
+  });
+  const weeklyPostingPackInsights = buildWeeklyPostingPackInsights(weeklyPostingPack);
+  const narrativeSequences = buildNarrativeSequencesForSignals({
+    signals,
+    strategy,
+    maxSequences: 40,
+  });
+  const narrativeSequenceInsights = buildNarrativeSequenceInsights({
+    sequences: narrativeSequences,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+  });
+  const safePostingCandidateBySignalId = new Map(
+    rankApprovalCandidates(
+      visibleSignals.map((signal) => ({
+        signal,
+        guidance: buildUnifiedGuidanceModel({
+          signal,
+          guidance: guidanceBySignalId[signal.recordId],
+          context: "review",
+          tuning: tuning.settings,
+        }),
+        assessment: assessAutonomousSignal(
+          signal,
+          buildUnifiedGuidanceModel({
+            signal,
+            guidance: guidanceBySignalId[signal.recordId],
+            context: "review",
+            tuning: tuning.settings,
+          }),
+        ),
+      })),
+      Math.max(visibleSignals.length, 1),
+      {
+        strategy,
+        cadence: campaignCadence,
+        weeklyPlan: currentWeeklyPlan,
+        weeklyPlanState,
+        confirmedClustersByCanonicalSignalId,
+        allSignals: signals,
+        postingEntries,
+        postingOutcomes,
+        strategicOutcomes,
+        experiments,
+      },
+    ).map((candidate) => [candidate.signal.recordId, candidate] as const),
+  );
+  const stagedPostingPackages = postingAssistantPackages.filter((pkg) => pkg.status === "staged_for_posting");
+  const postedPostingPackages = postingAssistantPackages.filter((pkg) => pkg.status === "posted");
+  const safePostingEligibilityByPackageId = buildSafePostingEligibilityMap({
+    packages: postingAssistantPackages,
+    candidateBySignalId: safePostingCandidateBySignalId,
+    tuning,
+    experiments,
+  });
+  const safePostingInsights = buildSafePostingInsights({
+    packages: postingAssistantPackages,
+    eligibilityByPackageId: safePostingEligibilityByPackageId,
+  });
+  const stagedPostingPlatformRows = [...new Set(stagedPostingPackages.map((pkg) => pkg.platform))]
+    .map((platform) => ({
+      platform,
+      count: stagedPostingPackages.filter((pkg) => pkg.platform === platform).length,
+    }))
+    .sort((left, right) => right.count - left.count || left.platform.localeCompare(right.platform));
+  const stagedPostedConversionRate =
+    stagedPostingPackages.length + postedPostingPackages.length === 0
+      ? 0
+      : postedPostingPackages.length / (stagedPostingPackages.length + postedPostingPackages.length);
+  const postedStagedStrongOutcomeCount = postedPostingPackages.filter((pkg) =>
+    postingEntries
+      .filter((entry) => entry.signalId === pkg.signalId && entry.platform === pkg.platform)
+      .some((entry) => {
+        const postingOutcome = postingOutcomes.find((outcome) => outcome.postingLogId === entry.id);
+        const strategicOutcome = strategicOutcomes.find((outcome) => outcome.postingLogId === entry.id);
+        return postingOutcome?.outcomeQuality === "strong" || strategicOutcome?.strategicValue === "high";
+      }),
+  ).length;
+  const staleQueueOverview = buildStaleQueueOverview(approvalReadyCandidates.map((candidate) => candidate.stale));
+  const conflictInsights = buildConflictInsights(
+    approvalReadyCandidates.map((candidate) => ({
+      conflicts: candidate.conflicts,
+      signal: candidate.signal,
+    })),
+  );
+  const conversionIntentInsights = buildConversionIntentInsights({
+    signals,
+    postingEntries,
+    strategicOutcomes,
+    attributionRecords,
+    revenueSignals,
+    strategy,
+    audienceMemory,
+  });
   const expectedOutcomeInsights = buildExpectedOutcomeInsights(approvalReadyCandidates);
-  const autofilledCandidates = approvalReadyCandidates.filter((candidate) => candidate.packageAutofill.notes.length > 0);
+  const currentBatch = buildBatchApprovalPrep({
+    candidates: approvalReadyCandidates,
+    strategy,
+    maxItems: 5,
+  });
+  const automationConfidenceRows = [
+    {
+      level: "high" as const,
+      label: "High",
+      count: approvalReadyCandidates.filter((candidate) => candidate.automationConfidence.level === "high").length,
+    },
+    {
+      level: "medium" as const,
+      label: "Medium",
+      count: approvalReadyCandidates.filter((candidate) => candidate.automationConfidence.level === "medium").length,
+    },
+    {
+      level: "low" as const,
+      label: "Low",
+      count: approvalReadyCandidates.filter((candidate) => candidate.automationConfidence.level === "low").length,
+    },
+  ];
+  const autofilledCandidates = approvalReadyCandidates.filter((candidate) => candidate.packageAutofill.mode === "applied");
+  const autofillSuggestedCandidates = approvalReadyCandidates.filter((candidate) => candidate.packageAutofill.mode === "suggested");
   const autofillFieldCounts = new Map<string, number>();
-  for (const candidate of autofilledCandidates) {
+  for (const candidate of [...autofilledCandidates, ...autofillSuggestedCandidates]) {
     for (const note of candidate.packageAutofill.notes) {
       autofillFieldCounts.set(note.label, (autofillFieldCounts.get(note.label) ?? 0) + 1);
     }
@@ -312,7 +551,35 @@ export default async function InsightsPage({
     storedProposals: storedExperimentProposals,
     maxProposals: 6,
   });
+  const automationAuditEvents = auditEvents.filter((event) => event.eventType === "CONFIDENCE_ASSIGNED");
+  const automationUsageByLevel = automationConfidenceRows.map((row) => ({
+    ...row,
+    autofillAppliedCount: approvalReadyCandidates.filter(
+      (candidate) => candidate.automationConfidence.level === row.level && candidate.packageAutofill.mode === "applied",
+    ).length,
+    autofillSuggestedCount: approvalReadyCandidates.filter(
+      (candidate) => candidate.automationConfidence.level === row.level && candidate.packageAutofill.mode === "suggested",
+    ).length,
+    autofillBlockedCount: approvalReadyCandidates.filter(
+      (candidate) => candidate.automationConfidence.level === row.level && candidate.packageAutofill.mode === "blocked",
+    ).length,
+    batchEligibleCount: approvalReadyCandidates.filter(
+      (candidate) => candidate.automationConfidence.level === row.level && candidate.automationConfidence.allowBatchInclusion,
+    ).length,
+  }));
   const experimentProposalInsights = buildExperimentProposalInsights(experimentProposals);
+  const flywheelOptimisation = buildFlywheelOptimisation({
+    weeklyRecap,
+    sourceAutopilotState: sourceAutopilot,
+    playbookCoverageSummary,
+    weeklyPostingPack,
+    evergreenSummary,
+    experimentProposalInsights,
+    narrativeSequenceInsights,
+    revenueInsights,
+    audienceMemory,
+    now: renderNow,
+  });
   const weeklyPlanInsights = buildWeeklyPlanInsights(
     weeklyPlanStore.plans,
     strategy,
@@ -320,12 +587,48 @@ export default async function InsightsPage({
     postingEntries,
     strategicOutcomes,
   );
+  const followUpTasks = await listFollowUpTasks({
+    signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    weeklyPlans: weeklyPlanStore.plans,
+  });
+  const openFollowUpTasks = followUpTasks.filter((task) => task.status === "open");
+  const overdueFollowUpTasks = openFollowUpTasks.filter((task) => new Date(task.dueAt).getTime() < renderNow.getTime());
+  const strategicCoverageRatio =
+    postingEntries.length === 0
+      ? 0
+      : strategicOutcomes.length / postingEntries.length;
   const experimentInsights = buildExperimentInsights({
     experiments,
     postingEntries,
     postingOutcomes,
     strategicOutcomes,
   });
+  const batchPrepCreatedCount = auditEvents.filter((event) => event.eventType === "BATCH_APPROVAL_PREP_CREATED").length;
+  const batchApprovedEvents = auditEvents.filter((event) => event.eventType === "BATCH_ITEM_APPROVED");
+  const batchHeldEvents = auditEvents.filter((event) => event.eventType === "BATCH_ITEM_HELD");
+  const batchSkippedEvents = auditEvents.filter((event) => event.eventType === "BATCH_ITEM_SKIPPED");
+  const batchConvertedCount = auditEvents.filter((event) => event.eventType === "BATCH_ITEM_CONVERTED_TO_EXPERIMENT").length;
+  const batchReasonCounts = new Map<string, number>();
+  for (const event of [...batchHeldEvents, ...batchSkippedEvents]) {
+    const reason = typeof event.metadata?.reason === "string" && event.metadata.reason.trim().length > 0
+      ? event.metadata.reason.trim()
+      : event.eventType === "BATCH_ITEM_HELD"
+        ? "Held for follow-up"
+        : "Skipped without note";
+    batchReasonCounts.set(reason, (batchReasonCounts.get(reason) ?? 0) + 1);
+  }
+  const topBatchReasons = [...batchReasonCounts.entries()]
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason))
+    .slice(0, 4);
+  const batchApprovedSignalIds = new Set(batchApprovedEvents.map((event) => event.signalId));
+  const batchPostedSignalIds = new Set(
+    postingEntries.filter((entry) => batchApprovedSignalIds.has(entry.signalId)).map((entry) => entry.signalId),
+  );
   const recentSignals = [...signals]
     .sort(
       (left, right) =>
@@ -601,6 +904,96 @@ export default async function InsightsPage({
 
       <Card>
         <CardHeader>
+          <CardTitle>Conversion-Intent Optimisation</CardTitle>
+          <CardDescription>
+            Lightweight posture guidance showing when the current system is learning to stay awareness-led, trust-first, softly conversion-oriented, or ready for a direct ask.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Top posture"
+              value={conversionIntentInsights.postureRows[0]?.label ?? "None yet"}
+              detail={
+                conversionIntentInsights.postureRows[0]
+                  ? `${conversionIntentInsights.postureRows[0].count} posted examples currently support this posture most often.`
+                  : "No stable conversion-posture evidence has formed yet."
+              }
+            />
+            <MetricCard
+              label="Strong trust-first"
+              value={String(conversionIntentInsights.postureRows.find((row) => row.posture === "trust_first")?.strongCount ?? 0)}
+              detail="Posted items with stronger strategic support while staying trust-first."
+            />
+            <MetricCard
+              label="Revenue-backed soft conversion"
+              value={String(conversionIntentInsights.postureRows.find((row) => row.posture === "soft_conversion")?.revenueCount ?? 0)}
+              detail="Revenue-linked examples that still kept the CTA gentler than a hard conversion ask."
+            />
+            <MetricCard
+              label="Top platform fit"
+              value={conversionIntentInsights.platformRows[0]?.label ?? "None yet"}
+              detail={
+                conversionIntentInsights.platformRows[0]
+                  ? `${conversionIntentInsights.platformRows[0].label} most often supports ${getConversionIntentLabel(conversionIntentInsights.platformRows[0].posture).toLowerCase()}.`
+                  : "No platform conversion-posture pattern is stable enough to call out yet."
+              }
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_0.95fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Posture performance</p>
+              {conversionIntentInsights.postureRows.length === 0 ? (
+                <EmptyState copy="No posted evidence is stable enough yet to summarize conversion posture." />
+              ) : (
+                conversionIntentInsights.postureRows.map((row) => (
+                  <div key={row.posture} className="rounded-2xl bg-white/80 px-4 py-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="font-medium text-slate-950">{row.label}</p>
+                      <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.count}</Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">
+                      {row.strongCount} strong strategic outcomes · {row.revenueCount} revenue-linked outcomes
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-white/80 px-4 py-4">
+                <p className="font-medium text-slate-950">Platform posture pairs</p>
+                <div className="mt-3 space-y-2">
+                  {conversionIntentInsights.platformRows.length === 0 ? (
+                    <p className="text-sm text-slate-500">No platform posture pair is stable enough yet.</p>
+                  ) : (
+                    conversionIntentInsights.platformRows.slice(0, 5).map((row) => (
+                      <div key={`${row.label}-${row.posture}`} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-slate-600">{row.label} · {getConversionIntentLabel(row.posture)}</span>
+                        <span className="font-medium text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {conversionIntentInsights.summary.length === 0 ? (
+                <EmptyState copy="No bounded conversion-intent summary is ready yet." />
+              ) : (
+                conversionIntentInsights.summary.map((item) => (
+                  <div key={item} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                    {item}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Approval Autopilot</CardTitle>
           <CardDescription>
             Bounded package-filler visibility for near-complete candidates. It only fills low-risk package gaps and never bypasses final review.
@@ -669,6 +1062,233 @@ export default async function InsightsPage({
                   ))
                 )}
               </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Batch Approval Prep</CardTitle>
+          <CardDescription>
+            Small bounded review sets built from the strongest near-final candidates. This layer is for faster operator throughput, not bulk publishing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Current batch"
+              value={String(currentBatch.items.length)}
+              detail="Candidates currently staged for one-pass batch review."
+            />
+            <MetricCard
+              label="Batch openings"
+              value={String(batchPrepCreatedCount)}
+              detail="Recorded batch review openings in the audit trail."
+            />
+            <MetricCard
+              label="Batch approvals"
+              value={String(batchApprovedEvents.length)}
+              detail="Items approved directly from the batch surface."
+            />
+            <MetricCard
+              label="Approved then posted"
+              value={String(batchPostedSignalIds.size)}
+              detail="Batch-approved signals that later reached the posting log."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Current prepared set</p>
+              <div className="mt-3 space-y-3">
+                {currentBatch.items.length === 0 ? (
+                  <p className="text-sm text-slate-500">No current batch is strong enough to stage yet.</p>
+                ) : (
+                  currentBatch.items.map((item) => (
+                    <div key={item.signalId} className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge className={expectedOutcomeClasses(item.expectedOutcomeTier)}>{item.expectedOutcomeTier} expected value</Badge>
+                        <Badge className={automationConfidenceClasses(item.automationConfidenceLevel)}>{item.automationConfidenceSummary}</Badge>
+                      </div>
+                      <Link href={item.reviewHref} className="mt-3 block font-medium text-slate-950 hover:text-[color:var(--accent)]">
+                        {item.sourceTitle}
+                      </Link>
+                      <p className="mt-2 text-sm text-slate-600">{item.strongestRationale}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-white/80 px-4 py-4">
+                <p className="font-medium text-slate-950">Batch outcomes</p>
+                <div className="mt-3 space-y-2 text-sm text-slate-600">
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Held in batch</span>
+                    <span className="font-medium text-slate-950">{batchHeldEvents.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Skipped in batch</span>
+                    <span className="font-medium text-slate-950">{batchSkippedEvents.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Converted to experiment</span>
+                    <span className="font-medium text-slate-950">{batchConvertedCount}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-white/80 px-4 py-4">
+                <p className="font-medium text-slate-950">Common hold or skip reasons</p>
+                <div className="mt-3 space-y-2">
+                  {topBatchReasons.length === 0 ? (
+                    <p className="text-sm text-slate-500">No repeated batch hold or skip reason is stable enough yet.</p>
+                  ) : (
+                    topBatchReasons.map((entry) => (
+                      <div key={entry.reason} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-slate-600">{entry.reason}</span>
+                        <span className="font-medium text-slate-950">{entry.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Automation Confidence</CardTitle>
+          <CardDescription>
+            Explicit confidence lanes that gate package autofill, batch inclusion, experiment suggestions, and review priority.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Assigned lanes"
+              value={String(automationAuditEvents.length)}
+              detail="Confidence assignments recorded in the audit trail."
+            />
+            <MetricCard
+              label="Autofill applied"
+              value={String(autofilledCandidates.length)}
+              detail="High-confidence candidates that were safe for bounded autofill."
+            />
+            <MetricCard
+              label="Autofill suggested"
+              value={String(autofillSuggestedCandidates.length)}
+              detail="Medium-confidence candidates where the system only suggested package help."
+            />
+            <MetricCard
+              label="Hold lane"
+              value={String(automationConfidenceRows.find((row) => row.level === "low")?.count ?? 0)}
+              detail="Low-confidence candidates that should stay in operator judgement."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Current lane distribution</p>
+              <div className="mt-3 space-y-3">
+                {automationUsageByLevel.map((row) => (
+                  <div key={row.level} className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <Badge className={automationConfidenceClasses(row.level)}>{row.label} confidence</Badge>
+                      <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">
+                      {row.level === "high"
+                        ? `${row.autofillAppliedCount} autofill-ready · ${row.batchEligibleCount} batch-ready`
+                        : row.level === "medium"
+                          ? `${row.autofillSuggestedCount} suggest-only candidates · ${experimentProposalInsights.openCount} open experiment proposals`
+                          : `${row.autofillBlockedCount} blocked from autopilot`}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Confidence rules in practice</p>
+              <div className="mt-3 space-y-3 text-sm text-slate-600">
+                <div className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                  <p className="font-medium text-slate-900">High</p>
+                  <p className="mt-1">Safe to autopilot. Allows bounded autofill, stronger ranking lift, and batch inclusion.</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                  <p className="font-medium text-slate-900">Medium</p>
+                  <p className="mt-1">Suggest only. Allows experiment proposals and bounded package suggestions, but no silent automation.</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                  <p className="font-medium text-slate-900">Low</p>
+                  <p className="mt-1">Hold for operator judgement. Low-confidence candidates remain visible, but autopilot is blocked.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Outcome Follow-Up</CardTitle>
+          <CardDescription>
+            Bounded autopilot visibility for posted items, experiments, and weekly packs that still need manual learning updates.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Open follow-up tasks"
+              value={String(openFollowUpTasks.length)}
+              detail="Visible manual follow-up tasks currently generated from posted items and experimental gaps."
+            />
+            <MetricCard
+              label="Overdue tasks"
+              value={String(overdueFollowUpTasks.length)}
+              detail="Tasks whose due window has already passed."
+            />
+            <MetricCard
+              label="Experiment gaps"
+              value={String(openFollowUpTasks.filter((task) => task.taskType === "complete_experiment_result").length)}
+              detail="Open experiment tasks still waiting on manual results."
+            />
+            <MetricCard
+              label="Strategic coverage"
+              value={`${Math.round(strategicCoverageRatio * 100)}%`}
+              detail="Posted items with completed strategic outcomes."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Most urgent follow-up tasks</p>
+              <div className="mt-3 space-y-3">
+                {openFollowUpTasks.length === 0 ? (
+                  <p className="text-sm text-slate-500">No follow-up gap is currently open.</p>
+                ) : (
+                  openFollowUpTasks.slice(0, 5).map((task) => (
+                    <div key={task.id} className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                      <Link href={task.href} className="font-medium text-slate-950 hover:text-[color:var(--accent)]">
+                        {task.title}
+                      </Link>
+                      <p className="mt-2 text-sm text-slate-600">{task.reason}</p>
+                      <p className="mt-2 text-xs text-slate-500">{task.dueAt.slice(0, 10)}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              {overdueFollowUpTasks[0]
+                ? `${overdueFollowUpTasks[0].title} is currently the most urgent missed learning loop in the system.`
+                : "No overdue follow-up queue is building up right now."}
             </div>
           </div>
         </CardContent>
@@ -764,6 +1384,213 @@ export default async function InsightsPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Weekly Posting Pack</CardTitle>
+          <CardDescription>
+            A bounded recommendation layer for the best manual posting set this week. It stays advisory, balanced, and separate from scheduling.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Recommended items"
+              value={String(weeklyPostingPackInsights.itemCount)}
+              detail="Bounded weekly pack size stays between 3 and 5 when enough strong candidates exist."
+            />
+            <MetricCard
+              label="Completion rate"
+              value={formatPercent(weeklyPostingPackInsights.completionRate)}
+              detail={`${weeklyPostingPackInsights.approvedCount} approved and ${weeklyPostingPackInsights.postedCount} already posted this week.`}
+            />
+            <MetricCard
+              label="High-value support"
+              value={String(weeklyPostingPackInsights.highValueCount)}
+              detail="Pack items currently carrying high expected or strategic value support."
+            />
+            <MetricCard
+              label="Campaign-critical"
+              value={String(weeklyPostingPackInsights.campaignCriticalCount)}
+              detail="Recommended items preserved because they still matter for the current campaign window."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Coverage quality</p>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {weeklyPostingPackInsights.coverageQuality}
+              </div>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {weeklyPostingPack.coverageSummary.summary}
+              </div>
+            </div>
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current mix</p>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {weeklyPostingPack.platformMix.map((row) => `${row.count} ${row.label}`).join(" · ") || "No platform mix is stable enough yet."}
+              </div>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {weeklyPostingPack.funnelMix.map((row) => `${row.count} ${row.label}`).join(" · ") || "No funnel mix is stable enough yet."}
+              </div>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {weeklyPostingPack.modeMix.map((row) => `${row.count} ${row.label}`).join(" · ") || "No mode mix is stable enough yet."}
+              </div>
+            </div>
+          </div>
+
+          {weeklyPostingPack.coverageSummary.underrepresented.length > 0 ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              Still underrepresented: {weeklyPostingPack.coverageSummary.underrepresented.join(" · ")}
+            </div>
+          ) : null}
+
+          <Link href="/weekly-pack" className="inline-flex text-sm text-[color:var(--accent)] underline underline-offset-4">
+            Open weekly posting pack
+          </Link>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Cross-Platform Narrative Sequencing</CardTitle>
+          <CardDescription>
+            Compact multi-platform arcs that keep one strong signal moving forward instead of fragmenting into isolated posts.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Sequences"
+              value={String(narrativeSequenceInsights.sequenceCount)}
+              detail="Current compact cross-platform arcs the system can explain explicitly."
+            />
+            <MetricCard
+              label="Sequenced signals"
+              value={String(narrativeSequenceInsights.sequencedSignalCount)}
+              detail="Signals currently carrying a reusable narrative arc across platforms."
+            />
+            <MetricCard
+              label="Sequenced posts"
+              value={String(narrativeSequenceInsights.sequencedPostedCount)}
+              detail="Posted items tied back to signals that carried a sequence."
+            />
+            <MetricCard
+              label="Strong outcomes"
+              value={String(narrativeSequenceInsights.strongOutcomeCount)}
+              detail="Sequenced posts later judged strong or strategically high value."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top role and platform combinations</p>
+              {narrativeSequenceInsights.topRolePlatformRows.length === 0 ? (
+                <EmptyState copy="No stable sequence role pattern is visible yet." />
+              ) : (
+                narrativeSequenceInsights.topRolePlatformRows.map((row) => (
+                  <div key={row.key} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                    <span className="text-sm text-slate-600">{row.label}</span>
+                    <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Operational read</p>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {narrativeSequenceInsights.summary}
+              </div>
+              {weeklyPostingPack.sequences[0] ? (
+                <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                  This week&apos;s clearest arc is {weeklyPostingPack.sequences[0].narrativeLabel}:{" "}
+                  {weeklyPostingPack.sequences[0].orderedSteps.map((step) => `${step.order}. ${step.platform === "linkedin" ? "LinkedIn" : step.platform === "x" ? "X" : "Reddit"}`).join(" -> ")}.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Semi-Autonomous Posting Assistant</CardTitle>
+          <CardDescription>
+            A bounded manual-confirmation layer that stages the final caption, CTA, destination, asset direction, and posting context so external publishing becomes copy-and-confirm instead of reassembly work.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Staged now"
+              value={String(stagedPostingPackages.length)}
+              detail="Posting packages currently waiting for manual publishing confirmation."
+            />
+            <MetricCard
+              label="Confirmed posted"
+              value={String(postedPostingPackages.length)}
+              detail="Packages already carried through from staging into posting memory."
+            />
+            <MetricCard
+              label="Stage to posted"
+              value={formatPercent(stagedPostedConversionRate)}
+              detail="Conversion from staged package to confirmed manual posting."
+            />
+            <MetricCard
+              label="Strong outcomes"
+              value={String(postedStagedStrongOutcomeCount)}
+              detail="Confirmed staged packages that later recorded strong qualitative or high strategic outcomes."
+            />
+            <MetricCard
+              label="Safe-post eligible"
+              value={String(safePostingInsights.eligibleCount)}
+              detail="Strict-guardrail staged packages that currently qualify for safe-mode posting."
+            />
+            <MetricCard
+              label="Safe-posted"
+              value={String(safePostingInsights.safePostedCount)}
+              detail={`${safePostingInsights.manualPostedCount} posted manually · ${safePostingInsights.failedCount} staged failures preserved.`}
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Platforms most often staged</p>
+              {stagedPostingPlatformRows.length === 0 ? (
+                <EmptyState copy="No posting packages are staged right now." />
+              ) : (
+                stagedPostingPlatformRows.map((row) => (
+                  <div key={row.platform} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                    <span className="text-sm text-slate-600">
+                      {row.platform === "linkedin" ? "LinkedIn" : row.platform === "x" ? "X" : "Reddit"}
+                    </span>
+                    <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Operational read</p>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {stagedPostingPackages.length === 0
+                  ? "No manual-ready packages are staged yet, so final review is still the main last-mile bottleneck."
+                  : `${stagedPostingPackages.length} package${stagedPostingPackages.length === 1 ? "" : "s"} are already assembled for manual posting. ${postedStagedStrongOutcomeCount > 0 ? `${postedStagedStrongOutcomeCount} staged package${postedStagedStrongOutcomeCount === 1 ? "" : "s"} already map to strong judged outcomes.` : "Outcome evidence is still thin, so the assistant is currently best treated as execution compression rather than a proven performance lift."}`}
+              </div>
+              <Link href="/posting" className="inline-flex text-sm text-[color:var(--accent)] underline underline-offset-4">
+                Open posting assistant
+              </Link>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {safePostingInsights.topBlockReasons.length > 0
+                  ? `Top safe-post blocker: ${safePostingInsights.topBlockReasons[0]?.label}`
+                  : "No persistent safe-post blocker is visible right now."}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -1153,6 +1980,302 @@ export default async function InsightsPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Source Autopilot V2</CardTitle>
+          <CardDescription>
+            Compact visibility into explicit source-change drafts and recently approved source moves.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Open proposals"
+              value={String(sourceAutopilot.proposalSummary.openCount)}
+              detail={`${sourceAutopilot.proposalSummary.openPauseCount} pause drafts are currently open.`}
+            />
+            <MetricCard
+              label="Query rewrites"
+              value={String(sourceAutopilot.proposalSummary.openQueryRewriteCount)}
+              detail={`${sourceAutopilot.proposalSummary.approvedQueryRewriteCount} query rewrites have already been approved.`}
+            />
+            <MetricCard
+              label="Approved changes"
+              value={String(sourceAutopilot.proposalSummary.approvedCount)}
+              detail={`${sourceAutopilot.proposalSummary.approvedPauseCount} pauses and ${sourceAutopilot.proposalSummary.approvedResumeCount} resumes are on record.`}
+            />
+            <MetricCard
+              label="Disabled sources"
+              value={String(sourceAutopilot.proposalSummary.disabledSourceCount)}
+              detail="Current paused sources in the registry."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Open source changes</p>
+              {sourceAutopilot.proposals.filter((proposal) => proposal.status === "open").length === 0 ? (
+                <EmptyState copy="No explicit source changes are open right now." />
+              ) : (
+                sourceAutopilot.proposals
+                  .filter((proposal) => proposal.status === "open")
+                  .slice(0, 4)
+                  .map((proposal) => (
+                    <div key={proposal.proposalId} className="rounded-2xl bg-white/80 px-4 py-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="font-medium text-slate-950">{proposal.scopeLabel}</p>
+                        <Badge className="bg-amber-50 text-amber-700 ring-amber-200">{proposal.title}</Badge>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">{proposal.changeSummary}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{proposal.reason}</p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+                        {proposal.supportingSignals.map((item) => (
+                          <span key={`${proposal.proposalId}-${item}`} className="rounded-full bg-slate-100 px-2.5 py-1">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                      <Link href={`/ingestion#source-${proposal.sourceId ?? proposal.proposalId}`} className="mt-3 inline-flex text-sm text-[color:var(--accent)] underline underline-offset-4">
+                        Review source proposal
+                      </Link>
+                    </div>
+                  ))
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Recent approved or dismissed changes</p>
+              {sourceAutopilot.recentChanges.length === 0 ? (
+                <EmptyState copy="No source proposal decisions have been recorded yet." />
+              ) : (
+                sourceAutopilot.recentChanges.slice(0, 4).map((proposal) => (
+                  <div key={`recent-${proposal.proposalId}`} className="rounded-2xl bg-white/80 px-4 py-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="font-medium text-slate-950">{proposal.scopeLabel}</p>
+                      <Badge className={proposal.status === "approved" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                        {proposal.status === "approved" ? "Approved" : "Dismissed"}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">{proposal.title} · {proposal.changeSummary}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Conflict Detector</CardTitle>
+          <CardDescription>
+            Compact visibility into the package contradictions most likely to waste final-review time.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Conflicted candidates"
+              value={String(conflictInsights.conflictedCandidateCount)}
+              detail="Approval-ready candidates currently carrying one or more meaningful package conflicts."
+            />
+            <MetricCard
+              label="High severity"
+              value={String(conflictInsights.highSeverityCount)}
+              detail="Conflicts that should usually be treated as judgement calls before approval."
+            />
+            <MetricCard
+              label="Top platform"
+              value={conflictInsights.platformRows[0]?.label ?? "None yet"}
+              detail={
+                conflictInsights.platformRows[0]
+                  ? `${conflictInsights.platformRows[0].count} conflicted candidates are surfacing here most often.`
+                  : "No platform conflict pattern is stable enough to surface."
+              }
+            />
+            <MetricCard
+              label="Top mode"
+              value={conflictInsights.modeRows[0]?.label ?? "None yet"}
+              detail={
+                conflictInsights.modeRows[0]
+                  ? `${conflictInsights.modeRows[0].count} conflicted candidates are using this mode most often.`
+                  : "No editorial-mode conflict cluster is stable enough yet."
+              }
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Common conflict types</p>
+              {conflictInsights.topConflictTypes.length === 0 ? (
+                <EmptyState copy="No meaningful package conflict pattern is stable enough to summarize right now." />
+              ) : (
+                conflictInsights.topConflictTypes.map((row) => (
+                  <div key={row.type} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-4">
+                    <span className="text-sm text-slate-600">{row.label}</span>
+                    <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Where they show up most</p>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {conflictInsights.topConflictTypes[0]
+                  ? `${conflictInsights.topConflictTypes[0].label} is the most common package conflict in the current approval-ready queue.`
+                  : "Current approval-ready candidates are mostly clean from a package-alignment perspective."}
+              </div>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {conflictInsights.platformRows[0]
+                  ? `${conflictInsights.platformRows[0].label} is the platform where package conflicts are surfacing most often right now.`
+                  : "No platform-specific conflict cluster is stable enough to call out."}
+              </div>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {conflictInsights.modeRows[0]
+                  ? `${conflictInsights.modeRows[0].label} is the editorial mode most often associated with the current conflict queue.`
+                  : "No editorial mode is generating a repeated conflict pattern right now."}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Stale Queue Cleanup</CardTitle>
+          <CardDescription>
+            Lightweight visibility into queue items drifting out of date, plus the operator actions already applied to keep them from silently rotting.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Stale queue"
+              value={String(staleQueueOverview.staleCount)}
+              detail={`${staleQueueOverview.agingCount} additional items are aging.`}
+            />
+            <MetricCard
+              label="Reusable later"
+              value={String(staleQueueOverview.staleButReusableCount)}
+              detail={`${staleQueueOverview.evergreenLaterCount} items are already parked in evergreen later.`}
+            />
+            <MetricCard
+              label="Needs refresh"
+              value={String(staleQueueOverview.staleNeedsRefreshCount)}
+              detail={`${staleQueueOverview.refreshRequestedCount} refresh requests are already on record.`}
+            />
+            <MetricCard
+              label="Suppressed"
+              value={String(staleQueueOverview.suppressCount)}
+              detail={`${staleQueueOverview.keepAnywayCount} keep-anyway overrides are currently active.`}
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top stale reasons</p>
+              {staleQueueOverview.topReasons.length === 0 ? (
+                <EmptyState copy="No stale reason is dominating the current approval-ready queue." />
+              ) : (
+                staleQueueOverview.topReasons.map((reason) => (
+                  <div key={reason.code} className="rounded-2xl bg-white/80 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-medium text-slate-950">{reason.label}</p>
+                      <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{reason.count}</Badge>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Queue actions in motion</p>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {staleQueueOverview.staleCount === 0
+                  ? "No bounded stale cleanup is active right now."
+                  : `${staleQueueOverview.refreshRequestedCount} refresh requests, ${staleQueueOverview.evergreenLaterCount} evergreen-later moves, and ${staleQueueOverview.suppressCount} suppressions are currently shaping the top queue.`}
+              </div>
+              <Link href="/review?view=stale" className="inline-flex text-sm text-[color:var(--accent)] underline underline-offset-4">
+                Open stale queue in review
+              </Link>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Operator Task Generation</CardTitle>
+          <CardDescription>
+            A bounded view of the recurring unresolved work the system is turning into explicit operator tasks.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Open tasks"
+              value={String(operatorTaskSummary.openCount)}
+              detail="Current unresolved operator tasks across judgement, completion, confirmation, and repair work."
+            />
+            <MetricCard
+              label="High-priority backlog"
+              value={String(operatorTaskSummary.highPriorityCount)}
+              detail="Tasks that are carrying the highest leverage or blocking pressure."
+            />
+            <MetricCard
+              label="Top bottleneck"
+              value={operatorTaskSummary.topBottlenecks[0]?.label ?? "None yet"}
+              detail={
+                operatorTaskSummary.topBottlenecks[0]
+                  ? `${operatorTaskSummary.topBottlenecks[0].count} open tasks are concentrated here.`
+                  : "No recurring task bottleneck is stable enough to surface."
+              }
+            />
+            <MetricCard
+              label="Dismissed"
+              value={String(operatorTaskSummary.dismissedCount)}
+              detail="Tasks intentionally suppressed while the linked unresolved state still exists."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Open task types</p>
+              {operatorTaskSummary.byType.length === 0 ? (
+                <EmptyState copy="No operator-task backlog is open right now." />
+              ) : (
+                operatorTaskSummary.byType.map((row) => (
+                  <div key={row.taskType} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-4">
+                    <span className="text-sm text-slate-600">{row.label}</span>
+                    <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current friction</p>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {operatorTaskSummary.topBottlenecks[0]
+                  ? `${operatorTaskSummary.topBottlenecks[0].label} is the most common operator task type in the current backlog.`
+                  : "No recurring operator friction pattern is stable enough to call out."}
+              </div>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {operatorTaskSummary.highPriorityCount > 0
+                  ? `${operatorTaskSummary.highPriorityCount} tasks are currently marked high priority and should clear the fastest operational bottlenecks first.`
+                  : "No high-priority operator task backlog is building up right now."}
+              </div>
+              <Link href="/tasks" className="inline-flex text-sm text-[color:var(--accent)] underline underline-offset-4">
+                Open operator task queue
+              </Link>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <FlywheelOptimisationPanel optimisation={flywheelOptimisation} compact />
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Card>
@@ -1725,6 +2848,51 @@ export default async function InsightsPage({
             </div>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Reusable Playbook Packs</CardTitle>
+            <CardDescription>
+              System-derived packs promoted from repeated winners. They stay lightweight, read-only, and grounded in stored outcomes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Packs"
+                value={String(playbookPacks.length)}
+                detail="Derived packs currently stable enough to surface."
+              />
+              <MetricCard
+                label="Platforms covered"
+                value={String(new Set(playbookPacks.map((pack) => pack.platform)).size)}
+                detail="Distinct posting platforms represented by current packs."
+              />
+              <MetricCard
+                label="Created events"
+                value={String(auditEvents.filter((event) => event.eventType === "PLAYBOOK_PACK_CREATED").length)}
+                detail="Times a new derived pack first qualified for promotion."
+              />
+              <MetricCard
+                label="Used events"
+                value={String(auditEvents.filter((event) => event.eventType === "PLAYBOOK_PACK_USED").length)}
+                detail="Explicit operator references to a surfaced pack."
+              />
+            </div>
+
+            <PlaybookPackSuggestions
+              title="Current top packs"
+              description="These are the strongest reusable packs in the current evidence window."
+              matches={playbookPacks.slice(0, 3).map((pack) => ({
+                pack,
+                score: pack.strengthScore,
+                reason: `Promoted from repeated strong outcomes on ${pack.platform === "x" ? "X" : pack.platform === "linkedin" ? "LinkedIn" : "Reddit"}.`,
+                matchedOn: [pack.mode ?? "cross-mode", pack.ctaStyle],
+              }))}
+              emptyCopy="No playbook pack has enough repeated winning evidence yet."
+            />
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
@@ -2118,6 +3286,11 @@ export default async function InsightsPage({
             </div>
 
             <div className="space-y-3">
+              {attributionInsights.topPlatformDestinationRows[0] ? (
+                <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                  Attribution memory: {attributionInsights.topPlatformDestinationRows[0].label} currently carries the strongest commercial link in posting history.
+                </div>
+              ) : null}
               {insights.posting.platformRows.map((row) => (
                 <div key={row.platform} className="rounded-2xl bg-white/80 px-4 py-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2592,6 +3765,316 @@ export default async function InsightsPage({
                   insights.strategicOutcomes.bundleRows.length === 0 ? (
                     <EmptyState copy="No source, asset, bundle, or campaign-level strategic pattern is stable enough to surface yet." />
                   ) : null}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Commercial Attribution Memory</CardTitle>
+            <CardDescription>
+              Lightweight internal attribution linking posted content, destination, platform, and business-facing outcome strength.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Attribution records"
+                value={String(attributionInsights.recordedCount)}
+                detail="Posts with linked commercial attribution memory."
+              />
+              <MetricCard
+                label="Strong records"
+                value={String(attributionInsights.strongCount)}
+                detail="Attributed outcomes marked strong enough to influence future prioritisation."
+              />
+              <MetricCard
+                label="Lead-linked"
+                value={String(attributionInsights.leadCount + attributionInsights.signupCount)}
+                detail="Attribution records tied to leads, signups, trials, or conversions."
+              />
+              <MetricCard
+                label="Top combo"
+                value={attributionInsights.topPlatformDestinationRows[0]?.label ?? "None yet"}
+                detail="Strongest current platform and destination pairing."
+              />
+            </div>
+
+            {attributionInsights.summaries.length > 0 ? (
+              <div className="space-y-3">
+                {attributionInsights.summaries.map((summary) => (
+                  <div key={summary} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                    {summary}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top destinations</p>
+                <div className="mt-3 space-y-3">
+                  {attributionInsights.topDestinationRows.length === 0 ? (
+                    <EmptyState copy="No destination has enough attribution memory yet." />
+                  ) : (
+                    attributionInsights.topDestinationRows.map((row) => (
+                      <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium text-slate-950">{row.label}</p>
+                          <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.count}</Badge>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">{row.strongCount} strong attributed outcomes</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Platform + destination</p>
+                <div className="mt-3 space-y-3">
+                  {attributionInsights.topPlatformDestinationRows.length === 0 ? (
+                    <EmptyState copy="No platform and destination combo is stable enough yet." />
+                  ) : (
+                    attributionInsights.topPlatformDestinationRows.map((row) => (
+                      <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium text-slate-950">{row.label}</p>
+                          <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.count}</Badge>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">{row.strongCount} strong attributed outcomes</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Pattern and mode links</p>
+                <div className="mt-3 space-y-3">
+                  {attributionInsights.topPatternRows.length === 0 ? (
+                    <EmptyState copy="No pattern or mode has enough commercial attribution evidence yet." />
+                  ) : (
+                    attributionInsights.topPatternRows.map((row) => (
+                      <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium text-slate-950">{row.label}</p>
+                          <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.count}</Badge>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">{row.strongCount} strong attributed outcomes</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Revenue Signal Feedback Loop</CardTitle>
+            <CardDescription>
+              Directional internal revenue memory linking posted content, destination, platform, and business-value strength without requiring exact revenue.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Revenue signals"
+                value={String(revenueInsights.recordedCount)}
+                detail="Recorded or inferred revenue-linked signals tied back to posted content."
+              />
+              <MetricCard
+                label="High strength"
+                value={String(revenueInsights.highStrengthCount)}
+                detail="Signals strong enough to matter for ranking and optimisation."
+              />
+              <MetricCard
+                label="Trial or paid"
+                value={String(revenueInsights.trialCount + revenueInsights.paidCount)}
+                detail="Signals with clearer downstream business movement."
+              />
+              <MetricCard
+                label="Top revenue combo"
+                value={revenueInsights.topPlatformDestinationRows[0]?.label ?? "None yet"}
+                detail="Strongest current platform and destination revenue pairing."
+              />
+            </div>
+
+            {revenueInsights.summaries.length > 0 ? (
+              <div className="space-y-3">
+                {revenueInsights.summaries.map((summary) => (
+                  <div key={summary} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                    {summary}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top destinations</p>
+                <div className="mt-3 space-y-3">
+                  {revenueInsights.topDestinationRows.length === 0 ? (
+                    <EmptyState copy="No destination has enough revenue-linked evidence yet." />
+                  ) : (
+                    revenueInsights.topDestinationRows.map((row) => (
+                      <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium text-slate-950">{row.label}</p>
+                          <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.count}</Badge>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">{row.highStrengthCount} high-strength revenue signals</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Platform contribution</p>
+                <div className="mt-3 space-y-3">
+                  {revenueInsights.topPlatformRows.length === 0 ? (
+                    <EmptyState copy="No platform has enough revenue-linked evidence yet." />
+                  ) : (
+                    revenueInsights.topPlatformRows.map((row) => (
+                      <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium text-slate-950">{row.label}</p>
+                          <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.count}</Badge>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">{row.highStrengthCount} high-strength revenue signals</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Patterns and modes</p>
+                <div className="mt-3 space-y-3">
+                  {revenueInsights.topPatternRows.length === 0 ? (
+                    <EmptyState copy="No pattern or mode has enough revenue-linked evidence yet." />
+                  ) : (
+                    revenueInsights.topPatternRows.map((row) => (
+                      <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium text-slate-950">{row.label}</p>
+                          <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.count}</Badge>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">{row.highStrengthCount} high-strength revenue signals</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Audience Memory Layer</CardTitle>
+            <CardDescription>
+              Segment-level memory showing which modes, platforms, destinations, and CTA styles are landing best with each audience segment.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Segments with memory"
+                value={String(audienceMemory.segmentCount)}
+                detail="Audience segments with enough evidence to surface guidance."
+              />
+              <MetricCard
+                label="Top segment"
+                value={audienceInsights.segmentRows[0]?.label ?? "None yet"}
+                detail={audienceInsights.segmentRows[0]?.note ?? "No segment has enough directional evidence yet."}
+              />
+              <MetricCard
+                label="Top platform fit"
+                value={audienceInsights.topPlatformRows[0]?.label ?? "None yet"}
+                detail="Best current platform fit by audience segment."
+              />
+              <MetricCard
+                label="Top destination fit"
+                value={audienceInsights.topDestinationRows[0]?.label ?? "None yet"}
+                detail="Best current destination path by segment response."
+              />
+            </div>
+
+            {audienceInsights.topNotes.length > 0 ? (
+              <div className="space-y-3">
+                {audienceInsights.topNotes.map((note) => (
+                  <div key={note} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                    {note}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Audience segments</p>
+                <div className="mt-3 space-y-3">
+                  {audienceInsights.segmentRows.length === 0 ? (
+                    <EmptyState copy="No audience segment has enough response memory yet." />
+                  ) : (
+                    audienceInsights.segmentRows.map((row) => (
+                      <div key={row.label} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium text-slate-950">{row.label}</p>
+                          <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.count}</Badge>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">{row.note}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Strongest modes and platforms</p>
+                <div className="mt-3 space-y-3">
+                  {audienceMemory.segments.length === 0 ? (
+                    <EmptyState copy="No mode or platform audience fit is stable enough yet." />
+                  ) : (
+                    audienceMemory.segments.slice(0, 3).map((segment) => (
+                      <div key={segment.segmentId} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <p className="font-medium text-slate-950">{segment.segmentName}</p>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {segment.strongestModes[0]?.label ?? "No mode yet"} · {segment.strongestPlatforms[0]?.label ?? "No platform yet"}
+                        </p>
+                        {segment.toneCautions[0] ? (
+                          <p className="mt-2 text-xs text-slate-500">{segment.toneCautions[0]}</p>
+                        ) : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Destinations and CTA styles</p>
+                <div className="mt-3 space-y-3">
+                  {audienceMemory.segments.length === 0 ? (
+                    <EmptyState copy="No destination or CTA audience fit is stable enough yet." />
+                  ) : (
+                    audienceMemory.segments.slice(0, 3).map((segment) => (
+                      <div key={`${segment.segmentId}-destination`} className="rounded-2xl bg-white/80 px-4 py-4">
+                        <p className="font-medium text-slate-950">{segment.segmentName}</p>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {segment.strongestDestinations[0]?.label ?? "No destination yet"}
+                        </p>
+                        <p className="mt-2 text-xs text-slate-500">
+                          {segment.preferredCtaStyles[0] ?? "No CTA preference yet"}
+                        </p>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>

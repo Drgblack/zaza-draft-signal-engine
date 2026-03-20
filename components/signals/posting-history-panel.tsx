@@ -17,6 +17,12 @@ import {
   type ReuseRecommendation,
 } from "@/lib/outcome-memory";
 import { getPostingPlatformLabel, type PostingLogEntry, type SignalPostingSummary } from "@/lib/posting-memory";
+import type {
+  RevenueSignal,
+  RevenueSignalConfidence,
+  RevenueSignalStrength,
+  RevenueSignalType,
+} from "@/lib/revenue-signals";
 import {
   getStrategicValueLabel,
   type StrategicOutcome,
@@ -42,6 +48,13 @@ type StrategicFormState = {
   note: string;
 };
 
+type RevenueFormState = {
+  type: RevenueSignalType;
+  strength: RevenueSignalStrength;
+  confidence: RevenueSignalConfidence;
+  notes: string;
+};
+
 function createOutcomeFormState(outcome: PostingOutcome | null | undefined): OutcomeFormState {
   return {
     outcomeQuality: outcome?.outcomeQuality ?? "acceptable",
@@ -61,6 +74,15 @@ function createStrategicFormState(outcome: StrategicOutcome | null | undefined):
     trialsOrConversions: outcome?.trialsOrConversions?.toString() ?? "",
     strategicValue: outcome?.strategicValue ?? "unclear",
     note: outcome?.note ?? "",
+  };
+}
+
+function createRevenueFormState(revenueSignal: RevenueSignal | null | undefined): RevenueFormState {
+  return {
+    type: revenueSignal?.type ?? "unknown",
+    strength: revenueSignal?.strength ?? "low",
+    confidence: revenueSignal?.confidence ?? "low",
+    notes: revenueSignal?.notes ?? "",
   };
 }
 
@@ -106,6 +128,44 @@ function strategicValueBadgeClasses(value: StrategicValue): string {
   }
 }
 
+function revenueStrengthBadgeClasses(value: RevenueSignalStrength): string {
+  switch (value) {
+    case "high":
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+    case "medium":
+      return "bg-sky-50 text-sky-700 ring-sky-200";
+    case "low":
+    default:
+      return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+}
+
+function revenueTypeLabel(value: RevenueSignalType): string {
+  switch (value) {
+    case "signup":
+      return "Signup";
+    case "trial":
+      return "Trial";
+    case "paid":
+      return "Paid";
+    case "unknown":
+    default:
+      return "Unknown";
+  }
+}
+
+function revenueConfidenceLabel(value: RevenueSignalConfidence): string {
+  switch (value) {
+    case "high":
+      return "High confidence";
+    case "medium":
+      return "Medium confidence";
+    case "low":
+    default:
+      return "Low confidence";
+  }
+}
+
 function formatMetricSummary(outcome: StrategicOutcome | null): string | null {
   if (!outcome) {
     return null;
@@ -136,6 +196,7 @@ export function PostingHistoryPanel({
   postingEntries,
   initialOutcomesByPostingLogId,
   initialStrategicOutcomesByPostingLogId,
+  initialRevenueSignalsByPostingLogId,
   postingSummary,
   generationReady,
 }: {
@@ -143,11 +204,13 @@ export function PostingHistoryPanel({
   postingEntries: PostingLogEntry[];
   initialOutcomesByPostingLogId: Record<string, PostingOutcome>;
   initialStrategicOutcomesByPostingLogId: Record<string, StrategicOutcome>;
+  initialRevenueSignalsByPostingLogId: Record<string, RevenueSignal>;
   postingSummary: SignalPostingSummary;
   generationReady: boolean;
 }) {
   const [outcomesByPostingLogId, setOutcomesByPostingLogId] = useState(initialOutcomesByPostingLogId);
   const [strategicOutcomesByPostingLogId, setStrategicOutcomesByPostingLogId] = useState(initialStrategicOutcomesByPostingLogId);
+  const [revenueSignalsByPostingLogId, setRevenueSignalsByPostingLogId] = useState(initialRevenueSignalsByPostingLogId);
   const [editingPostingLogId, setEditingPostingLogId] = useState<string | null>(null);
   const [forms, setForms] = useState<Record<string, OutcomeFormState>>(
     Object.fromEntries(
@@ -159,8 +222,14 @@ export function PostingHistoryPanel({
       postingEntries.map((entry) => [entry.id, createStrategicFormState(initialStrategicOutcomesByPostingLogId[entry.id])]),
     ),
   );
+  const [revenueForms, setRevenueForms] = useState<Record<string, RevenueFormState>>(
+    Object.fromEntries(
+      postingEntries.map((entry) => [entry.id, createRevenueFormState(initialRevenueSignalsByPostingLogId[entry.id])]),
+    ),
+  );
   const [isSaving, setIsSaving] = useState<string | null>(null);
   const [isSavingStrategic, setIsSavingStrategic] = useState<string | null>(null);
+  const [isSavingRevenue, setIsSavingRevenue] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{
     tone: "success" | "error";
     title: string;
@@ -179,6 +248,16 @@ export function PostingHistoryPanel({
 
   function updateStrategicForm(postingLogId: string, key: keyof StrategicFormState, value: string) {
     setStrategicForms((current) => ({
+      ...current,
+      [postingLogId]: {
+        ...current[postingLogId],
+        [key]: value,
+      },
+    }));
+  }
+
+  function updateRevenueForm(postingLogId: string, key: keyof RevenueFormState, value: string) {
+    setRevenueForms((current) => ({
       ...current,
       [postingLogId]: {
         ...current[postingLogId],
@@ -296,6 +375,55 @@ export function PostingHistoryPanel({
     }
   }
 
+  async function handleSaveRevenue(postingLogId: string) {
+    setFeedback(null);
+    setIsSavingRevenue(postingLogId);
+
+    try {
+      const form = revenueForms[postingLogId];
+      const response = await fetch(`/api/signals/${signalId}/posting-log/${postingLogId}/revenue-signal`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(form),
+      });
+
+      const data = (await response.json()) as {
+        success?: boolean;
+        revenueSignal?: RevenueSignal | null;
+        message?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !data.success || !data.revenueSignal) {
+        throw new Error(data.error ?? "Unable to save revenue signal.");
+      }
+
+      setRevenueSignalsByPostingLogId((current) => ({
+        ...current,
+        [postingLogId]: data.revenueSignal!,
+      }));
+      setRevenueForms((current) => ({
+        ...current,
+        [postingLogId]: createRevenueFormState(data.revenueSignal),
+      }));
+      setFeedback({
+        tone: "success",
+        title: "Revenue signal saved",
+        body: data.message ?? "Revenue signal recorded.",
+      });
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        title: "Revenue signal save failed",
+        body: error instanceof Error ? error.message : "Unable to save revenue signal.",
+      });
+    } finally {
+      setIsSavingRevenue(null);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -328,8 +456,10 @@ export function PostingHistoryPanel({
             {postingEntries.map((entry) => {
               const outcome = outcomesByPostingLogId[entry.id] ?? null;
               const strategicOutcome = strategicOutcomesByPostingLogId[entry.id] ?? null;
+              const revenueSignal = revenueSignalsByPostingLogId[entry.id] ?? null;
               const form = forms[entry.id] ?? createOutcomeFormState(outcome);
               const strategicForm = strategicForms[entry.id] ?? createStrategicFormState(strategicOutcome);
+              const revenueForm = revenueForms[entry.id] ?? createRevenueFormState(revenueSignal);
 
               return (
                 <div id={`posting-log-${entry.id}`} key={entry.id} className="rounded-2xl bg-white/75 px-4 py-4">
@@ -355,6 +485,16 @@ export function PostingHistoryPanel({
                         <Badge className={strategicValueBadgeClasses(strategicOutcome.strategicValue)}>
                           Strategic value: {getStrategicValueLabel(strategicOutcome.strategicValue)}
                         </Badge>
+                      ) : null}
+                      {revenueSignal ? (
+                        <>
+                          <Badge className={revenueStrengthBadgeClasses(revenueSignal.strength)}>
+                            Revenue: {revenueTypeLabel(revenueSignal.type)}
+                          </Badge>
+                          <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                            {revenueConfidenceLabel(revenueSignal.confidence)}
+                          </Badge>
+                        </>
                       ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
@@ -394,10 +534,19 @@ export function PostingHistoryPanel({
                       {strategicOutcome.note ? <p className="mt-2">{strategicOutcome.note}</p> : null}
                     </div>
                   ) : null}
+                  {revenueSignal ? (
+                    <div className="mt-3 rounded-2xl bg-emerald-50/60 px-4 py-3 text-sm text-slate-700">
+                      <p className="font-medium text-slate-900">Revenue signal</p>
+                      <p className="mt-2">
+                        {revenueTypeLabel(revenueSignal.type)} · {revenueSignal.strength} strength · {revenueConfidenceLabel(revenueSignal.confidence).toLowerCase()}
+                      </p>
+                      {revenueSignal.notes ? <p className="mt-2">{revenueSignal.notes}</p> : null}
+                    </div>
+                  ) : null}
 
                   {editingPostingLogId === entry.id ? (
                     <div className="mt-4 space-y-4 rounded-2xl border border-black/8 bg-white/90 p-4">
-                      <div className="grid gap-4 xl:grid-cols-2">
+                      <div className="grid gap-4 xl:grid-cols-3">
                         <div className="space-y-4 rounded-2xl bg-slate-50/70 p-4">
                           <p className="text-sm font-medium text-slate-900">Qualitative outcome</p>
                           <div className="grid gap-2 md:grid-cols-2">
@@ -506,6 +655,67 @@ export function PostingHistoryPanel({
                           <div className="flex flex-wrap gap-3">
                             <Button type="button" onClick={() => handleSaveStrategic(entry.id)} disabled={isSavingStrategic === entry.id}>
                               {isSavingStrategic === entry.id ? "Saving..." : "Save strategic outcome"}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4 rounded-2xl bg-slate-50/70 p-4">
+                          <p className="text-sm font-medium text-slate-900">Revenue signal</p>
+                          <p className="text-sm leading-6 text-slate-600">
+                            Record the simplest directional business-value signal you observed here. This is lightweight and does not need exact revenue.
+                          </p>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <div className="grid gap-2">
+                              <Label htmlFor={`revenue-type-${entry.id}`}>Type</Label>
+                              <Select
+                                id={`revenue-type-${entry.id}`}
+                                value={revenueForm.type}
+                                onChange={(event) => updateRevenueForm(entry.id, "type", event.target.value)}
+                              >
+                                <option value="signup">Signup</option>
+                                <option value="trial">Trial</option>
+                                <option value="paid">Paid</option>
+                                <option value="unknown">Unknown</option>
+                              </Select>
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor={`revenue-strength-${entry.id}`}>Strength</Label>
+                              <Select
+                                id={`revenue-strength-${entry.id}`}
+                                value={revenueForm.strength}
+                                onChange={(event) => updateRevenueForm(entry.id, "strength", event.target.value)}
+                              >
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high">High</option>
+                              </Select>
+                            </div>
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor={`revenue-confidence-${entry.id}`}>Confidence</Label>
+                            <Select
+                              id={`revenue-confidence-${entry.id}`}
+                              value={revenueForm.confidence}
+                              onChange={(event) => updateRevenueForm(entry.id, "confidence", event.target.value)}
+                            >
+                              <option value="low">Low</option>
+                              <option value="medium">Medium</option>
+                              <option value="high">High</option>
+                            </Select>
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor={`revenue-notes-${entry.id}`}>Revenue note</Label>
+                            <Textarea
+                              id={`revenue-notes-${entry.id}`}
+                              value={revenueForm.notes}
+                              onChange={(event) => updateRevenueForm(entry.id, "notes", event.target.value)}
+                              className="min-h-[100px]"
+                              placeholder="Example: this led to a trial, stronger signup intent, or a paid conversation."
+                            />
+                          </div>
+                          <div className="flex flex-wrap gap-3">
+                            <Button type="button" onClick={() => handleSaveRevenue(entry.id)} disabled={isSavingRevenue === entry.id}>
+                              {isSavingRevenue === entry.id ? "Saving..." : "Save revenue signal"}
                             </Button>
                           </div>
                         </div>

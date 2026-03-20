@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   buildSignalAssetBundle,
@@ -26,6 +26,7 @@ import {
 import {
   buildPublishPrepBundleSummary,
   buildSignalPublishPrepBundle,
+  getPublishPrepPackageForPlatform,
   getPublishPrepPackageLabel,
   getSelectedCtaText,
   getSelectedHookText,
@@ -35,9 +36,30 @@ import {
   type PublishPrepPackage,
 } from "@/lib/publish-prep";
 import { getAutoRepairLabel, getLatestAutoRepairEntry } from "@/lib/auto-repair";
+import {
+  applyFounderVoiceToText,
+  FOUNDER_VOICE_LABEL,
+  getFounderVoiceModeLabel,
+  isFounderVoiceOn,
+} from "@/lib/founder-voice";
 import type { EvergreenCandidate } from "@/lib/evergreen";
 import { getOutcomeQualityLabel, getReuseRecommendationLabel } from "@/lib/outcome-memory";
+import { PlaybookPackSuggestions } from "@/components/playbook/playbook-pack-suggestions";
+import { buildDraftDiffSummary } from "@/lib/review-command-center";
+import {
+  REVIEW_MACROS,
+  appendReviewMacroNote,
+  formatReviewMacroActions,
+  softenCtaText,
+  softenToneText,
+  type AppliedReviewMacro,
+  type ReviewMacroId,
+} from "@/lib/review-macros";
+import type { ConversionIntentAssessment } from "@/lib/conversion-intent";
+import type { PlaybookPackMatch } from "@/lib/playbook-packs";
 import { getStrategicValueLabel } from "@/lib/strategic-outcome-memory";
+import { ReviewStateBadge } from "@/components/signals/review-state-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -57,7 +79,11 @@ import {
 import type { PackageAutofillNote } from "@/lib/package-filler";
 import { getPlatformIntentProfile } from "@/lib/platform-profiles";
 import { formatDateTime } from "@/lib/utils";
-import type { SignalDataSource, SignalRecord } from "@/types/signal";
+import type { PostingAssistantActionResponse } from "@/types/api";
+import type { FounderVoiceMode, SignalDataSource, SignalRecord } from "@/types/signal";
+import type { AutomationConfidenceAssessment } from "@/lib/confidence";
+import type { ConflictAssessment } from "@/lib/conflicts";
+import type { StaleQueueAssessment } from "@/lib/stale-queue";
 
 type ReviewFormState = {
   finalXDraft: string;
@@ -104,6 +130,41 @@ type RevisionGuidanceInsight = {
   evidenceCount: number;
 };
 
+type DraftDiffRow = {
+  before: string;
+  after: string;
+};
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+}
+
+function buildDraftDiffRows(generatedValue: string, finalValue: string, limit = 4): DraftDiffRow[] {
+  const generatedLines = generatedValue.split(/\r?\n/);
+  const finalLines = finalValue.split(/\r?\n/);
+  const maxLength = Math.max(generatedLines.length, finalLines.length);
+  const rows: DraftDiffRow[] = [];
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const before = generatedLines[index]?.trim() ?? "";
+    const after = finalLines[index]?.trim() ?? "";
+    if (before === after) {
+      continue;
+    }
+
+    rows.push({
+      before,
+      after,
+    });
+
+    if (rows.length >= limit) {
+      break;
+    }
+  }
+
+  return rows;
+}
+
 function replaceFirstNonEmptyLine(text: string, updater: (line: string) => string): string {
   const lines = text.split(/\r?\n/);
   const index = lines.findIndex((line) => line.trim().length > 0);
@@ -117,23 +178,6 @@ function replaceFirstNonEmptyLine(text: string, updater: (line: string) => strin
   }
 
   lines[index] = nextLine;
-  return lines.join("\n");
-}
-
-function replaceLastNonEmptyLine(text: string, updater: (line: string) => string): string {
-  const lines = text.split(/\r?\n/);
-  const index = [...lines].reverse().findIndex((line) => line.trim().length > 0);
-  if (index < 0) {
-    return text;
-  }
-
-  const targetIndex = lines.length - index - 1;
-  const nextLine = updater(lines[targetIndex].trim());
-  if (!nextLine || nextLine === lines[targetIndex].trim()) {
-    return text;
-  }
-
-  lines[targetIndex] = nextLine;
   return lines.join("\n");
 }
 
@@ -151,61 +195,6 @@ function tightenHookDraft(text: string): string {
   });
 }
 
-function softenToneDraft(text: string): string {
-  const replacements: Array<[RegExp, string]> = [
-    [/\balways\b/gi, "often"],
-    [/\bnever\b/gi, "rarely"],
-    [/\bclearly\b/gi, ""],
-    [/\bobviously\b/gi, ""],
-    [/\bdefinitely\b/gi, ""],
-    [/\bguarantee\b/gi, "can support"],
-    [/\beveryone\b/gi, "many teachers"],
-    [/\bnobody\b/gi, "very few people"],
-    [/\bmust\b/gi, "may need to"],
-    [/\burgent\b/gi, "important"],
-    [/\bimmediately\b/gi, "soon"],
-  ];
-
-  let nextText = text;
-  for (const [pattern, replacement] of replacements) {
-    nextText = nextText.replace(pattern, replacement);
-  }
-
-  nextText = nextText.replace(/!/g, ".").replace(/[ \t]{2,}/g, " ").replace(/\s+\./g, ".").trim();
-  return nextText || text;
-}
-
-function softenCtaDraft(text: string): string {
-  return replaceLastNonEmptyLine(text, (line) => {
-    let nextLine = line;
-    const targetedReplacements: Array<[RegExp, string]> = [
-      [/\bDM me\b/i, "If helpful, DM me"],
-      [/\bMessage me\b/i, "If helpful, message me"],
-      [/\bComment below\b/i, "If useful, comment below"],
-      [/\bComment\b/i, "If useful, comment"],
-      [/\bReply\b/i, "If useful, reply"],
-      [/\bShare this\b/i, "If relevant, share this"],
-      [/\bSave this\b/i, "If you want it later, save this"],
-      [/\bTry Zaza Draft\b/i, "If you want help with the wording, try Zaza Draft"],
-      [/\bTry it\b/i, "If helpful, try it"],
-      [/\bVisit\b/i, "If useful, visit"],
-    ];
-
-    for (const [pattern, replacement] of targetedReplacements) {
-      if (pattern.test(nextLine)) {
-        nextLine = nextLine.replace(pattern, replacement);
-      }
-    }
-
-    if (nextLine === line && /^(comment|reply|share|save|join|follow|visit|click|read|watch|try)\b/i.test(line)) {
-      nextLine = `If helpful, ${line.charAt(0).toLowerCase()}${line.slice(1)}`;
-    }
-
-    nextLine = nextLine.replace(/!/g, ".").replace(/\s{2,}/g, " ").trim();
-    return nextLine || line;
-  });
-}
-
 function applyEditSuggestionTransform(
   text: string,
   patternType: EditSuggestionOption["patternType"],
@@ -214,12 +203,12 @@ function applyEditSuggestionTransform(
     case "shortened_hook":
       return tightenHookDraft(text);
     case "softened_tone":
-      return softenToneDraft(text);
+      return softenToneText(text);
     case "removed_claim":
-      return softenToneDraft(text);
+      return softenToneText(text);
     case "changed_cta":
     default:
-      return softenCtaDraft(text);
+      return softenCtaText(text);
   }
 }
 
@@ -232,6 +221,98 @@ function toneClasses(tone: "success" | "warning" | "error") {
     case "error":
     default:
       return "bg-rose-50 text-rose-700";
+  }
+}
+
+function staleStateLabel(state: StaleQueueAssessment["state"]): string {
+  switch (state) {
+    case "fresh":
+      return "Fresh";
+    case "aging":
+      return "Aging";
+    case "stale_but_reusable":
+      return "Stale but reusable";
+    case "stale_needs_refresh":
+      return "Needs refresh";
+    case "stale":
+    default:
+      return "Stale";
+  }
+}
+
+function staleOperatorActionLabel(action: NonNullable<StaleQueueAssessment["operatorAction"]>): string {
+  switch (action) {
+    case "keep_anyway":
+      return "Keep anyway";
+    case "refresh_requested":
+      return "Refresh requested";
+    case "move_to_evergreen_later":
+      return "Evergreen later";
+    case "suppress":
+    default:
+      return "Suppressed";
+  }
+}
+
+function automationConfidenceTone(
+  level: AutomationConfidenceAssessment["level"],
+): "high_confidence" | "medium_confidence" | "low_confidence" {
+  if (level === "high") {
+    return "high_confidence";
+  }
+
+  if (level === "low") {
+    return "low_confidence";
+  }
+
+  return "medium_confidence";
+}
+
+function conflictLabel(type: NonNullable<ConflictAssessment["topConflicts"][number]>["conflictType"]): string {
+  switch (type) {
+    case "cta_destination_mismatch":
+      return "CTA / destination mismatch";
+    case "mode_funnel_mismatch":
+      return "Mode / funnel mismatch";
+    case "platform_tone_mismatch":
+      return "Platform / tone mismatch";
+    case "hypothesis_package_mismatch":
+      return "Hypothesis / package mismatch";
+    case "campaign_context_mismatch":
+      return "Campaign context mismatch";
+    case "expected_outcome_mismatch":
+      return "Expected outcome mismatch";
+    case "destination_overreach":
+      return "Destination overreach";
+    case "reddit_promo_conflict":
+    default:
+      return "Reddit promo conflict";
+  }
+}
+
+function conflictTone(severity: NonNullable<ConflictAssessment["highestSeverity"]>): "neutral" | "aging" | "stale" {
+  if (severity === "high") {
+    return "stale";
+  }
+
+  if (severity === "medium") {
+    return "aging";
+  }
+
+  return "neutral";
+}
+
+function conversionIntentLabel(posture: ConversionIntentAssessment["posture"]): string {
+  switch (posture) {
+    case "awareness_first":
+      return "Awareness-first";
+    case "trust_first":
+      return "Trust-first";
+    case "soft_conversion":
+      return "Soft conversion";
+    case "direct_conversion":
+    default:
+      return "Direct conversion";
   }
 }
 
@@ -277,33 +358,6 @@ function statusLabel(value: ReviewFormState["xReviewStatus"]): string {
       return "Skip";
     default:
       return "Needs review";
-  }
-}
-
-function statusClasses(value: ReviewFormState["xReviewStatus"]): string {
-  switch (value) {
-    case "ready":
-      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
-    case "skip":
-      return "bg-slate-100 text-slate-700 ring-slate-200";
-    case "needs_edit":
-    default:
-      return "bg-amber-50 text-amber-700 ring-amber-200";
-  }
-}
-
-function postingStateClasses(state: ReturnType<typeof buildSignalPostingSummary>["platformRows"][number]["state"]): string {
-  switch (state) {
-    case "posted":
-      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
-    case "ready_not_posted":
-      return "bg-sky-50 text-sky-700 ring-sky-200";
-    case "skip":
-      return "bg-slate-100 text-slate-700 ring-slate-200";
-    case "needs_edit":
-    case "not_reviewed":
-    default:
-      return "bg-amber-50 text-amber-700 ring-amber-200";
   }
 }
 
@@ -360,12 +414,20 @@ export function FinalReviewWorkspace({
   editSuggestions,
   revisionGuidance,
   guidanceConfidenceLevel,
+  automationConfidence,
   hypothesis,
+  packageAutofillMode,
   packageAutofillNotes,
+  conversionIntent,
   experimentContexts,
   initialPostingEntries,
   weeklyPlanContext,
   evergreenContext,
+  staleContext,
+  conflicts,
+  playbookPackMatches,
+  narrativeSequenceSteps,
+  navigation,
 }: {
   signal: SignalRecord;
   source: SignalDataSource;
@@ -373,8 +435,11 @@ export function FinalReviewWorkspace({
   editSuggestions: Record<"x" | "linkedin" | "reddit", EditSuggestionOption[]>;
   revisionGuidance: Record<"x" | "linkedin" | "reddit", RevisionGuidanceInsight>;
   guidanceConfidenceLevel: "high" | "moderate" | "low";
+  automationConfidence: AutomationConfidenceAssessment;
   hypothesis: CandidateHypothesis;
+  packageAutofillMode?: "applied" | "suggested" | "blocked";
   packageAutofillNotes?: PackageAutofillNote[];
+  conversionIntent?: ConversionIntentAssessment | null;
   experimentContexts?: Array<{
     name: string;
     statusLabel: string;
@@ -391,12 +456,48 @@ export function FinalReviewWorkspace({
     cautions: string[];
   } | null;
   evergreenContext?: EvergreenCandidate | null;
+  staleContext?: StaleQueueAssessment | null;
+  conflicts?: ConflictAssessment | null;
+  playbookPackMatches?: PlaybookPackMatch[];
+  narrativeSequenceSteps?: Partial<
+    Record<
+      PostingPlatform,
+      {
+        sequenceId: string;
+        narrativeLabel: string;
+        sequenceGoal: string;
+        sequenceReason: string;
+        suggestedCadenceNotes: string;
+        stepId: string;
+        stepNumber: number;
+        totalSteps: number;
+        platform: PostingPlatform;
+        contentRole: string;
+        roleLabel: string;
+        rationale: string;
+      }
+    >
+  > | null;
+  navigation?: {
+    previousHref: string | null;
+    nextHref: string | null;
+    index: number;
+    total: number;
+  } | null;
 }) {
   const [currentSignal, setCurrentSignal] = useState(signal);
   const [formState, setFormState] = useState<ReviewFormState>(() => createFormState(signal));
   const [savedState, setSavedState] = useState<ReviewFormState>(() => createFormState(signal));
   const [postingEntries, setPostingEntries] = useState<PostingLogEntry[]>(initialPostingEntries);
   const [activePostingPlatform, setActivePostingPlatform] = useState<PostingPlatform | null>(null);
+  const [activeDraftPlatform, setActiveDraftPlatform] = useState<PostingPlatform>(() => {
+    if (signal.xReviewStatus !== "ready") return "x";
+    if (signal.linkedInReviewStatus !== "ready") return "linkedin";
+    return "reddit";
+  });
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const [founderVoiceMode, setFounderVoiceMode] = useState<FounderVoiceMode>(signal.founderVoiceMode ?? "founder_voice_on");
+  const [founderVoiceAppliedAt, setFounderVoiceAppliedAt] = useState<string | null>(signal.founderVoiceAppliedAt ?? null);
   const [postingForms, setPostingForms] = useState<Record<PostingPlatform, PostingFormState>>(() => ({
     x: createPostingFormState(signal, "x", initialPostingEntries.find((entry) => entry.platform === "x") ?? null),
     linkedin: createPostingFormState(signal, "linkedin", initialPostingEntries.find((entry) => entry.platform === "linkedin") ?? null),
@@ -407,19 +508,70 @@ export function FinalReviewWorkspace({
   const [appliedEditSuggestions, setAppliedEditSuggestions] = useState<
     Array<Pick<EditSuggestionOption, "key" | "platform" | "patternType" | "label">>
   >([]);
+  const [appliedReviewMacros, setAppliedReviewMacros] = useState<AppliedReviewMacro[]>([]);
   const [feedback, setFeedback] = useState<{
     tone: "success" | "warning" | "error";
     title: string;
     body: string;
   } | null>(null);
+  const [showSupportDetail, setShowSupportDetail] = useState(false);
 
   const xProfile = useMemo(() => getPlatformIntentProfile("x"), []);
   const linkedInProfile = useMemo(() => getPlatformIntentProfile("linkedin"), []);
   const redditProfile = useMemo(() => getPlatformIntentProfile("reddit"), []);
+  const draftPanels = useMemo(
+    () => [
+      {
+        key: "x" as const,
+        label: "X Draft",
+        helper: xProfile.helperNote,
+        structure: xProfile.structure,
+        generatedValue: currentSignal.xDraft ?? "",
+        finalValue: formState.finalXDraft,
+        statusValue: formState.xReviewStatus,
+      },
+      {
+        key: "linkedin" as const,
+        label: "LinkedIn Draft",
+        helper: linkedInProfile.helperNote,
+        structure: linkedInProfile.structure,
+        generatedValue: currentSignal.linkedInDraft ?? "",
+        finalValue: formState.finalLinkedInDraft,
+        statusValue: formState.linkedInReviewStatus,
+      },
+      {
+        key: "reddit" as const,
+        label: "Reddit Draft",
+        helper: redditProfile.helperNote,
+        structure: redditProfile.structure,
+        generatedValue: currentSignal.redditDraft ?? "",
+        finalValue: formState.finalRedditDraft,
+        statusValue: formState.redditReviewStatus,
+      },
+    ],
+    [
+      currentSignal.linkedInDraft,
+      currentSignal.redditDraft,
+      currentSignal.xDraft,
+      formState.finalLinkedInDraft,
+      formState.finalRedditDraft,
+      formState.finalXDraft,
+      formState.linkedInReviewStatus,
+      formState.redditReviewStatus,
+      formState.xReviewStatus,
+      linkedInProfile.helperNote,
+      linkedInProfile.structure,
+      redditProfile.helperNote,
+      redditProfile.structure,
+      xProfile.helperNote,
+      xProfile.structure,
+    ],
+  );
   const isDirty = useMemo(
     () => JSON.stringify(formState) !== JSON.stringify(savedState),
     [formState, savedState],
   );
+  const founderVoiceEnabled = isFounderVoiceOn(founderVoiceMode);
   const reviewState = useMemo(
     () => {
       const previewSignal = {
@@ -493,6 +645,7 @@ export function FinalReviewWorkspace({
     () => buildSignalPostingSummary(currentSignal, postingEntries),
     [currentSignal, postingEntries],
   );
+  const activeNarrativeStep = narrativeSequenceSteps?.[activeDraftPlatform] ?? null;
   const assetBundle = useMemo(() => parseAssetBundle(formState.assetBundleJson), [formState.assetBundleJson]);
   const primaryImageAsset = useMemo(
     () => getAssetPrimaryImage(assetBundle, formState.selectedImageAssetId || null),
@@ -523,35 +676,88 @@ export function FinalReviewWorkspace({
     [publishPrepBundle],
   );
   const latestAutoRepair = useMemo(() => getLatestAutoRepairEntry(currentSignal), [currentSignal]);
+  const activeTopSuggestion = useMemo(
+    () => editSuggestions[activeDraftPlatform]?.[0] ?? null,
+    [activeDraftPlatform, editSuggestions],
+  );
+  const activePlatformPackage = useMemo(
+    () => getPublishPrepPackageForPlatform(publishPrepBundle, activeDraftPlatform),
+    [activeDraftPlatform, publishPrepBundle],
+  );
+  const activePlatformDiff = useMemo(
+    () =>
+      buildDraftDiffSummary(
+        activeDraftPlatform === "x"
+          ? currentSignal.xDraft ?? ""
+          : activeDraftPlatform === "linkedin"
+            ? currentSignal.linkedInDraft ?? ""
+            : currentSignal.redditDraft ?? "",
+        activeDraftPlatform === "x"
+          ? formState.finalXDraft
+          : activeDraftPlatform === "linkedin"
+            ? formState.finalLinkedInDraft
+            : formState.finalRedditDraft,
+      ),
+    [activeDraftPlatform, currentSignal.linkedInDraft, currentSignal.redditDraft, currentSignal.xDraft, formState.finalLinkedInDraft, formState.finalRedditDraft, formState.finalXDraft],
+  );
 
   function updateField<K extends keyof ReviewFormState>(key: K, value: ReviewFormState[K]) {
     setFormState((current) => ({ ...current, [key]: value }));
   }
 
-  function getDraftValue(platform: EditSuggestionOption["platform"]): string {
-    switch (platform) {
-      case "x":
-        return formState.finalXDraft;
-      case "linkedin":
-        return formState.finalLinkedInDraft;
-      case "reddit":
-      default:
-        return formState.finalRedditDraft;
-    }
+  function updateDraftForPlatform(
+    platform: PostingPlatform,
+    updater: (currentValue: string) => string,
+  ) {
+    setFormState((current) => {
+      if (platform === "x") {
+        return { ...current, finalXDraft: updater(current.finalXDraft) };
+      }
+      if (platform === "linkedin") {
+        return { ...current, finalLinkedInDraft: updater(current.finalLinkedInDraft) };
+      }
+      return { ...current, finalRedditDraft: updater(current.finalRedditDraft) };
+    });
   }
 
-  function setDraftValue(platform: EditSuggestionOption["platform"], value: string) {
-    if (platform === "x") {
-      updateField("finalXDraft", value);
-    } else if (platform === "linkedin") {
-      updateField("finalLinkedInDraft", value);
-    } else {
-      updateField("finalRedditDraft", value);
-    }
+  function appendReviewNote(text: string) {
+    setFormState((current) => ({
+      ...current,
+      finalReviewNotes: appendReviewMacroNote(current.finalReviewNotes, text),
+    }));
   }
 
-  function applyEditSuggestion(suggestion: EditSuggestionOption) {
-    const currentValue = getDraftValue(suggestion.platform);
+  function recordAppliedMacro(macroId: ReviewMacroId, platform: PostingPlatform) {
+    setAppliedReviewMacros((current) => [
+      ...current.filter((entry) => !(entry.macroId === macroId && entry.platform === platform)),
+      {
+        macroId,
+        platform,
+        appliedAt: new Date().toISOString(),
+      },
+    ]);
+  }
+
+  const setReviewStatusForPlatform = useCallback((platform: PostingPlatform, value: ReviewFormState["xReviewStatus"]) => {
+    setActiveDraftPlatform(platform);
+    setFormState((current) => {
+      if (platform === "x") {
+        return { ...current, xReviewStatus: value };
+      }
+      if (platform === "linkedin") {
+        return { ...current, linkedInReviewStatus: value };
+      }
+      return { ...current, redditReviewStatus: value };
+    });
+  }, []);
+
+  const applyEditSuggestion = useCallback((suggestion: EditSuggestionOption) => {
+    const currentValue =
+      suggestion.platform === "x"
+        ? formState.finalXDraft
+        : suggestion.platform === "linkedin"
+          ? formState.finalLinkedInDraft
+          : formState.finalRedditDraft;
     const nextValue = applyEditSuggestionTransform(currentValue, suggestion.patternType);
     if (nextValue === currentValue) {
       setFeedback({
@@ -562,7 +768,15 @@ export function FinalReviewWorkspace({
       return;
     }
 
-    setDraftValue(suggestion.platform, nextValue);
+    setFormState((current) => {
+      if (suggestion.platform === "x") {
+        return { ...current, finalXDraft: nextValue };
+      }
+      if (suggestion.platform === "linkedin") {
+        return { ...current, finalLinkedInDraft: nextValue };
+      }
+      return { ...current, finalRedditDraft: nextValue };
+    });
     setAppliedEditSuggestions((current) => {
       const next = current.filter((entry) => entry.key !== suggestion.key);
       next.push({
@@ -577,6 +791,221 @@ export function FinalReviewWorkspace({
       tone: "success",
       title: "Suggestion applied",
       body: `${suggestion.label} updated the ${getPostingPlatformLabel(suggestion.platform)} draft. Review the edit before saving.`,
+    });
+  }, [formState.finalLinkedInDraft, formState.finalRedditDraft, formState.finalXDraft]);
+
+  const applyFirstSuggestionForPlatform = useCallback((platform: PostingPlatform) => {
+    const suggestion = editSuggestions[platform][0];
+    if (!suggestion) {
+      setFeedback({
+        tone: "warning",
+        title: "No suggestion available",
+      body: `No learned edit suggestion is currently available for ${getPostingPlatformLabel(platform)}.`,
+      });
+      return;
+    }
+
+    applyEditSuggestion(suggestion);
+  }, [applyEditSuggestion, editSuggestions]);
+
+  function handleConflictHoldForFix() {
+    setReviewStatusForPlatform(activeDraftPlatform, "needs_edit");
+    setFeedback({
+      tone: "warning",
+      title: "Held for package fix",
+      body: `${getPostingPlatformLabel(activeDraftPlatform)} was marked needs edit so the conflict can be resolved before approval.`,
+    });
+  }
+
+  function handleConflictSoftenCta() {
+    const currentValue =
+      activeDraftPlatform === "x"
+        ? formState.finalXDraft
+        : activeDraftPlatform === "linkedin"
+          ? formState.finalLinkedInDraft
+          : formState.finalRedditDraft;
+    const nextValue = softenCtaText(currentValue);
+
+    if (nextValue !== currentValue) {
+      if (activeDraftPlatform === "x") {
+        updateField("finalXDraft", nextValue);
+      } else if (activeDraftPlatform === "linkedin") {
+        updateField("finalLinkedInDraft", nextValue);
+      } else {
+        updateField("finalRedditDraft", nextValue);
+      }
+    }
+
+    if (activePlatformPackage?.id) {
+      const softenedCta = softenCtaText(getSelectedCtaText(activePlatformPackage) ?? activePlatformPackage.primaryCta ?? "");
+      updatePublishPrepPackage(activePlatformPackage.id, {
+        primaryCta: softenedCta || activePlatformPackage.primaryCta,
+      });
+    }
+
+    setFeedback({
+      tone: "success",
+      title: "CTA softened",
+      body: `Softened the ${getPostingPlatformLabel(activeDraftPlatform)} CTA language in the focused draft and publish prep package.`,
+    });
+  }
+
+  function handleConflictSwitchDestination() {
+    if (!activePlatformPackage?.id || activePlatformPackage.linkVariants.length < 2) {
+      setFeedback({
+        tone: "warning",
+        title: "No alternate destination",
+        body: "This package does not currently have another saved destination variant to switch to.",
+      });
+      return;
+    }
+
+    const currentIndex = activePlatformPackage.linkVariants.findIndex(
+      (variant) => variant.siteLinkId === activePlatformPackage.siteLinkId,
+    );
+    const nextVariant =
+      activePlatformPackage.linkVariants[
+        currentIndex >= 0
+          ? (currentIndex + 1) % activePlatformPackage.linkVariants.length
+          : 1
+      ];
+
+    updatePublishPrepPackage(activePlatformPackage.id, {
+      siteLinkId: nextVariant.siteLinkId ?? null,
+      siteLinkLabel: nextVariant.destinationLabel ?? nextVariant.label,
+      siteLinkReason: `Switched during conflict review from ${activePlatformPackage.siteLinkLabel ?? "current destination"} to ${nextVariant.destinationLabel ?? nextVariant.label}.`,
+    });
+    setFeedback({
+      tone: "success",
+      title: "Destination switched",
+      body: `Switched the focused package destination to ${nextVariant.destinationLabel ?? nextVariant.label}. Save when the rest of the package looks aligned.`,
+    });
+  }
+
+  function applyFounderVoiceToActiveDraft() {
+    const currentValue =
+      activeDraftPlatform === "x"
+        ? formState.finalXDraft
+        : activeDraftPlatform === "linkedin"
+          ? formState.finalLinkedInDraft
+          : formState.finalRedditDraft;
+    const nextValue = applyFounderVoiceToText(currentValue, "founder_voice_on");
+
+    updateDraftForPlatform(activeDraftPlatform, () => nextValue);
+    setFounderVoiceMode("founder_voice_on");
+    setFounderVoiceAppliedAt(new Date().toISOString());
+    appendReviewNote(`Applied founder voice pass to ${getPostingPlatformLabel(activeDraftPlatform)}.`);
+    setFeedback({
+      tone: nextValue === currentValue ? "warning" : "success",
+      title: nextValue === currentValue ? "Founder voice already close" : "Founder voice rewrite staged",
+      body:
+        nextValue === currentValue
+          ? `${getPostingPlatformLabel(activeDraftPlatform)} was already close to the founder voice constraints, so only the mode flag and review note were staged.`
+          : `${getPostingPlatformLabel(activeDraftPlatform)} was rewritten into the calmer founder voice. Review the visible edit, then save if it still fits.`,
+    });
+  }
+
+  function applyReviewMacro(macroId: ReviewMacroId) {
+    const platformLabel = getPostingPlatformLabel(activeDraftPlatform);
+
+    switch (macroId) {
+      case "approve_keep_package":
+        setReviewStatusForPlatform(activeDraftPlatform, "ready");
+        recordAppliedMacro(macroId, activeDraftPlatform);
+        setFeedback({
+          tone: "success",
+          title: "Approve and keep package staged",
+          body: `${platformLabel} is marked ready with the current package unchanged. Save to persist the macro decision.`,
+        });
+        return;
+      case "approve_soften_cta":
+        handleConflictSoftenCta();
+        setReviewStatusForPlatform(activeDraftPlatform, "ready");
+        recordAppliedMacro(macroId, activeDraftPlatform);
+        setFeedback({
+          tone: "success",
+          title: "Approve but soften CTA staged",
+          body: `${platformLabel} CTA language was softened and the draft is marked ready. Review the edit, then save.`,
+        });
+        return;
+      case "hold_for_destination_fix":
+        handleConflictHoldForFix();
+        appendReviewNote(`Hold ${platformLabel} for destination fix.`);
+        recordAppliedMacro(macroId, activeDraftPlatform);
+        setFeedback({
+          tone: "warning",
+          title: "Hold for destination fix staged",
+          body: `${platformLabel} is marked needs edit and a destination-fix note was added. Save to persist it.`,
+        });
+        return;
+      case "convert_to_experiment":
+        setReviewStatusForPlatform(activeDraftPlatform, "needs_edit");
+        appendReviewNote(`Convert ${platformLabel} into an experiment instead of forcing final approval.`);
+        recordAppliedMacro(macroId, activeDraftPlatform);
+        setFeedback({
+          tone: "warning",
+          title: "Convert to experiment staged",
+          body: `${platformLabel} is marked needs edit and experiment intent was added to the review note. Save, then open experiments to create the test.`,
+        });
+        return;
+      case "evergreen_later":
+        setReviewStatusForPlatform(activeDraftPlatform, "skip");
+        appendReviewNote(`Keep ${platformLabel} as an evergreen-later candidate.`);
+        recordAppliedMacro(macroId, activeDraftPlatform);
+        setFeedback({
+          tone: "warning",
+          title: "Evergreen later staged",
+          body: `${platformLabel} is marked skip for this cycle and tagged for later reuse in the review note. Save to persist the decision.`,
+        });
+        return;
+      case "approve_with_safe_tone": {
+        const currentValue =
+          activeDraftPlatform === "x"
+            ? formState.finalXDraft
+            : activeDraftPlatform === "linkedin"
+              ? formState.finalLinkedInDraft
+              : formState.finalRedditDraft;
+        const nextValue = softenToneText(currentValue);
+        updateDraftForPlatform(activeDraftPlatform, () => nextValue);
+        setReviewStatusForPlatform(activeDraftPlatform, "ready");
+        recordAppliedMacro(macroId, activeDraftPlatform);
+        setFeedback({
+          tone: "success",
+          title: "Approve with safer tone staged",
+          body:
+            nextValue === currentValue
+              ? `${platformLabel} was already fairly restrained, so the macro only marked it ready. Save if that still fits the decision.`
+              : `${platformLabel} tone was softened and the draft is marked ready. Review the phrasing, then save.`,
+        });
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  async function handleUsePlaybookPack(match: PlaybookPackMatch) {
+    try {
+      await fetch("/api/playbook-packs/use", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          packId: match.pack.packId,
+          signalId: currentSignal.recordId,
+          context: "review",
+        }),
+      });
+    } catch {
+      // Best-effort audit only.
+    }
+
+    appendReviewNote(`Referenced reusable playbook pack: ${match.pack.name}.`);
+    setFeedback({
+      tone: "success",
+      title: "Playbook pack referenced",
+      body: `${match.pack.name} was added to the review note as a reusable structure hint. Save to persist it.`,
     });
   }
 
@@ -782,16 +1211,17 @@ export function FinalReviewWorkspace({
     }));
   }
 
-  function openPostingForm(platform: PostingPlatform) {
+  const openPostingForm = useCallback((platform: PostingPlatform) => {
     const latestEntry = postingEntries.find((entry) => entry.platform === platform) ?? null;
     setPostingForms((current) => ({
       ...current,
       [platform]: createPostingFormState(currentSignal, platform, latestEntry),
     }));
+    setActiveDraftPlatform(platform);
     setActivePostingPlatform((current) => (current === platform ? null : platform));
-  }
+  }, [currentSignal, postingEntries]);
 
-  async function handleSave() {
+  const handleSave = useCallback(async () => {
     setFeedback(null);
     setIsSaving(true);
 
@@ -821,6 +1251,9 @@ export function FinalReviewWorkspace({
           selectedRepurposedOutputIdsJson: formState.selectedRepurposedOutputIdsJson || null,
           evergreenCandidateId: evergreenContext?.id ?? null,
           appliedEditSuggestions,
+          appliedReviewMacros,
+          founderVoiceMode,
+          founderVoiceAppliedAt,
         }),
       });
 
@@ -840,7 +1273,10 @@ export function FinalReviewWorkspace({
       setCurrentSignal(data.signal);
       setFormState(nextState);
       setSavedState(nextState);
+      setFounderVoiceMode(data.signal.founderVoiceMode ?? "founder_voice_on");
+      setFounderVoiceAppliedAt(data.signal.founderVoiceAppliedAt ?? null);
       setAppliedEditSuggestions([]);
+      setAppliedReviewMacros([]);
       setFeedback({
         tone: data.source === "airtable" ? "success" : "warning",
         title: data.source === "airtable" ? "Saved to Airtable" : "Saved in mock mode",
@@ -855,7 +1291,7 @@ export function FinalReviewWorkspace({
     } finally {
       setIsSaving(false);
     }
-  }
+  }, [appliedEditSuggestions, appliedReviewMacros, currentSignal.recordId, evergreenContext?.id, formState, founderVoiceAppliedAt, founderVoiceMode]);
 
   async function handlePostingSave(platform: PostingPlatform) {
     setFeedback(null);
@@ -911,8 +1347,173 @@ export function FinalReviewWorkspace({
     }
   }
 
+  async function handleStageForPosting(platform: PostingPlatform) {
+    setFeedback(null);
+    setIsPosting(true);
+
+    try {
+      const finalCaption =
+        platform === "x"
+          ? formState.finalXDraft
+          : platform === "linkedin"
+            ? formState.finalLinkedInDraft
+            : formState.finalRedditDraft;
+      const response = await fetch("/api/posting-assistant", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "stage_package",
+          signalId: currentSignal.recordId,
+          platform,
+          finalCaption,
+          publishPrepBundleJson: formState.publishPrepBundleJson,
+          assetBundleJson: formState.assetBundleJson,
+          preferredAssetType: formState.preferredAssetType || null,
+          selectedImageAssetId: formState.selectedImageAssetId || null,
+          selectedVideoConceptId: formState.selectedVideoConceptId || null,
+          generatedImageUrl: formState.generatedImageUrl || null,
+          readinessReason: `Final ${getPostingPlatformLabel(platform)} package staged from final review for manual posting confirmation.`,
+        }),
+      });
+
+      const data = (await response.json().catch(() => null)) as PostingAssistantActionResponse | null;
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error ?? "Unable to stage posting package.");
+      }
+
+      setFeedback({
+        tone: "success",
+        title: "Posting package staged",
+        body: `${data.message} Open the posting assistant when you are ready to copy and confirm the manual post.`,
+      });
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        title: "Unable to stage package",
+        body: error instanceof Error ? error.message : "Unable to stage posting package.",
+      });
+    } finally {
+      setIsPosting(false);
+    }
+  }
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && key === "s") {
+        event.preventDefault();
+        void handleSave();
+        return;
+      }
+
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+
+      const activeIndex = draftPanels.findIndex((panel) => panel.key === activeDraftPlatform);
+      const nextIndex =
+        activeIndex < 0
+          ? 0
+          : key === "]"
+            ? (activeIndex + 1) % draftPanels.length
+            : key === "["
+              ? (activeIndex - 1 + draftPanels.length) % draftPanels.length
+              : activeIndex;
+
+      if (key === "?") {
+        event.preventDefault();
+        setShowShortcutHelp((current) => !current);
+        return;
+      }
+
+      if (key === "e") {
+        event.preventDefault();
+        setShowSupportDetail((current) => !current);
+        return;
+      }
+
+      if (key === "1") {
+        event.preventDefault();
+        setActiveDraftPlatform("x");
+        return;
+      }
+
+      if (key === "2") {
+        event.preventDefault();
+        setActiveDraftPlatform("linkedin");
+        return;
+      }
+
+      if (key === "3") {
+        event.preventDefault();
+        setActiveDraftPlatform("reddit");
+        return;
+      }
+
+      if (key === "[" || key === "]") {
+        event.preventDefault();
+        setActiveDraftPlatform(draftPanels[nextIndex]?.key ?? "linkedin");
+        return;
+      }
+
+      if (key === "a") {
+        event.preventDefault();
+        setReviewStatusForPlatform(activeDraftPlatform, "ready");
+        return;
+      }
+
+      if (key === "h") {
+        event.preventDefault();
+        setReviewStatusForPlatform(activeDraftPlatform, "needs_edit");
+        return;
+      }
+
+      if (key === "g") {
+        event.preventDefault();
+        applyFirstSuggestionForPlatform(activeDraftPlatform);
+        return;
+      }
+
+      if (key === "j" && navigation?.nextHref) {
+        event.preventDefault();
+        window.location.href = navigation.nextHref;
+        return;
+      }
+
+      if (key === "k" && navigation?.previousHref) {
+        event.preventDefault();
+        window.location.href = navigation.previousHref;
+        return;
+      }
+
+      if (key === "p") {
+        event.preventDefault();
+        openPostingForm(activeDraftPlatform);
+        return;
+      }
+
+      if (key === "x") {
+        event.preventDefault();
+        window.location.href = "/experiments";
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    activeDraftPlatform,
+    applyFirstSuggestionForPlatform,
+    draftPanels,
+    handleSave,
+    navigation,
+    openPostingForm,
+    setReviewStatusForPlatform,
+  ]);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-36">
       <Card>
         <CardHeader>
           <CardTitle>Final Review Workspace</CardTitle>
@@ -939,6 +1540,158 @@ export function FinalReviewWorkspace({
               <p className="mt-2 text-2xl font-semibold text-slate-950">{reviewState.reviewSummary.skipCount}</p>
             </div>
           </div>
+
+          <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <ReviewStateBadge tone={reviewState.reviewSummary.readyCount > 0 ? "ready" : "neutral"}>
+                    {reviewState.reviewSummary.readyCount} ready
+                  </ReviewStateBadge>
+                  <ReviewStateBadge tone={reviewState.completeness.completenessState === "complete" ? "complete" : reviewState.completeness.completenessState === "mostly_complete" ? "mostly_complete" : "partial"}>
+                    {reviewState.completeness.completenessState.replaceAll("_", " ")}
+                  </ReviewStateBadge>
+                  <ReviewStateBadge tone={automationConfidenceTone(automationConfidence.level)}>
+                    {automationConfidence.summary}
+                  </ReviewStateBadge>
+                  {conversionIntent ? (
+                    <ReviewStateBadge tone={conversionIntent.posture === "direct_conversion" ? "high_value" : conversionIntent.posture === "soft_conversion" ? "medium_value" : "neutral"}>
+                      {conversionIntentLabel(conversionIntent.posture)}
+                    </ReviewStateBadge>
+                  ) : null}
+                  <ReviewStateBadge tone={founderVoiceEnabled ? "high_confidence" : "neutral"}>
+                    {founderVoiceEnabled ? FOUNDER_VOICE_LABEL : "Founder voice off"}
+                  </ReviewStateBadge>
+                  {packageAutofillNotes && packageAutofillNotes.length > 0 ? (
+                    <ReviewStateBadge tone="autofill">
+                      {packageAutofillNotes.length} {packageAutofillMode === "suggested" ? "autofill suggestions" : "autofill notes"}
+                    </ReviewStateBadge>
+                  ) : null}
+                  {experimentContexts && experimentContexts.length > 0 ? (
+                    <ReviewStateBadge tone="experiment">{experimentContexts.length} experiments</ReviewStateBadge>
+                  ) : null}
+                  {activePlatformDiff.changed ? (
+                    <ReviewStateBadge tone="medium_confidence">{activePlatformDiff.changedWordCount} changed words</ReviewStateBadge>
+                  ) : (
+                    <ReviewStateBadge tone="neutral">No edits yet</ReviewStateBadge>
+                  )}
+                </div>
+                <p>
+                  Active platform: <span className="font-medium text-slate-900">{getPostingPlatformLabel(activeDraftPlatform)}</span>.
+                  {activeTopSuggestion ? ` Top suggestion ready: ${activeTopSuggestion.label}.` : " No suggestion is queued for this draft right now."}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {automationConfidence.reasons[0] ?? automationConfidence.summary}
+                </p>
+                {conversionIntent?.whyChosen[0] ? (
+                  <p className="text-xs text-slate-500">{conversionIntent.whyChosen[0]}</p>
+                ) : null}
+                <p className="text-xs text-slate-500">
+                  {getFounderVoiceModeLabel(founderVoiceMode)}
+                  {founderVoiceAppliedAt ? ` · last applied ${formatDateTime(founderVoiceAppliedAt)}` : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSupportDetail((current) => !current)}
+                  className="rounded-full bg-slate-100 px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-200"
+                >
+                  {showSupportDetail ? "Collapse detail" : "Expand detail"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowShortcutHelp((current) => !current)}
+                  className="rounded-full bg-slate-100 px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-200"
+                >
+                  {showShortcutHelp ? "Hide shortcuts" : "Show shortcuts"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-medium text-slate-900">Founder voice</p>
+                <p className="mt-1">
+                  Calm authority. Teacher empathy. Trust-first language. This pass keeps the draft away from hype without flattening the platform fit.
+                </p>
+              </div>
+              <Button type="button" variant="secondary" size="sm" onClick={applyFounderVoiceToActiveDraft}>
+                Rewrite in founder voice
+              </Button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <ReviewStateBadge tone={founderVoiceEnabled ? "high_confidence" : "neutral"}>
+                {getFounderVoiceModeLabel(founderVoiceMode)}
+              </ReviewStateBadge>
+              <Badge className="bg-white/90 text-slate-700 ring-slate-200">short sentences</Badge>
+              <Badge className="bg-white/90 text-slate-700 ring-slate-200">low hype</Badge>
+              <Badge className="bg-white/90 text-slate-700 ring-slate-200">teacher-first</Badge>
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="font-medium text-slate-900">Review macros</p>
+                <p className="mt-1">
+                  One-click decisions for the focused draft. Macros change visible state immediately, but nothing persists until you save.
+                </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  {automationConfidence.allowMacroSuggestions
+                    ? automationConfidence.level === "high"
+                      ? "This package is in the high-confidence lane, so macro suggestions are safe accelerators."
+                      : "This package is in the medium-confidence lane, so macros stay suggestive rather than automatic."
+                    : "This package is in the low-confidence lane. Macros remain available, but use direct judgement before applying them."}
+                </p>
+              </div>
+              {appliedReviewMacros.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {appliedReviewMacros.map((macro) => (
+                    <ReviewStateBadge key={`${macro.macroId}:${macro.platform}:${macro.appliedAt}`} tone="neutral">
+                      {REVIEW_MACROS.find((entry) => entry.macroId === macro.macroId)?.label ?? macro.macroId}
+                    </ReviewStateBadge>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-4 grid gap-3 xl:grid-cols-2">
+              {REVIEW_MACROS.map((macro) => (
+                <div key={macro.macroId} className="rounded-2xl border border-black/8 bg-slate-50/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-slate-900">{macro.label}</p>
+                      <p className="mt-1 text-sm text-slate-600">{macro.description}</p>
+                    </div>
+                    <Button type="button" variant={macro.macroId === "approve_keep_package" ? "primary" : "secondary"} size="sm" onClick={() => applyReviewMacro(macro.macroId)}>
+                      Apply
+                    </Button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {formatReviewMacroActions(macro.actions).map((action) => (
+                      <Badge key={`${macro.macroId}:${action}`} className="bg-white/90 text-slate-700 ring-slate-200">
+                        {action}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {playbookPackMatches && playbookPackMatches.length > 0 ? (
+            <PlaybookPackSuggestions
+              title="Reusable playbook packs"
+              description="Repeated winners promoted into compact review-stage reuse hints. Reference one when the current package matches a proven structure."
+              matches={playbookPackMatches}
+              onUse={handleUsePlaybookPack}
+            />
+          ) : null}
+
+          {showSupportDetail ? (
+            <div className="space-y-5">
 
           <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -970,7 +1723,16 @@ export function FinalReviewWorkspace({
 
           {packageAutofillNotes && packageAutofillNotes.length > 0 ? (
             <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
-              <p className="font-medium text-slate-900">Approval autopilot</p>
+              <p className="font-medium text-slate-900">
+                {packageAutofillMode === "suggested" ? "Approval autopilot suggestions" : "Approval autopilot"}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {packageAutofillMode === "suggested"
+                  ? "Medium confidence only. These bounded package changes are suggested, not silently applied."
+                  : packageAutofillMode === "blocked"
+                    ? "Autofill is blocked in the current confidence lane."
+                    : "High confidence allowed bounded package autofill before final review."}
+              </p>
               <div className="mt-3 space-y-2">
                 {packageAutofillNotes.slice(0, 4).map((note) => (
                   <div key={`${note.field}:${note.value}`} className="rounded-2xl bg-slate-50/80 px-3 py-3">
@@ -1044,6 +1806,104 @@ export function FinalReviewWorkspace({
               {weeklyPlanContext.cautions.length > 0 ? (
                 <p className="mt-2 text-slate-500">Watch: {weeklyPlanContext.cautions.join(" · ")}</p>
               ) : null}
+            </div>
+          ) : null}
+
+          {activeNarrativeStep ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <div className="flex flex-wrap items-center gap-2">
+                <ReviewStateBadge tone="high_confidence">Narrative sequence</ReviewStateBadge>
+                <ReviewStateBadge tone="neutral">
+                  Step {activeNarrativeStep.stepNumber} of {activeNarrativeStep.totalSteps}
+                </ReviewStateBadge>
+                <ReviewStateBadge tone="neutral">
+                  {activeNarrativeStep.roleLabel}
+                </ReviewStateBadge>
+              </div>
+              <p className="mt-3 font-medium text-slate-900">{activeNarrativeStep.narrativeLabel}</p>
+              <p className="mt-2">{activeNarrativeStep.rationale}</p>
+              <p className="mt-2 text-slate-500">{activeNarrativeStep.sequenceReason}</p>
+              <p className="mt-2 text-slate-500">{activeNarrativeStep.suggestedCadenceNotes}</p>
+            </div>
+          ) : null}
+
+          {staleContext && (staleContext.state !== "fresh" || staleContext.operatorAction) ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <div className="flex flex-wrap items-center gap-2">
+                <ReviewStateBadge tone={staleContext.state === "aging" ? "aging" : staleContext.state === "stale_but_reusable" ? "stale_reusable" : "stale"}>
+                  {staleStateLabel(staleContext.state)}
+                </ReviewStateBadge>
+                {staleContext.operatorAction ? (
+                  <ReviewStateBadge tone={staleContext.operatorAction === "move_to_evergreen_later" ? "stale_reusable" : staleContext.operatorAction === "keep_anyway" ? "neutral" : "stale"}>
+                    {staleOperatorActionLabel(staleContext.operatorAction)}
+                  </ReviewStateBadge>
+                ) : null}
+              </div>
+              <p className="mt-3 font-medium text-slate-900">Stale queue context</p>
+              <p className="mt-2">{staleContext.summary}</p>
+              {staleContext.suggestedRefreshNote ? (
+                <p className="mt-2 text-slate-500">{staleContext.suggestedRefreshNote}</p>
+              ) : null}
+              {staleContext.reasons.length > 1 ? (
+                <p className="mt-2 text-slate-500">
+                  Also watch: {staleContext.reasons.slice(1, 3).map((reason) => reason.summary).join(" · ")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {conversionIntent ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <div className="flex flex-wrap items-center gap-2">
+                <ReviewStateBadge tone={conversionIntent.posture === "direct_conversion" ? "high_value" : conversionIntent.posture === "soft_conversion" ? "medium_value" : "neutral"}>
+                  Conversion posture: {conversionIntentLabel(conversionIntent.posture)}
+                </ReviewStateBadge>
+              </div>
+              <p className="mt-3 font-medium text-slate-900">Conversion-intent guidance</p>
+              <p className="mt-2">{conversionIntent.whyChosen[0] ?? "No conversion-posture note surfaced."}</p>
+              {conversionIntent.cautionNotes[0] ? (
+                <p className="mt-2 text-slate-500">{conversionIntent.cautionNotes[0]}</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {conflicts && conflicts.topConflicts.length > 0 ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <div className="flex flex-wrap items-center gap-2">
+                <ReviewStateBadge tone={conflictTone(conflicts.highestSeverity ?? "low")}>
+                  {conflicts.highestSeverity === "high" ? "high conflict" : conflicts.highestSeverity === "medium" ? "alignment caution" : "alignment note"}
+                </ReviewStateBadge>
+                {conflicts.requiresJudgement ? (
+                  <ReviewStateBadge tone="aging">needs judgement</ReviewStateBadge>
+                ) : null}
+              </div>
+              <p className="mt-3 font-medium text-slate-900">Conflict detector</p>
+              <div className="mt-3 space-y-3">
+                {conflicts.topConflicts.map((conflict) => (
+                  <div key={`${conflict.conflictType}-${conflict.platform ?? "all"}`} className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <ReviewStateBadge tone={conflictTone(conflict.severity)}>{conflict.severity} conflict</ReviewStateBadge>
+                      <span className="font-medium text-slate-900">{conflictLabel(conflict.conflictType)}</span>
+                    </div>
+                    <p className="mt-2">{conflict.reason}</p>
+                    {conflict.suggestedFix ? <p className="mt-2 text-slate-500">{conflict.suggestedFix}</p> : null}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button type="button" variant="secondary" size="sm" onClick={handleConflictHoldForFix}>
+                  Hold for destination fix
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={handleConflictSoftenCta}>
+                  Soften CTA
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={handleConflictSwitchDestination}>
+                  Switch destination
+                </Button>
+                <Link href="/experiments" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                  Convert to experiment
+                </Link>
+              </div>
             </div>
           ) : null}
 
@@ -1145,50 +2005,32 @@ export function FinalReviewWorkspace({
               </p>
             </div>
           </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
       <div className="grid gap-6 xl:grid-cols-3">
-        {[
-          {
-            key: "x" as const,
-            label: "X Draft",
-            helper: xProfile.helperNote,
-            structure: xProfile.structure,
-            generatedValue: currentSignal.xDraft ?? "",
-            finalValue: formState.finalXDraft,
-            statusValue: formState.xReviewStatus,
-          },
-          {
-            key: "linkedin" as const,
-            label: "LinkedIn Draft",
-            helper: linkedInProfile.helperNote,
-            structure: linkedInProfile.structure,
-            generatedValue: currentSignal.linkedInDraft ?? "",
-            finalValue: formState.finalLinkedInDraft,
-            statusValue: formState.linkedInReviewStatus,
-          },
-          {
-            key: "reddit" as const,
-            label: "Reddit Draft",
-            helper: redditProfile.helperNote,
-            structure: redditProfile.structure,
-            generatedValue: currentSignal.redditDraft ?? "",
-            finalValue: formState.finalRedditDraft,
-            statusValue: formState.redditReviewStatus,
-          },
-        ].map((panel) => (
-          <Card key={panel.key}>
+        {draftPanels.map((panel) => {
+          const diffRows = buildDraftDiffRows(panel.generatedValue, panel.finalValue);
+
+          return (
+          <Card key={panel.key} className={activeDraftPlatform === panel.key ? "ring-2 ring-[color:var(--accent)]/30" : undefined}>
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <CardTitle>{panel.label}</CardTitle>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${statusClasses(panel.statusValue)}`}>
+                  <CardTitle>{panel.label}</CardTitle>
+                  {activeDraftPlatform === panel.key ? (
+                    <span className="inline-flex rounded-full bg-slate-950 px-2.5 py-1 text-xs font-medium text-white">Active</span>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <ReviewStateBadge tone={panel.statusValue === "ready" ? "ready" : panel.statusValue === "skip" ? "skip" : panel.statusValue === "needs_edit" ? "needs_edit" : "neutral"}>
                     {statusLabel(panel.statusValue)}
-                  </span>
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${postingStateClasses(postingSummary.platformRows.find((row) => row.platform === panel.key)?.state ?? "not_reviewed")}`}>
+                  </ReviewStateBadge>
+                  <ReviewStateBadge tone={(postingSummary.platformRows.find((row) => row.platform === panel.key)?.state ?? "not_reviewed") === "posted" ? "posted" : (postingSummary.platformRows.find((row) => row.platform === panel.key)?.state ?? "not_reviewed") === "ready_not_posted" ? "ready" : "neutral"}>
                     {postingStateLabel(postingSummary.platformRows.find((row) => row.platform === panel.key)?.state ?? "not_reviewed")}
-                  </span>
+                  </ReviewStateBadge>
                 </div>
               </div>
               <CardDescription>
@@ -1196,9 +2038,37 @@ export function FinalReviewWorkspace({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant={activeDraftPlatform === panel.key ? "primary" : "secondary"} size="sm" onClick={() => setActiveDraftPlatform(panel.key)}>
+                  {activeDraftPlatform === panel.key ? "Focused draft" : "Focus draft"}
+                </Button>
+                <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                  [{panel.key === "x" ? "X" : panel.key === "linkedin" ? "L" : "R"}] in shortcut cycle
+                </span>
+              </div>
               <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-600">
                 <p className="font-medium text-slate-900">Generated draft</p>
                 <p className="mt-2 whitespace-pre-wrap">{panel.generatedValue || "No generated draft saved."}</p>
+              </div>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600 ring-1 ring-inset ring-black/5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium text-slate-900">Edit delta</p>
+                  <span className="text-xs text-slate-500">Generated vs final</span>
+                </div>
+                {diffRows.length === 0 ? (
+                  <p className="mt-2">No meaningful edit delta yet.</p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {diffRows.map((row, index) => (
+                      <div key={`${panel.key}-diff-${index}`} className="grid gap-2 rounded-2xl bg-slate-50/80 px-3 py-3">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Before</p>
+                        <p className="text-sm text-slate-500">{row.before || "Removed line"}</p>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">After</p>
+                        <p className="text-sm text-slate-900">{row.after || "Removed in final draft"}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               {revisionGuidance[panel.key].positive || revisionGuidance[panel.key].caution ? (
                 <div className="rounded-2xl bg-sky-50/80 px-4 py-4 text-sm text-sky-950">
@@ -1255,6 +2125,7 @@ export function FinalReviewWorkspace({
                   id={`${panel.key}-final`}
                   value={panel.finalValue}
                   onChange={(event) => {
+                    setActiveDraftPlatform(panel.key);
                     if (panel.key === "x") {
                       updateField("finalXDraft", event.target.value);
                     } else if (panel.key === "linkedin") {
@@ -1272,6 +2143,7 @@ export function FinalReviewWorkspace({
                   id={`${panel.key}-status`}
                   value={panel.statusValue}
                   onChange={(event) => {
+                    setActiveDraftPlatform(panel.key);
                     const nextValue = event.target.value as ReviewFormState["xReviewStatus"];
                     if (panel.key === "x") {
                       updateField("xReviewStatus", nextValue);
@@ -1370,7 +2242,7 @@ export function FinalReviewWorkspace({
               ) : null}
             </CardContent>
           </Card>
-        ))}
+        )})}
       </div>
 
       {assetBundle ? (
@@ -1830,6 +2702,61 @@ export function FinalReviewWorkspace({
           </CardContent>
         </Card>
       ) : null}
+
+      <div className="sticky bottom-4 z-20 rounded-3xl border border-black/8 bg-white/95 p-4 shadow-sm backdrop-blur">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <p className="text-sm font-medium text-slate-950">
+              Sticky action rail · {getPostingPlatformLabel(activeDraftPlatform)} focused
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Save, stage a ready-to-post package, hold, apply one suggestion, or log posting without leaving the workspace.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={handleSave} disabled={isSaving}>
+              {isSaving ? "Saving..." : "Save"}
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => setReviewStatusForPlatform(activeDraftPlatform, "ready")}>
+              Approve focused draft
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => setReviewStatusForPlatform(activeDraftPlatform, "needs_edit")}>
+              Hold focused draft
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => applyFirstSuggestionForPlatform(activeDraftPlatform)}>
+              Apply suggestion
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => handleStageForPosting(activeDraftPlatform)} disabled={isPosting}>
+              {isPosting ? "Staging..." : "Stage for posting"}
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => openPostingForm(activeDraftPlatform)}>
+              Log posting
+            </Button>
+            <Link href="/posting" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+              Open posting assistant
+            </Link>
+            <Link href="/experiments" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+              Open experiments
+            </Link>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setShowShortcutHelp((current) => !current)}>
+              {showShortcutHelp ? "Hide shortcuts" : "Show shortcuts"}
+            </Button>
+          </div>
+        </div>
+        {showShortcutHelp ? (
+          <div className="mt-3 rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+            <p className="font-medium text-slate-900">Keyboard shortcuts</p>
+            <p className="mt-2">
+              <span className="font-medium">Ctrl/Cmd+S</span> save · <span className="font-medium">J / K</span> next or previous candidate ·{" "}
+              <span className="font-medium">[ / ]</span> cycle focused draft · <span className="font-medium">1 / 2 / 3</span> focus X, LinkedIn, or Reddit ·{" "}
+              <span className="font-medium">A</span> approve focused draft · <span className="font-medium">H</span> hold focused draft ·{" "}
+              <span className="font-medium">G</span> apply first suggestion · <span className="font-medium">P</span> open posting log ·{" "}
+              <span className="font-medium">E</span> expand or collapse support detail · <span className="font-medium">X</span> open experiments ·{" "}
+              <span className="font-medium">?</span> toggle this help
+            </p>
+          </div>
+        ) : null}
+      </div>
 
       <Card>
         <CardHeader>

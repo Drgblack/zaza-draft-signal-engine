@@ -1,24 +1,68 @@
 import Link from "next/link";
 
+import { GrowthDirectorPanel } from "@/components/director/growth-director-panel";
+import { FlywheelOptimisationPanel } from "@/components/optimisation/flywheel-optimisation-panel";
+import { FollowUpTaskList } from "@/components/follow-up/follow-up-task-list";
+import { WeeklyRecapPanel } from "@/components/recap/weekly-recap-panel";
+import { GrowthScorecardPanel } from "@/components/scorecard/growth-scorecard-panel";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { appendAuditEventsSafe } from "@/lib/audit";
+import { assessAutonomousSignal } from "@/lib/auto-advance";
+import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildOperatorDigest } from "@/lib/digest";
-import { listDuplicateClusters } from "@/lib/duplicate-clusters";
+import {
+  filterSignalsForActiveReviewQueue,
+  indexConfirmedClusterByCanonicalSignalId,
+  listDuplicateClusters,
+} from "@/lib/duplicate-clusters";
+import { buildEvergreenSummary } from "@/lib/evergreen";
+import { buildAutonomousExperimentProposals, buildExperimentProposalInsights, listExperimentProposals } from "@/lib/experiment-proposals";
+import { listExperiments } from "@/lib/experiments";
 import { listFeedbackEntries } from "@/lib/feedback";
+import { listFollowUpTasks } from "@/lib/follow-up";
+import { buildFlywheelOptimisation } from "@/lib/flywheel-optimisation";
+import { buildGrowthDirector } from "@/lib/growth-director";
+import { buildGrowthScorecard } from "@/lib/growth-scorecard";
+import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
+import { buildDistributionBundles, buildDistributionSummary } from "@/lib/distribution";
+import { buildUnifiedGuidanceModel } from "@/lib/guidance";
+import { buildInfluencerGraphState } from "@/lib/influencer-graph";
 import { getManagedIngestionSourcesWithFallback } from "@/lib/ingestion/source-performance";
+import { listIngestionSources } from "@/lib/ingestion/sources";
+import { buildOperatorTaskSummary, listOperatorTasks } from "@/lib/operator-tasks";
+import {
+  buildNarrativeSequenceInsights,
+  buildNarrativeSequencesForSignals,
+  buildSignalNarrativeSequence,
+  findNarrativeSequenceStep,
+} from "@/lib/narrative-sequences";
 import { listPostingOutcomes } from "@/lib/outcomes";
-import { listPatternBundles } from "@/lib/pattern-bundles";
+import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { listPatterns } from "@/lib/patterns";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPostingLogEntries } from "@/lib/posting-log";
+import { listPostingAssistantPackages } from "@/lib/posting-assistant";
+import { buildRevenueSignalInsights, syncRevenueSignals } from "@/lib/revenue-signals";
+import { buildSafeReplyState } from "@/lib/safe-replies";
+import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
+import { buildSourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import { getOperatorTuning } from "@/lib/tuning";
 import { formatDateTime } from "@/lib/utils";
-import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
+import { buildWeeklyRecap } from "@/lib/weekly-recap";
+import { buildWeeklyPostingPack, buildWeeklyPostingPackInsights } from "@/lib/weekly-posting-pack";
+import { buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanStore } from "@/lib/weekly-plan";
+import {
+  buildZazaConnectBridgeSummary,
+  getLatestZazaConnectExport,
+  listImportedZazaConnectContexts,
+} from "@/lib/zaza-connect-bridge";
 
 export const dynamic = "force-dynamic";
 
@@ -32,10 +76,17 @@ export default async function DigestPage() {
     postingEntries,
     postingOutcomes,
     strategicOutcomes,
+    experiments,
+    storedExperimentProposals,
     duplicateClusters,
     strategy,
     tuning,
+    ingestionSources,
     managedSourceResult,
+    influencerGraph,
+    safeReplies,
+    importedConnectContexts,
+    latestConnectExport,
   ] = await Promise.all([
     listSignalsWithFallback({ limit: 1000 }),
     listFeedbackEntries(),
@@ -45,15 +96,143 @@ export default async function DigestPage() {
     listPostingLogEntries(),
     listPostingOutcomes(),
     listStrategicOutcomes(),
+    listExperiments(),
+    listExperimentProposals(),
     listDuplicateClusters(),
     getCampaignStrategy(),
     getOperatorTuning(),
+    listIngestionSources(),
     getManagedIngestionSourcesWithFallback(),
+    buildInfluencerGraphState(),
+    buildSafeReplyState(),
+    listImportedZazaConnectContexts(),
+    getLatestZazaConnectExport(),
   ]);
 
+  const weeklyPlanStore = await getWeeklyPlanStore(strategy);
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
+  const stagedPostingPackages = await listPostingAssistantPackages({ status: "active" });
+  const signalsById = new Map(signalResult.signals.map((signal) => [signal.recordId, signal]));
+  const sequenceByPackageId = Object.fromEntries(
+    stagedPostingPackages.map((pkg) => {
+      const signal = signalsById.get(pkg.signalId);
+      const sequence = signal ? buildSignalNarrativeSequence({ signal, strategy }) : null;
+      return [pkg.packageId, sequence ? findNarrativeSequenceStep(sequence, pkg.platform) : null];
+    }),
+  );
+  const distributionBundles = buildDistributionBundles({
+    packages: stagedPostingPackages,
+    sequenceByPackageId,
+  });
+  const distributionSummary = buildDistributionSummary(distributionBundles);
   const cadence = buildCampaignCadenceSummary(signalResult.signals, strategy, postingEntries);
   const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, signalResult.signals, postingEntries);
+  const followUpTasks = await listFollowUpTasks({
+    signals: signalResult.signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    weeklyPlans: weeklyPlanStore.plans,
+  });
+  const operatorTasks = await listOperatorTasks({
+    signals: signalResult.signals,
+    feedbackEntries,
+    patterns,
+    playbookCards,
+    bundles,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    duplicateClusters,
+    strategy,
+    cadence,
+    weeklyPlan,
+    weeklyPlanState,
+    tuning: tuning.settings,
+    experiments,
+  });
+  const operatorTaskSummary = buildOperatorTaskSummary(operatorTasks);
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
+  const reuseMemoryCases = buildReuseMemoryCases({
+    signals: signalResult.signals,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const playbookCoverageSummary = buildPlaybookCoverageSummary({
+    signals: signalResult.signals,
+    playbookCards,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
+    signalResult.signals,
+    feedbackEntries,
+    patterns,
+    bundleSummariesByPatternId,
+    undefined,
+    playbookCards,
+    reuseMemoryCases,
+    playbookCoverageSummary,
+    tuning.settings,
+  );
+  const confirmedClustersByCanonicalSignalId = indexConfirmedClusterByCanonicalSignalId(duplicateClusters);
+  const visibleSignals = filterSignalsForActiveReviewQueue(signalResult.signals, duplicateClusters);
+  const autonomousAssessments = visibleSignals.map((signal) => ({
+    signal,
+    guidance: buildUnifiedGuidanceModel({
+      signal,
+      guidance: guidanceBySignalId[signal.recordId],
+      context: "review",
+      tuning: tuning.settings,
+    }),
+    assessment: assessAutonomousSignal(
+      signal,
+      buildUnifiedGuidanceModel({
+        signal,
+        guidance: guidanceBySignalId[signal.recordId],
+        context: "review",
+        tuning: tuning.settings,
+      }),
+    ),
+  }));
+  const approvalReadyCandidates = rankApprovalCandidates(
+    autonomousAssessments.filter((item) => item.assessment.decision === "approval_ready"),
+    28,
+    {
+      strategy,
+      cadence,
+      weeklyPlan,
+      weeklyPlanState,
+      confirmedClustersByCanonicalSignalId,
+      allSignals: signalResult.signals,
+      postingEntries,
+      postingOutcomes,
+      strategicOutcomes,
+      experiments,
+    },
+  );
+  const evergreenSummary = buildEvergreenSummary({
+    signals: signalResult.signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    strategy,
+    cadence,
+    weeklyPlan,
+    weeklyPlanState,
+  });
+  const weeklyPostingPack = await buildWeeklyPostingPack({
+    approvalCandidates: approvalReadyCandidates,
+    evergreenSummary,
+    strategy,
+    weeklyPlan,
+    weeklyPlanState,
+    postingEntries,
+  });
+  const weeklyPostingPackInsights = buildWeeklyPostingPackInsights(weeklyPostingPack);
   const digest = buildOperatorDigest({
     signals: signalResult.signals,
     feedbackEntries,
@@ -70,6 +249,111 @@ export default async function DigestPage() {
     weeklyPlanState,
     tuning: tuning.settings,
     managedSources: managedSourceResult.sources,
+    followUpTasks,
+    experiments,
+  });
+  const recap = buildWeeklyRecap({
+    signals: signalResult.signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    bundleSummariesByPatternId,
+  });
+  const previousWeekStartDate = new Date(`${recap.weekStartDate}T00:00:00Z`);
+  previousWeekStartDate.setUTCDate(previousWeekStartDate.getUTCDate() - 7);
+  const previousRecap = buildWeeklyRecap({
+    signals: signalResult.signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    bundleSummariesByPatternId,
+    weekStartDate: previousWeekStartDate.toISOString().slice(0, 10),
+  });
+  const revenueSignals = await syncRevenueSignals({
+    signals: signalResult.signals,
+    postingEntries,
+    strategicOutcomes,
+  });
+  const revenueInsights = buildRevenueSignalInsights(revenueSignals);
+  const scorecard = buildGrowthScorecard({
+    approvalCandidates: approvalReadyCandidates,
+    weeklyPack: weeklyPostingPack,
+    weeklyPackInsights: weeklyPostingPackInsights,
+    distributionSummary,
+    currentRecap: recap,
+    previousRecap,
+    revenueSignals,
+    experiments,
+    cadence,
+    strategy,
+  });
+  const audienceMemory = buildAudienceMemoryState({
+    strategy,
+    signals: signalResult.signals,
+    postingEntries,
+    strategicOutcomes,
+    revenueSignals,
+  });
+  const sourceAutopilotState = await buildSourceAutopilotV2State({
+    source: signalResult.source,
+    sourceRegistry: ingestionSources,
+    signals: signalResult.signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+  });
+  const experimentProposalInsights = buildExperimentProposalInsights(
+    buildAutonomousExperimentProposals({
+      candidates: approvalReadyCandidates,
+      experiments,
+      storedProposals: storedExperimentProposals,
+      maxProposals: 6,
+    }),
+  );
+  const narrativeSequenceInsights = buildNarrativeSequenceInsights({
+    sequences: buildNarrativeSequencesForSignals({
+      signals: signalResult.signals,
+      strategy,
+      maxSequences: 20,
+    }),
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+  });
+  const optimisation = buildFlywheelOptimisation({
+    weeklyRecap: recap,
+    sourceAutopilotState,
+    playbookCoverageSummary,
+    weeklyPostingPack,
+    evergreenSummary,
+    experimentProposalInsights,
+    narrativeSequenceInsights,
+    revenueInsights,
+    audienceMemory,
+  });
+  const connectBridgeSummary = buildZazaConnectBridgeSummary({
+    latestExport: latestConnectExport,
+    importedContexts: importedConnectContexts,
+    influencerGraphSummary: influencerGraph.summary,
+  });
+  const growthDirector = buildGrowthDirector({
+    weeklyPlan,
+    weeklyPostingPack,
+    approvalCandidates: approvalReadyCandidates,
+    operatorTaskSummary,
+    operatorTasks,
+    followUpTasks,
+    weeklyRecap: recap,
+    sourceAutopilotState,
+    optimisation,
+    influencerGraphSummary: influencerGraph.summary,
+    distributionSummary,
+    revenueInsights,
+    narrativeSequenceInsights,
+    connectBridgeSummary,
+    scorecard,
   });
 
   await appendAuditEventsSafe([
@@ -82,8 +366,18 @@ export default async function DigestPage() {
         topCandidates: digest.topCandidates.length,
         heldItems: digest.heldForJudgement.length,
         weeklyGaps: digest.weeklyGaps.length,
-        outcomeFollowUps: digest.outcomeFollowUps.length,
+        followUpTasks: digest.followUpTasks.length,
         sourceRecommendations: digest.sourceRecommendations.length,
+        conflictCalls: digest.conflictSummary.count,
+        operatorTasks: operatorTaskSummary.openCount,
+        weeklyPostingPackItems: weeklyPostingPack.items.length,
+        stagedPostingPackages: stagedPostingPackages.length,
+        distributionBundles: distributionSummary.bundleCount,
+        followUpRelationships: influencerGraph.summary.followUpNeededCount,
+        optimisationProposals: optimisation.proposalCount,
+        connectImports: connectBridgeSummary.importCount,
+        connectExports: connectBridgeSummary.exportCount,
+        directorPriorities: growthDirector.topPriorities.length,
       },
     },
   ]);
@@ -107,16 +401,543 @@ export default async function DigestPage() {
           <Link href="/review#approval-ready" className={buttonVariants({ variant: "secondary", size: "sm" })}>
             Open approval queue
           </Link>
+          <Link href={digest.batchReview.href} className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open batch approval
+          </Link>
           <Link href="/plan" className={buttonVariants({ variant: "secondary", size: "sm" })}>
             Open weekly plan
           </Link>
           <Link href="/ingestion" className={buttonVariants({ variant: "secondary", size: "sm" })}>
             Open source controls
           </Link>
+          <Link href="/follow-up" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open follow-up queue
+          </Link>
+          <Link href="/tasks" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open operator tasks
+          </Link>
+          <Link href="/recap" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open weekly recap
+          </Link>
+          <Link href="/weekly-pack" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open weekly pack
+          </Link>
+          <Link href="/optimisation" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open optimisation
+          </Link>
+          <Link href="/posting" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open posting assistant
+          </Link>
+          <Link href="/influencers" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open influencer graph
+          </Link>
+          <Link href="/connect-bridge" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open Zaza Connect bridge
+          </Link>
+          <Link href="/director" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open growth director
+          </Link>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-8">
+        <Link href={digest.batchReview.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Start Here</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{digest.batchReview.count}</p>
+          <p className="mt-1 text-sm text-slate-600">Candidates already staged for batch approval.</p>
+        </Link>
+        <Link href="/follow-up" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Outcome Gaps</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{digest.followUpTasks.length}</p>
+          <p className="mt-1 text-sm text-slate-600">Follow-up tasks still blocking commercial learning.</p>
+        </Link>
+        <Link href="/review?view=needs_judgement" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Judgement Calls</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{digest.heldForJudgement.length}</p>
+          <p className="mt-1 text-sm text-slate-600">Held items that still need an explicit operator decision.</p>
+        </Link>
+        <Link href="/review?view=ready_to_approve" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top Queue</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{digest.topCandidates.length}</p>
+          <p className="mt-1 text-sm text-slate-600">Approval-ready candidates with the strongest current support.</p>
+        </Link>
+        <Link href={digest.conflictSummary.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Conflict Calls</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{digest.conflictSummary.count}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {digest.conflictSummary.highSeverityCount > 0
+              ? `${digest.conflictSummary.highSeverityCount} high-severity package conflicts need judgement.`
+              : "Top-queue package alignment checks are mostly clean."}
+          </p>
+        </Link>
+        <Link href="/tasks" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Operator Tasks</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{operatorTaskSummary.openCount}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {operatorTaskSummary.highPriorityCount > 0
+              ? `${operatorTaskSummary.highPriorityCount} high-priority tasks need attention.`
+              : "No high-priority operator backlog is building right now."}
+          </p>
+        </Link>
+        <Link href="/weekly-pack" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Weekly Pack</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{weeklyPostingPack.items.length}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {weeklyPostingPack.sequences.length > 0
+              ? `${weeklyPostingPack.sequences.length} recommended sequence${weeklyPostingPack.sequences.length === 1 ? "" : "s"} this week.`
+              : weeklyPostingPack.platformMix.slice(0, 3).map((row) => `${row.count} ${row.label}`).join(" · ") || "No balanced weekly pack is stable enough yet."}
+          </p>
+        </Link>
+        <Link href="/posting" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Ready To Post</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{stagedPostingPackages.length}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {distributionSummary.bundleCount > 0
+              ? `${distributionSummary.bundleCount} distribution bundle${distributionSummary.bundleCount === 1 ? "" : "s"} ready for manual execution.`
+              : "No staged posting packages are waiting right now."}
+          </p>
+        </Link>
+        <Link href="/influencers" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Relationship Memory</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{influencerGraph.summary.followUpNeededCount}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {influencerGraph.summary.newRepliesPendingCount > 0
+              ? `${influencerGraph.summary.newRepliesPendingCount} reply${influencerGraph.summary.newRepliesPendingCount === 1 ? "" : "ies"} are waiting on a response.`
+              : "No influencer reply is pending right now."}
+          </p>
+        </Link>
+        <Link href="/replies" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Safe Replies</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{safeReplies.summary.lowRiskReadyCount}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {safeReplies.summary.reviewRequiredCount + safeReplies.summary.blockedCount > 0
+              ? `${safeReplies.summary.reviewRequiredCount + safeReplies.summary.blockedCount} replies still need manual judgement.`
+              : "Low-risk reply suggestions are ready for review."}
+          </p>
+        </Link>
+        <Link href="/connect-bridge" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Cross-App Context</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{connectBridgeSummary.importedThemeCount}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {connectBridgeSummary.topNotes[0] ??
+              "No imported Zaza Connect theme is shaping content and outreach yet."}
+          </p>
+        </Link>
+      </div>
+
+      <GrowthDirectorPanel director={growthDirector} compact />
+      <GrowthScorecardPanel scorecard={scorecard} compact />
+
+      <WeeklyRecapPanel recap={recap} compact />
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Revenue Signals</CardTitle>
+            <Link href="/insights" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open insights
+            </Link>
+          </div>
+          <CardDescription>
+            Directional business-value memory: what content, destination, and platform combinations are producing the strongest revenue-linked signals.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Recorded</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{revenueInsights.recordedCount}</p>
+              <p className="mt-1 text-sm text-slate-600">Revenue-linked signals recorded or inferred.</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">High strength</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{revenueInsights.highStrengthCount}</p>
+              <p className="mt-1 text-sm text-slate-600">Signals strong enough to influence ranking.</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top destination</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">{revenueInsights.topDestinationRows[0]?.label ?? "None yet"}</p>
+              <p className="mt-1 text-sm text-slate-600">Best current destination path for commercial follow-through.</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top pattern</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">{revenueInsights.topPatternRows[0]?.label ?? "None yet"}</p>
+              <p className="mt-1 text-sm text-slate-600">Strongest current revenue-linked pattern or mode.</p>
+            </div>
+          </div>
+          {revenueInsights.summaries.length > 0 ? (
+            <div className="space-y-3">
+              {revenueInsights.summaries.map((summary) => (
+                <div key={summary} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                  {summary}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <FlywheelOptimisationPanel optimisation={optimisation} compact />
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Ready To Post</CardTitle>
+            <Link href="/posting" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open posting assistant
+            </Link>
+          </div>
+          <CardDescription>
+            Staged posting packages that already bundle final caption, link, asset, timing, comment prompt, and alt text for manual publishing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {stagedPostingPackages.length === 0 ? (
+            <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
+              No posting package is staged for manual publishing yet.
+            </div>
+          ) : (
+            stagedPostingPackages.slice(0, 4).map((pkg) => (
+              <Link key={pkg.packageId} href={pkg.reviewHref} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="bg-sky-50 text-sky-700 ring-sky-200">Staged</Badge>
+                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{pkg.platform}</Badge>
+                </div>
+                <p className="mt-3 font-medium text-slate-950">{pkg.sourceTitle}</p>
+                <p className="mt-2 text-sm text-slate-600">{pkg.readinessReason}</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  {pkg.selectedDestination?.label ?? "No destination"} · {pkg.selectedAssetLabel ?? "Text-first"} · {pkg.timingSuggestion ?? "No timing suggestion"}
+                </p>
+              </Link>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Safe Replies</CardTitle>
+            <Link href="/replies" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open safe reply queue
+            </Link>
+          </div>
+          <CardDescription>
+            Low-risk inbound replies can be staged for manual send. Ambiguous or high-stakes replies stay manual.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current reply load</p>
+            <p className="mt-2 text-sm text-slate-600">
+              {safeReplies.summary.lowRiskReadyCount} low-risk ready · {safeReplies.summary.stagedCount} staged · {safeReplies.summary.reviewRequiredCount} needs judgement · {safeReplies.summary.blockedCount} blocked
+            </p>
+          </div>
+          {safeReplies.rows.length === 0 ? (
+            <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
+              No reply is waiting right now.
+            </div>
+          ) : (
+            safeReplies.rows.slice(0, 3).map((reply) => (
+              <Link key={reply.replyId} href="/replies" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={reply.replyEligibility === "safe_to_stage" ? "bg-sky-50 text-sky-700 ring-sky-200" : reply.replyEligibility === "blocked" ? "bg-rose-50 text-rose-700 ring-rose-200" : "bg-amber-50 text-amber-700 ring-amber-200"}>
+                    {reply.replyEligibility === "safe_to_stage" ? "Low-risk ready" : reply.replyEligibility === "blocked" ? "Blocked" : "Needs judgement"}
+                  </Badge>
+                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{reply.platform}</Badge>
+                </div>
+                <p className="mt-3 font-medium text-slate-950">{reply.influencerName}</p>
+                <p className="mt-2 text-sm text-slate-600">
+                  {reply.sourceMessage ?? reply.sourceContext ?? "No inbound message was recorded."}
+                </p>
+              </Link>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Relationship Memory</CardTitle>
+            <Link href="/influencers" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open influencer graph
+            </Link>
+          </div>
+          <CardDescription>
+            Follow-up awareness and reply context for influencer, creator, and collaboration relationships.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current relationship pressure</p>
+            <p className="mt-2 text-sm text-slate-600">
+              {influencerGraph.summary.followUpNeededCount} follow-up needed · {influencerGraph.summary.newRepliesPendingCount} replies pending · {influencerGraph.summary.relationshipOpportunityCount} new relationship opportunities
+            </p>
+          </div>
+          {influencerGraph.rows.length === 0 ? (
+            <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
+              No influencer relationship memory is stored yet.
+            </div>
+          ) : (
+            influencerGraph.rows
+              .filter((row) => row.followUpNeeded || row.newReplyPending)
+              .slice(0, 3)
+              .map((row) => (
+                <Link key={row.influencer.influencerId} href="/influencers" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="bg-emerald-50 text-emerald-700 ring-emerald-200">
+                      {row.influencer.relationshipStage}
+                    </Badge>
+                    {row.newReplyPending ? (
+                      <Badge className="bg-rose-50 text-rose-700 ring-rose-200">Reply pending</Badge>
+                    ) : null}
+                    {row.followUpNeeded ? (
+                      <Badge className="bg-amber-50 text-amber-700 ring-amber-200">Follow up needed</Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-3 font-medium text-slate-950">{row.influencer.name}</p>
+                  <p className="mt-2 text-sm text-slate-600">
+                    {row.latestInteraction?.context ?? row.influencer.notes ?? "No saved context."}
+                  </p>
+                </Link>
+              ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Zaza Connect Bridge</CardTitle>
+            <Link href="/connect-bridge" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open bridge
+            </Link>
+          </div>
+          <CardDescription>
+            Lightweight cross-app memory linking content intelligence here with outreach and relationship context from Zaza Connect.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Bridge summary</p>
+            <p className="mt-2 text-sm text-slate-700">
+              {connectBridgeSummary.importCount} imports · {connectBridgeSummary.exportCount} exports · {connectBridgeSummary.influencerRelevantExportCount} influencer-relevant item{connectBridgeSummary.influencerRelevantExportCount === 1 ? "" : "s"} in the latest export
+            </p>
+            {connectBridgeSummary.topNotes[0] ? (
+              <p className="mt-2 text-sm text-slate-600">{connectBridgeSummary.topNotes[0]}</p>
+            ) : null}
+          </div>
+          {(latestConnectExport?.outreachRelevantThemes[0] || importedConnectContexts[0]?.outreachCampaignThemes[0]) ? (
+            <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+              {latestConnectExport?.outreachRelevantThemes[0]
+                ? `Latest export theme: ${latestConnectExport.outreachRelevantThemes[0].label}.`
+                : null}
+              {latestConnectExport?.outreachRelevantThemes[0] && importedConnectContexts[0]?.outreachCampaignThemes[0]
+                ? " "
+                : null}
+              {importedConnectContexts[0]?.outreachCampaignThemes[0]
+                ? `Imported outreach theme: ${importedConnectContexts[0].outreachCampaignThemes[0].label}.`
+                : null}
+            </div>
+          ) : (
+            <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
+              No imported or exported bridge context is active yet.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Distribution Bundles</CardTitle>
+            <Link href="/posting" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open distribution view
+            </Link>
+          </div>
+          <CardDescription>
+            Safe-mode grouped variants that keep LinkedIn, X, Reddit, and follow-up materials together for manual execution.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current distribution readiness</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">{distributionSummary.bundleCount}</p>
+            <p className="mt-2 text-sm text-slate-600">
+              {distributionSummary.multiPlatformBundleCount > 0
+                ? `${distributionSummary.multiPlatformBundleCount} multi-platform bundle${distributionSummary.multiPlatformBundleCount === 1 ? "" : "s"} and ${distributionSummary.readyCount} staged package${distributionSummary.readyCount === 1 ? "" : "s"} are ready for manual distribution.`
+                : "No multi-platform bundle is staged yet."}
+            </p>
+          </div>
+          {distributionBundles.length === 0 ? (
+            <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
+              No grouped distribution bundle is ready yet.
+            </div>
+          ) : (
+            distributionBundles.slice(0, 3).map((bundle) => (
+              <Link key={bundle.bundleId} href={bundle.reviewHref} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="bg-emerald-50 text-emerald-700 ring-emerald-200">
+                    {bundle.platforms.length > 1 ? "Multi-platform" : "Single-platform"}
+                  </Badge>
+                  {bundle.platforms.map((platform) => (
+                    <Badge key={`${bundle.bundleId}:${platform}`} className="bg-slate-100 text-slate-700 ring-slate-200">
+                      {platform}
+                    </Badge>
+                  ))}
+                  {bundle.sequenceLabel ? (
+                    <Badge className="bg-violet-50 text-violet-700 ring-violet-200">{bundle.sequenceLabel}</Badge>
+                  ) : null}
+                </div>
+                <p className="mt-3 font-medium text-slate-950">{bundle.sourceTitle}</p>
+                <p className="mt-2 text-sm text-slate-600">
+                  {bundle.sequenceReason ??
+                    "Prepared variants, copy-ready prompts, and follow-up notes are grouped for manual distribution."}
+                </p>
+                <p className="mt-2 text-xs text-slate-500">{bundle.checklist.slice(0, 2).join(" · ")}</p>
+              </Link>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>This Week&apos;s Posting Pack</CardTitle>
+            <Link href="/weekly-pack" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open pack
+            </Link>
+          </div>
+          <CardDescription>
+            A bounded 3 to 5 item recommendation that balances the weekly mix instead of just taking the top raw queue scores.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Coverage</p>
+            <p className="mt-2 text-sm leading-6 text-slate-700">{weeklyPostingPack.coverageSummary.summary}</p>
+            <p className="mt-2 text-sm text-slate-600">
+              {weeklyPostingPack.platformMix.slice(0, 3).map((row) => `${row.count} ${row.label}`).join(" · ")}
+              {weeklyPostingPack.includedEvergreenCount > 0
+                ? ` · ${weeklyPostingPack.includedEvergreenCount} evergreen`
+                : ""}
+            </p>
+            {weeklyPostingPack.sequences[0] ? (
+              <p className="mt-2 text-sm text-slate-600">
+                Sequence: {weeklyPostingPack.sequences[0].narrativeLabel}
+              </p>
+            ) : null}
+          </div>
+          {weeklyPostingPack.items.length === 0 ? (
+            <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
+              No balanced weekly pack is stable enough yet.
+            </div>
+          ) : (
+            weeklyPostingPack.items.slice(0, 4).map((item) => (
+              <Link key={item.itemId} href={item.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={item.source === "evergreen" ? "bg-violet-50 text-violet-700 ring-violet-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                    {item.source === "evergreen" ? "Evergreen" : "Fresh"}
+                  </Badge>
+                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{item.platformLabel}</Badge>
+                  {item.isCampaignCritical ? (
+                    <Badge className="bg-rose-50 text-rose-700 ring-rose-200">Campaign-critical</Badge>
+                  ) : null}
+                </div>
+                <p className="mt-3 font-medium text-slate-950">{item.sourceTitle}</p>
+                <p className="mt-2 text-sm text-slate-600">{item.whySelected}</p>
+                {item.sequenceContext ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Step {item.sequenceContext.stepNumber} of {item.sequenceContext.totalSteps} · {item.sequenceContext.roleLabel} · {item.sequenceContext.narrativeLabel}
+                  </p>
+                ) : null}
+                <p className="mt-2 text-xs text-slate-500">
+                  {item.destinationLabel ?? "No destination yet"} · {item.publishPrepReadiness}
+                </p>
+              </Link>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Operator Tasks</CardTitle>
+            <Link href="/tasks" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open task queue
+            </Link>
+          </div>
+          <CardDescription>One practical queue for judgement calls, confirmations, incomplete packages, conflicts, stale refresh, and strategic follow-up.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current backlog</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">{operatorTaskSummary.openCount}</p>
+            <p className="mt-2 text-sm text-slate-600">
+              {operatorTaskSummary.topBottlenecks[0]
+                ? `${operatorTaskSummary.topBottlenecks[0].label} is the top recurring task type right now.`
+                : "No operator task bottleneck is stable enough to summarize."}
+            </p>
+          </div>
+          {operatorTasks.filter((task) => task.status === "open").slice(0, 3).map((task) => (
+            <Link key={task.id} href={task.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className={task.priority === "high" ? "bg-rose-50 text-rose-700 ring-rose-200" : task.priority === "medium" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                  {task.priority}
+                </Badge>
+                <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                  {task.taskType.replaceAll("_", " ")}
+                </Badge>
+              </div>
+              <p className="mt-3 font-medium text-slate-950">{task.title}</p>
+              <p className="mt-2 text-sm text-slate-600">{task.reason}</p>
+            </Link>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Package Conflicts</CardTitle>
+            <Link href={digest.conflictSummary.href} className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Review conflicts
+            </Link>
+          </div>
+          <CardDescription>High-signal package conflicts that are worth resolving before final review time gets wasted.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current signal</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">{digest.conflictSummary.count}</p>
+            <p className="mt-2 text-sm text-slate-600">{digest.conflictSummary.summary}</p>
+          </div>
         </CardContent>
       </Card>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>Batch Approval</CardTitle>
+              <Link href={digest.batchReview.href} className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+                Batch review
+              </Link>
+            </div>
+            <CardDescription>A bounded one-pass review surface for the strongest near-final candidates.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Prepared items</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{digest.batchReview.count}</p>
+              <p className="mt-2 text-sm text-slate-600">{digest.batchReview.summary}</p>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
@@ -138,6 +959,9 @@ export default async function DigestPage() {
                     <span className="font-medium text-slate-900">Objective:</span> {item.objective}
                   </p>
                   <p className="mt-1 text-sm text-slate-600">{item.whyItMayWork}</p>
+                  {item.conflictSummary ? (
+                    <p className="mt-2 text-xs text-amber-700">Watch: {item.conflictSummary}</p>
+                  ) : null}
                   <p className="mt-2 text-xs text-slate-500">{item.summary}</p>
                 </Link>
               ))
@@ -200,24 +1024,20 @@ export default async function DigestPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Outcome Follow-Ups</CardTitle>
-            <CardDescription>Posted items that are old enough to rate but still missing outcome updates.</CardDescription>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>Outcome Follow-Ups</CardTitle>
+              <Link href="/follow-up" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+                Follow-up queue
+              </Link>
+            </div>
+            <CardDescription>Tasks for posted items, experiments, and weekly packs that still need manual learning updates.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {digest.outcomeFollowUps.length === 0 ? (
-              <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">No posting entries are overdue for outcome follow-up.</div>
-            ) : (
-              digest.outcomeFollowUps.map((item) => (
-                <Link key={item.postingLogId} href={item.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className="bg-sky-50 text-sky-700 ring-sky-200">{item.platformLabel}</Badge>
-                    <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{formatDateTime(item.postedAt)}</Badge>
-                  </div>
-                  <p className="mt-3 font-medium text-slate-950">{item.sourceTitle}</p>
-                  <p className="mt-2 text-sm text-slate-600">Missing: {item.missing.join(" · ")}</p>
-                </Link>
-              ))
-            )}
+          <CardContent>
+            <FollowUpTaskList
+              initialTasks={digest.followUpTasks}
+              emptyCopy="No outcome follow-up task is currently open."
+              referenceNowIso={digest.generatedAt}
+            />
           </CardContent>
         </Card>
       </div>

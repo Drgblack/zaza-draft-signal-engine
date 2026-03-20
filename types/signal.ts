@@ -74,6 +74,11 @@ export const EDITORIAL_MODES = [
   "reassurance_deescalation",
 ] as const;
 
+export const FOUNDER_VOICE_MODES = [
+  "founder_voice_on",
+  "founder_voice_off",
+] as const;
+
 export const FUNNEL_STAGES = [
   "Awareness",
   "Trust",
@@ -123,6 +128,7 @@ export type OutcomeQuality = (typeof OUTCOME_QUALITIES)[number];
 export type TeacherVoiceSource = (typeof TEACHER_VOICE_SOURCES)[number];
 export type HookTemplate = (typeof HOOK_TEMPLATES)[number];
 export type EditorialMode = (typeof EDITORIAL_MODES)[number];
+export type FounderVoiceMode = (typeof FOUNDER_VOICE_MODES)[number];
 export type FunnelStage = (typeof FUNNEL_STAGES)[number];
 export type CtaGoal = (typeof CTA_GOALS)[number];
 export type AssetPrimaryType = (typeof ASSET_PRIMARY_TYPES)[number];
@@ -243,6 +249,8 @@ export interface SignalGenerationResult {
 
 export interface SignalGenerationSavePayload extends SignalGenerationResult {
   editorialMode: EditorialMode;
+  founderVoiceMode: FounderVoiceMode;
+  founderVoiceAppliedAt?: string | null;
   campaignId?: string | null;
   pillarId?: string | null;
   audienceSegmentId?: string | null;
@@ -286,6 +294,13 @@ export interface SignalFinalReviewSavePayload {
     patternType: "shortened_hook" | "softened_tone" | "removed_claim" | "changed_cta";
     label: string;
   }>;
+  appliedReviewMacros?: Array<{
+    macroId: "approve_keep_package" | "approve_soften_cta" | "hold_for_destination_fix" | "convert_to_experiment" | "evergreen_later" | "approve_with_safe_tone";
+    platform: "x" | "linkedin" | "reddit";
+    appliedAt: string;
+  }>;
+  founderVoiceMode?: FounderVoiceMode | null;
+  founderVoiceAppliedAt?: string | null;
   finalReviewStartedAt?: string | null;
   finalReviewedAt?: string | null;
 }
@@ -397,6 +412,8 @@ export interface SignalRecord extends SignalAutomationEvaluationFields {
   anonymisedUserPattern: boolean | null;
   relatedZazaFrameworkTag: string | null;
   editorialMode: EditorialMode | null;
+  founderVoiceMode: FounderVoiceMode | null;
+  founderVoiceAppliedAt: string | null;
   campaignId: string | null;
   pillarId: string | null;
   audienceSegmentId: string | null;

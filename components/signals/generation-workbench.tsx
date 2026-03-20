@@ -13,7 +13,9 @@ import {
   type AssetPrimaryType,
 } from "@/lib/assets";
 import { ContentContextFields, type ContentContextFormValue } from "@/components/campaigns/content-context-fields";
+import { PlaybookPackSuggestions } from "@/components/playbook/playbook-pack-suggestions";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import { FOUNDER_VOICE_LABEL, getFounderVoiceModeLabel, isFounderVoiceOn } from "@/lib/founder-voice";
 import { PatternCandidatePanel } from "@/components/patterns/pattern-candidate-panel";
 import { PatternSuggestionList } from "@/components/patterns/pattern-suggestion-list";
 import { RelatedPatternsPanel } from "@/components/patterns/related-patterns-panel";
@@ -27,10 +29,20 @@ import type { PatternBundleSummary } from "@/lib/pattern-bundles";
 import { assessScenarioAngle, getScenarioPriority } from "@/lib/scenario-angle";
 import { evaluateDraftQuality, evaluateGenerationReadiness } from "@/lib/generation-quality";
 import type { PatternMatchSuggestion } from "@/lib/pattern-match";
+import type { PlaybookPackMatch } from "@/lib/playbook-packs";
 import type { PatternCandidateAssessment } from "@/lib/pattern-discovery";
 import { PATTERN_TYPE_LABELS, type PatternSummary, type SignalPattern } from "@/lib/pattern-definitions";
 import { PLATFORM_INTENT_PROFILE_VERSION, getPlatformIntentProfile } from "@/lib/platform-profiles";
-import { EDITORIAL_MODES, type EditorialMode, type SignalDataSource, type SignalGenerationInput, type SignalGenerationResult, type SignalRecord } from "@/types/signal";
+import {
+  EDITORIAL_MODES,
+  FOUNDER_VOICE_MODES,
+  type EditorialMode,
+  type FounderVoiceMode,
+  type SignalDataSource,
+  type SignalGenerationInput,
+  type SignalGenerationResult,
+  type SignalRecord,
+} from "@/types/signal";
 import type { AudienceSegment, Campaign, ContentPillar } from "@/lib/campaigns";
 
 function toneClasses(tone: "success" | "warning" | "error") {
@@ -58,9 +70,11 @@ export function GenerationWorkbench({
   initialSelectedPatternId,
   initialSuggestedPatternId,
   initialSelectedEditorialMode,
+  initialSelectedFounderVoiceMode,
   suggestedEditorialMode,
   bundleSummariesByPatternId,
   initialSelectedPatternBundles,
+  playbookPackMatches,
   campaigns,
   pillars,
   audienceSegments,
@@ -77,12 +91,14 @@ export function GenerationWorkbench({
   initialSelectedPatternId: string;
   initialSuggestedPatternId: string | null;
   initialSelectedEditorialMode: EditorialMode;
+  initialSelectedFounderVoiceMode: FounderVoiceMode;
   suggestedEditorialMode: {
     mode: EditorialMode;
     reason: string;
   } | null;
   bundleSummariesByPatternId: Record<string, PatternBundleSummary[]>;
   initialSelectedPatternBundles: PatternBundleSummary[];
+  playbookPackMatches: PlaybookPackMatch[];
   campaigns: Campaign[];
   pillars: ContentPillar[];
   audienceSegments: AudienceSegment[];
@@ -94,6 +110,7 @@ export function GenerationWorkbench({
   const [selectedPatternId, setSelectedPatternId] = useState(initialSelectedPatternId);
   const [suggestedPatternId, setSuggestedPatternId] = useState(initialSuggestedPatternId);
   const [selectedEditorialMode, setSelectedEditorialMode] = useState<EditorialMode>(initialSelectedEditorialMode);
+  const [selectedFounderVoiceMode, setSelectedFounderVoiceMode] = useState<FounderVoiceMode>(initialSelectedFounderVoiceMode);
   const [appliedPattern, setAppliedPattern] = useState<PatternSummary | null>(lastAppliedPattern);
   const [selectedPatternBundles, setSelectedPatternBundles] = useState<PatternBundleSummary[]>(initialSelectedPatternBundles);
   const [contentContext, setContentContext] = useState<ContentContextFormValue>({
@@ -137,6 +154,7 @@ export function GenerationWorkbench({
     () => getEditorialModeDefinition(selectedEditorialMode),
     [selectedEditorialMode],
   );
+  const founderVoiceEnabled = isFounderVoiceOn(selectedFounderVoiceMode);
   const xProfile = useMemo(() => getPlatformIntentProfile("x"), []);
   const linkedInProfile = useMemo(() => getPlatformIntentProfile("linkedin"), []);
   const redditProfile = useMemo(() => getPlatformIntentProfile("reddit"), []);
@@ -273,6 +291,7 @@ export function GenerationWorkbench({
           patternId: selectedPatternId || undefined,
           suggestedPatternId: selectedPatternId && selectedPatternId === suggestedPatternId ? suggestedPatternId : undefined,
           editorialMode: selectedEditorialMode,
+          founderVoiceMode: selectedFounderVoiceMode,
         }),
       });
 
@@ -324,6 +343,8 @@ export function GenerationWorkbench({
         body: JSON.stringify({
           ...generation,
           editorialMode: selectedEditorialMode,
+          founderVoiceMode: selectedFounderVoiceMode,
+          founderVoiceAppliedAt: founderVoiceEnabled ? new Date().toISOString() : null,
           campaignId: contentContext.campaignId || null,
           pillarId: contentContext.pillarId || null,
           audienceSegmentId: contentContext.audienceSegmentId || null,
@@ -361,6 +382,39 @@ export function GenerationWorkbench({
     }
   }
 
+  async function handleUsePlaybookPack(match: PlaybookPackMatch) {
+    try {
+      await fetch("/api/playbook-packs/use", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          packId: match.pack.packId,
+          signalId: signal.recordId,
+          context: "generation",
+        }),
+      });
+    } catch {
+      // Best-effort audit only.
+    }
+
+    if (match.pack.mode) {
+      const matchedMode = EDITORIAL_MODES.find(
+        (mode) => getEditorialModeDefinition(mode).label === match.pack.mode,
+      );
+      if (matchedMode) {
+        setSelectedEditorialMode(matchedMode);
+      }
+    }
+
+    setFeedback({
+      tone: "success",
+      title: "Playbook pack referenced",
+      body: `${match.pack.name} is now the active reuse hint for this pass${match.pack.mode ? ` and ${match.pack.mode} was selected as the editorial mode.` : "."}`,
+    });
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
       <Card>
@@ -383,6 +437,12 @@ export function GenerationWorkbench({
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Badge className="bg-sky-50 text-sky-700 ring-sky-200">Editorial mode</Badge>
               <span className="text-sm text-slate-600">{editorialModeDefinition.label}</span>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Badge className={founderVoiceEnabled ? "bg-violet-50 text-violet-700 ring-violet-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                {founderVoiceEnabled ? FOUNDER_VOICE_LABEL : "Founder voice off"}
+              </Badge>
+              <span className="text-sm text-slate-600">{getFounderVoiceModeLabel(selectedFounderVoiceMode)}</span>
             </div>
           </div>
 
@@ -450,6 +510,34 @@ export function GenerationWorkbench({
                   <p className="mt-2 text-sm font-medium text-slate-800">{generationInput.platformPriority}</p>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
                     Format priority: {generationInput.suggestedFormatPriority}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="founder-voice-mode">Founder voice mode</Label>
+                  <Select
+                    id="founder-voice-mode"
+                    value={selectedFounderVoiceMode}
+                    onChange={(event) => setSelectedFounderVoiceMode(event.target.value as FounderVoiceMode)}
+                  >
+                    {FOUNDER_VOICE_MODES.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {getFounderVoiceModeLabel(mode)}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="rounded-2xl bg-white/75 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Identity layer</p>
+                  <p className="mt-2 text-sm font-medium text-slate-800">
+                    {founderVoiceEnabled ? "Calm authority, teacher empathy, trust-first." : "Platform and editorial mode only."}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    {founderVoiceEnabled
+                      ? "This pass suppresses hype, keeps the tone observational, and nudges the drafts toward Greg's calmer founder voice."
+                      : "Founder voice is off for this pass, so the drafts will lean on the selected editorial mode and platform profile without the extra identity layer."}
                   </p>
                 </div>
               </div>
@@ -602,6 +690,14 @@ export function GenerationWorkbench({
                     });
                   }
                 }}
+              />
+
+              <PlaybookPackSuggestions
+                title="Reusable playbook packs"
+                description="System-derived packs promoted from repeated winners. Use them as bounded structure hints, not templates."
+                matches={playbookPackMatches}
+                emptyCopy="No repeat-winning playbook pack is matching this signal strongly enough yet."
+                onUse={handleUsePlaybookPack}
               />
 
               <RelatedPatternsPanel
@@ -872,6 +968,7 @@ export function GenerationWorkbench({
                   Source: {generation.generationSource} · Model: {generation.generationModelVersion} · Prompt: {generation.promptVersion}
                 </p>
                 <p className="mt-1">Editorial mode: {editorialModeDefinition.label}</p>
+                <p className="mt-1">Founder voice: {getFounderVoiceModeLabel(selectedFounderVoiceMode)}</p>
                 <p className="mt-1">Platform profiles: {PLATFORM_INTENT_PROFILE_VERSION}</p>
                 {appliedPattern ? <p className="mt-1">Pattern: {appliedPattern.name}</p> : null}
                 <p className="mt-1">Generated at: {new Date(generation.generatedAt).toLocaleString()}</p>

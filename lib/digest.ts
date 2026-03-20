@@ -1,5 +1,6 @@
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
+import { buildBatchApprovalPrep } from "@/lib/batch-approval";
 import type { CampaignCadenceSummary, CampaignStrategy } from "@/lib/campaigns";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import {
@@ -9,6 +10,7 @@ import {
 } from "@/lib/duplicate-clusters";
 import type { ManualExperiment } from "@/lib/experiments";
 import type { SignalFeedback } from "@/lib/feedback-definitions";
+import type { FollowUpTask } from "@/lib/follow-up";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import type { ManagedIngestionSource } from "@/lib/ingestion/types";
 import type { PostingOutcome } from "@/lib/outcomes";
@@ -16,7 +18,7 @@ import { indexBundleSummariesByPatternId, type PatternBundle } from "@/lib/patte
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import type { PlaybookCard } from "@/lib/playbook-card-definitions";
 import type { SignalPattern } from "@/lib/pattern-definitions";
-import { type PostingLogEntry, getPostingPlatformLabel } from "@/lib/posting-memory";
+import type { PostingLogEntry } from "@/lib/posting-memory";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { type StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import type { OperatorTuningSettings } from "@/lib/tuning";
@@ -29,6 +31,7 @@ export interface OperatorDigestTopCandidate {
   summary: string;
   objective: string;
   whyItMayWork: string;
+  conflictSummary: string | null;
   href: string;
 }
 
@@ -47,16 +50,6 @@ export interface OperatorDigestWeeklyGap {
   href: string;
 }
 
-export interface OperatorDigestOutcomeFollowUp {
-  postingLogId: string;
-  signalId: string;
-  sourceTitle: string;
-  platformLabel: string;
-  postedAt: string;
-  missing: string[];
-  href: string;
-}
-
 export interface OperatorDigestSourceRecommendation {
   sourceId: string;
   sourceName: string;
@@ -68,9 +61,20 @@ export interface OperatorDigestSourceRecommendation {
 export interface OperatorDigest {
   generatedAt: string;
   topCandidates: OperatorDigestTopCandidate[];
+  conflictSummary: {
+    count: number;
+    highSeverityCount: number;
+    summary: string;
+    href: string;
+  };
+  batchReview: {
+    count: number;
+    summary: string;
+    href: string;
+  };
   heldForJudgement: OperatorDigestHeldItem[];
   weeklyGaps: OperatorDigestWeeklyGap[];
-  outcomeFollowUps: OperatorDigestOutcomeFollowUp[];
+  followUpTasks: FollowUpTask[];
   sourceRecommendations: OperatorDigestSourceRecommendation[];
 }
 
@@ -85,15 +89,6 @@ function stageLabel(stage: ReturnType<typeof assessAutonomousSignal>["stage"]): 
     default:
       return "Held";
   }
-}
-
-function isOutcomeFollowUpDue(postedAt: string, now: Date, days = 3): boolean {
-  const posted = new Date(postedAt);
-  if (Number.isNaN(posted.getTime())) {
-    return false;
-  }
-
-  return now.getTime() - posted.getTime() >= days * 24 * 60 * 60 * 1000;
 }
 
 function reviewPriorityScore(signal: SignalRecord): number {
@@ -128,6 +123,7 @@ export function buildOperatorDigest(input: {
   weeklyPlanState: WeeklyPlanState | null;
   tuning: OperatorTuningSettings;
   managedSources: ManagedIngestionSource[];
+  followUpTasks: FollowUpTask[];
   experiments?: ManualExperiment[];
   now?: Date;
 }): OperatorDigest {
@@ -173,7 +169,7 @@ export function buildOperatorDigest(input: {
       assessment: assessAutonomousSignal(signal, guidance),
     };
   });
-  const topCandidates = rankApprovalCandidates(
+  const rankedCandidates = rankApprovalCandidates(
     autonomousAssessments.filter((item) => item.assessment.decision === "approval_ready"),
     5,
     {
@@ -188,14 +184,25 @@ export function buildOperatorDigest(input: {
       strategicOutcomes: input.strategicOutcomes,
       experiments: input.experiments ?? [],
     },
-  ).map((candidate) => ({
+  );
+  const batchPrep = buildBatchApprovalPrep({
+    candidates: rankedCandidates,
+    strategy: input.strategy,
+    maxItems: 5,
+  });
+  const topCandidates = rankedCandidates.map((candidate) => ({
     signalId: candidate.signal.recordId,
     sourceTitle: candidate.signal.sourceTitle,
     summary: candidate.rankReasons[0] ?? candidate.assessment.summary,
     objective: candidate.hypothesis.objective,
     whyItMayWork: candidate.hypothesis.whyItMayWork,
+    conflictSummary: candidate.conflicts.topConflicts[0]?.reason ?? null,
     href: `/signals/${candidate.signal.recordId}/review`,
   }));
+  const conflictedCandidates = rankedCandidates.filter((candidate) => candidate.conflicts.conflicts.length > 0);
+  const highSeverityConflicts = conflictedCandidates.filter(
+    (candidate) => candidate.conflicts.highestSeverity === "high",
+  );
 
   const heldForJudgement = autonomousAssessments
     .filter((item) => item.assessment.decision === "hold")
@@ -229,43 +236,6 @@ export function buildOperatorDigest(input: {
     href: "/plan",
   }));
 
-  const outcomeByPostingLogId = new Map(input.postingOutcomes.map((outcome) => [outcome.postingLogId, outcome]));
-  const strategicByPostingLogId = new Map(input.strategicOutcomes.map((outcome) => [outcome.postingLogId, outcome]));
-  const signalById = new Map(input.signals.map((signal) => [signal.recordId, signal]));
-  const outcomeFollowUps = input.postingEntries
-    .filter((entry) => isOutcomeFollowUpDue(entry.postedAt, now))
-    .map((entry) => {
-      const missing: string[] = [];
-      if (!outcomeByPostingLogId.has(entry.id)) {
-        missing.push("qualitative outcome");
-      }
-      if (!strategicByPostingLogId.has(entry.id)) {
-        missing.push("strategic outcome");
-      }
-
-      if (missing.length === 0) {
-        return null;
-      }
-
-      const signal = signalById.get(entry.signalId);
-      return {
-        postingLogId: entry.id,
-        signalId: entry.signalId,
-        sourceTitle: signal?.sourceTitle ?? "Unknown signal",
-        platformLabel: getPostingPlatformLabel(entry.platform),
-        postedAt: entry.postedAt,
-        missing,
-        href: `/signals/${entry.signalId}#posting-log-${entry.id}`,
-      } satisfies OperatorDigestOutcomeFollowUp;
-    })
-    .filter((item): item is OperatorDigestOutcomeFollowUp => Boolean(item))
-    .sort(
-      (left, right) =>
-        right.missing.length - left.missing.length ||
-        new Date(left.postedAt).getTime() - new Date(right.postedAt).getTime(),
-    )
-    .slice(0, 6);
-
   const sourceRecommendations = input.managedSources
     .flatMap((source) =>
       source.recommendations.map((recommendation) => ({
@@ -282,9 +252,26 @@ export function buildOperatorDigest(input: {
   return {
     generatedAt: now.toISOString(),
     topCandidates,
+    conflictSummary: {
+      count: conflictedCandidates.length,
+      highSeverityCount: highSeverityConflicts.length,
+      summary:
+        highSeverityConflicts[0]?.conflicts.topConflicts[0]?.reason ??
+        conflictedCandidates[0]?.conflicts.topConflicts[0]?.reason ??
+        "No meaningful package conflicts are surfacing in the current top queue.",
+      href: conflictedCandidates.length > 0 ? "/review?view=needs_judgement" : "/review#approval-ready",
+    },
+    batchReview: {
+      count: batchPrep.items.length,
+      summary:
+        batchPrep.items.length > 0
+          ? `${batchPrep.items.length} candidates are staged for one-pass batch review.`
+          : "No bounded batch is ready right now.",
+      href: "/review/batch",
+    },
     heldForJudgement,
     weeklyGaps,
-    outcomeFollowUps,
+    followUpTasks: input.followUpTasks.filter((task) => task.status === "open").slice(0, 6),
     sourceRecommendations,
   };
 }

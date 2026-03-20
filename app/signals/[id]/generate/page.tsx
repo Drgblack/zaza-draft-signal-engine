@@ -10,6 +10,7 @@ import { getAuditEvents, listAuditEvents } from "@/lib/audit";
 import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { getCampaignStrategy } from "@/lib/campaigns";
 import { suggestEditorialMode } from "@/lib/editorial-modes";
+import { listExperiments } from "@/lib/experiments";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { buildInitialGenerationFromSignal, toGenerationInputFromSignal } from "@/lib/generator";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
@@ -28,10 +29,13 @@ import {
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPlaybookCards } from "@/lib/playbook-cards";
+import { matchPlaybookPacksForSignal, syncPlaybookPacks } from "@/lib/playbook-packs";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
-import { EDITORIAL_MODES, type EditorialMode } from "@/types/signal";
+import { buildWeeklyRecap } from "@/lib/weekly-recap";
+import { EDITORIAL_MODES, type EditorialMode, type FounderVoiceMode } from "@/types/signal";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +99,8 @@ export default async function GenerateSignalPage({
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(allBundles);
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const strategicOutcomes = await listStrategicOutcomes();
+  const experiments = await listExperiments();
   const strategy = await getCampaignStrategy();
   const relatedPatterns = findRelatedPatterns(result.signal, allPatterns, { limit: 3 });
   const auditEvents = await getAuditEvents(result.signal.recordId);
@@ -121,6 +127,23 @@ export default async function GenerateSignalPage({
     postingOutcomes,
     bundleSummariesByPatternId,
   });
+  const weeklyRecap = buildWeeklyRecap({
+    signals: allSignals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    bundleSummariesByPatternId,
+  });
+  const playbookPacks = await syncPlaybookPacks({
+    signals: allSignals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    reuseMemoryCases,
+    recap: weeklyRecap,
+  });
   const playbookCoverageSummary = buildPlaybookCoverageSummary({
     signals: allSignals,
     playbookCards,
@@ -142,6 +165,10 @@ export default async function GenerateSignalPage({
     modeParam && EDITORIAL_MODES.includes(modeParam as EditorialMode)
       ? (modeParam as EditorialMode)
       : result.signal.editorialMode ?? suggestedEditorialMode.mode;
+  const initialSelectedFounderVoiceMode: FounderVoiceMode = result.signal.founderVoiceMode ?? "founder_voice_on";
+  const playbookPackMatches = matchPlaybookPacksForSignal(result.signal, playbookPacks, {
+    editorialMode: initialSelectedEditorialMode,
+  });
   const initialSuggestedPatternId =
     patternParam && suggestedParam === "1" && allPatterns.some((pattern) => pattern.id === patternParam)
       ? patternParam
@@ -217,9 +244,11 @@ export default async function GenerateSignalPage({
         initialSelectedPatternId={patternParam && allPatterns.some((pattern) => pattern.id === patternParam) ? patternParam : ""}
         initialSuggestedPatternId={initialSuggestedPatternId}
         initialSelectedEditorialMode={initialSelectedEditorialMode}
+        initialSelectedFounderVoiceMode={initialSelectedFounderVoiceMode}
         suggestedEditorialMode={suggestedEditorialMode}
         bundleSummariesByPatternId={bundleSummariesByPatternId}
         initialSelectedPatternBundles={initialSelectedPatternBundles}
+        playbookPackMatches={playbookPackMatches}
         campaigns={strategy.campaigns}
         pillars={strategy.pillars}
         audienceSegments={strategy.audienceSegments}

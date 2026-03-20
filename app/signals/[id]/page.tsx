@@ -37,6 +37,7 @@ import { buildPatternCoverageRecords, buildPatternDraftFromCoverageGap } from "@
 import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
 import { assessPatternCandidate } from "@/lib/pattern-discovery";
 import { buildSignalPostingSummary, getPostingLogEntries, listPostingLogEntries } from "@/lib/posting-log";
+import { listRevenueSignals } from "@/lib/revenue-signals";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import {
   buildPatternDraftFromSignal,
@@ -99,6 +100,7 @@ export default async function SignalDetailPage({
   const postingOutcomes = await listPostingOutcomes({ signalIds: [signal.recordId] });
   const allPostingOutcomes = await listPostingOutcomes();
   const strategicOutcomes = await listStrategicOutcomes({ signalIds: [signal.recordId] });
+  const revenueSignals = await listRevenueSignals({ signalIds: [signal.recordId] });
   const strategy = await getCampaignStrategy();
   const patterns = await listPatterns();
   const allPatterns = await listPatterns({ includeRetired: true });
@@ -144,6 +146,9 @@ export default async function SignalDetailPage({
   const strategicContext = getSignalContentContextSummary(signal, strategy);
   const postingOutcomesByPostingLogId = indexOutcomesByPostingLogId(postingOutcomes);
   const strategicOutcomesByPostingLogId = indexStrategicOutcomesByPostingLogId(strategicOutcomes);
+  const revenueSignalsByPostingLogId = Object.fromEntries(
+    revenueSignals.map((revenueSignal) => [revenueSignal.postingId, revenueSignal]),
+  );
   const automationReadiness = getAutomationReadinessSnapshot(signal);
   const initialScoring = buildInitialScoringFromSignal(signal);
   const tuning = await getOperatorTuning();
@@ -252,6 +257,9 @@ export default async function SignalDetailPage({
               Open final review
             </Link>
           ) : null}
+          <Link href={`/signals/${signal.recordId}/outreach`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+            Outreach branch
+          </Link>
           <Link href="/review" className={buttonVariants({ variant: "ghost", size: "sm" })}>
             Open review queue
           </Link>
@@ -677,6 +685,7 @@ export default async function SignalDetailPage({
             postingEntries={postingEntries}
             initialOutcomesByPostingLogId={postingOutcomesByPostingLogId}
             initialStrategicOutcomesByPostingLogId={strategicOutcomesByPostingLogId}
+            initialRevenueSignalsByPostingLogId={revenueSignalsByPostingLogId}
             postingSummary={postingSummary}
             generationReady={generationReady}
           />

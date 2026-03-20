@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { listSignalsWithFallback } from "@/lib/airtable";
 import { appendAuditEventsSafe } from "@/lib/audit";
+import { getCampaignStrategy } from "@/lib/campaigns";
 import {
   assignExperimentVariant,
   buildExperimentInsights,
@@ -10,9 +12,11 @@ import {
   getExperimentStatusLabel,
   listExperiments,
 } from "@/lib/experiments";
+import { listFollowUpTasks } from "@/lib/follow-up";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
+import { getWeeklyPlanStore } from "@/lib/weekly-plan";
 import type { ExperimentResponse } from "@/types/api";
 
 async function buildResponse(
@@ -20,12 +24,23 @@ async function buildResponse(
   message: string,
   persisted = true,
 ) {
-  const [experiments, postingEntries, postingOutcomes, strategicOutcomes] = await Promise.all([
+  const [signalsResult, experiments, postingEntries, postingOutcomes, strategicOutcomes, strategy] = await Promise.all([
+    listSignalsWithFallback({ limit: 1000 }),
     listExperiments(),
     listPostingLogEntries(),
     listPostingOutcomes(),
     listStrategicOutcomes(),
+    getCampaignStrategy(),
   ]);
+  const weeklyPlanStore = await getWeeklyPlanStore(strategy);
+  await listFollowUpTasks({
+    signals: signalsResult.signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    weeklyPlans: weeklyPlanStore.plans,
+  });
 
   return {
     success: true,

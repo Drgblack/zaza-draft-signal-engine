@@ -4,6 +4,7 @@ import {
   CTA_GOALS,
   EDITORIAL_MODES,
   FINAL_DRAFT_REVIEW_STATUSES,
+  FOUNDER_VOICE_MODES,
   FUNNEL_STAGES,
   GENERATION_SOURCES,
   ASSET_PRIMARY_TYPES,
@@ -21,6 +22,7 @@ import {
   type PlatformPriority,
   type RelevanceToZazaDraft,
   type CtaGoal,
+  type FounderVoiceMode,
   type FunnelStage,
   type SignalCreatePayload,
   type SignalGenerationInput,
@@ -55,6 +57,15 @@ import type { DuplicateCluster } from "@/lib/duplicate-clusters";
 import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
 import type {
+  SourceChangeProposal,
+  SourceChangeProposalSummary,
+} from "@/lib/source-autopilot-v2";
+import { reviewMacroIdSchema } from "@/lib/review-macros";
+import type {
+  StaleQueueAssessment,
+  StaleQueueOperatorState,
+} from "@/lib/stale-queue";
+import type {
   ExperimentInsights,
   ManualExperiment,
 } from "@/lib/experiments";
@@ -62,6 +73,27 @@ import type {
   ExperimentProposal,
   ExperimentProposalInsights,
 } from "@/lib/experiment-proposals";
+import type {
+  OperatorTask,
+} from "@/lib/operator-tasks";
+import type { WeeklyPostingPackActionEntry } from "@/lib/weekly-posting-pack";
+import type { PostingAssistantPackage } from "@/lib/posting-assistant";
+import type { SafePostingEligibilityAssessment } from "@/lib/safe-posting";
+import type { OutreachResult } from "@/lib/outreach";
+import type { DistributionBundle } from "@/lib/distribution";
+import type { RevenueSignal } from "@/lib/revenue-signals";
+import type {
+  ZazaConnectBridgeSummary,
+  ZazaConnectExportPayload,
+  ZazaConnectImportedContext,
+} from "@/lib/zaza-connect-bridge";
+import type {
+  InfluencerGraphRow,
+  InfluencerGraphSummary,
+  InfluencerInteraction,
+  InfluencerRecord,
+} from "@/lib/influencer-graph";
+import type { SafeReplyItem, SafeReplySummary } from "@/lib/safe-replies";
 import {
   TUNING_PRESETS,
   operatorTuningSettingsSchema,
@@ -213,6 +245,7 @@ export const generateRequestSchema = z
     patternId: z.string().trim().min(1).optional(),
     suggestedPatternId: z.string().trim().min(1).optional(),
     editorialMode: z.enum(EDITORIAL_MODES).optional(),
+    founderVoiceMode: z.enum(FOUNDER_VOICE_MODES).optional(),
   })
   .superRefine((value, context) => {
     if (!value.signalId && !value.signal) {
@@ -249,6 +282,8 @@ export const generationResultSchema = z.object({
 export const saveGenerationRequestSchema = generationResultSchema
   .extend({
     editorialMode: z.enum(EDITORIAL_MODES),
+    founderVoiceMode: z.enum(FOUNDER_VOICE_MODES),
+    founderVoiceAppliedAt: optionalNullableString,
     status: z.enum(SIGNAL_STATUSES).optional(),
   })
   .merge(optionalContentContextSchema);
@@ -300,6 +335,8 @@ export const finalReviewUpdateRequestSchema = z.object({
   linkedInReviewStatus: z.enum(FINAL_DRAFT_REVIEW_STATUSES).nullable(),
   redditReviewStatus: z.enum(FINAL_DRAFT_REVIEW_STATUSES).nullable(),
   finalReviewNotes: optionalNullableString,
+  imagePrompt: optionalNullableString,
+  videoScript: optionalNullableString,
   assetBundleJson: optionalNullableString,
   repurposingBundleJson: optionalNullableString,
   publishPrepBundleJson: optionalNullableString,
@@ -320,7 +357,43 @@ export const finalReviewUpdateRequestSchema = z.object({
     )
     .max(12)
     .optional(),
+  appliedReviewMacros: z
+    .array(
+      z.object({
+        macroId: reviewMacroIdSchema,
+        platform: z.enum(["x", "linkedin", "reddit"]),
+        appliedAt: z.string().trim().min(1),
+      }),
+    )
+    .max(12)
+    .optional(),
+  founderVoiceMode: z.enum(FOUNDER_VOICE_MODES).nullable().optional(),
+  founderVoiceAppliedAt: optionalNullableString,
 });
+
+export const outreachRequestSchema = z.object({
+  signalId: z.string().trim().min(1),
+  outreachType: z.enum(["initial_contact", "follow_up", "reply", "collaboration_pitch", "thank_you"]),
+  platform: z.enum(["linkedin", "x", "email", "instagram", "general"]),
+  tone: z.enum(["friendly", "professional"]),
+  influencerId: optionalNullableString,
+  recipientName: optionalNullableString,
+  creatorFocus: optionalNullableString,
+  relationshipContext: optionalNullableString,
+  collaborationGoal: optionalNullableString,
+  inboundMessage: optionalNullableString,
+  founderVoiceMode: z.enum(FOUNDER_VOICE_MODES).optional(),
+});
+
+export const zazaConnectBridgeActionRequestSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("create_export"),
+  }),
+  z.object({
+    action: z.literal("import_context"),
+    payloadText: z.string().trim().min(2),
+  }),
+]);
 
 export const ingestRequestSchema = z.object({
   sourceIds: z.array(z.string().trim().min(1)).optional(),
@@ -330,6 +403,7 @@ export const sourceRegistryUpdateRequestSchema = z.object({
   enabled: z.boolean().optional(),
   maxItemsPerRun: z.number().int().min(1).max(100).optional(),
   priority: z.enum(["low", "normal", "high"]).optional(),
+  query: z.string().trim().min(1).optional(),
   notes: z.string().trim().optional(),
 }).refine((value) => Object.values(value).some((entry) => entry !== undefined), {
   message: "Provide at least one source setting to update.",
@@ -428,6 +502,7 @@ export {
   experimentCreateRequestSchema,
   experimentStatusSchema,
 } from "@/lib/experiments";
+export { batchApprovalActionRequestSchema } from "@/lib/batch-approval";
 export {
   experimentProposalActionRequestSchema,
   experimentProposalSchema,
@@ -587,6 +662,7 @@ export interface GenerationResponse {
   outputs: SignalGenerationResult;
   appliedPattern?: PatternSummary | null;
   editorialMode: SignalRecord["editorialMode"];
+  founderVoiceMode: FounderVoiceMode;
   message?: string;
   usedFallback?: boolean;
 }
@@ -651,6 +727,15 @@ export interface StrategicOutcomeResponse {
   persisted: boolean;
   outcome: StrategicOutcome | null;
   previousOutcome: StrategicOutcome | null;
+  message: string;
+  error?: string;
+}
+
+export interface RevenueSignalResponse {
+  success: boolean;
+  persisted: boolean;
+  revenueSignal: RevenueSignal | null;
+  previousRevenueSignal: RevenueSignal | null;
   message: string;
   error?: string;
 }
@@ -726,6 +811,9 @@ export interface SourceRegistryResponse {
   success: boolean;
   source: SignalDataSource;
   sources?: ManagedIngestionSource[];
+  proposals?: SourceChangeProposal[];
+  recentProposalChanges?: SourceChangeProposal[];
+  proposalSummary?: SourceChangeProposalSummary;
   message?: string;
   error?: string;
 }
@@ -735,6 +823,30 @@ export interface UpdateSourceRegistryResponse {
   source: SignalDataSource;
   sourceRecord?: ManagedIngestionSource;
   message?: string;
+  error?: string;
+}
+
+export interface SourceProposalActionResponse {
+  success: boolean;
+  persisted: boolean;
+  source: SignalDataSource;
+  proposal?: SourceChangeProposal | null;
+  proposals?: SourceChangeProposal[];
+  recentProposalChanges?: SourceChangeProposal[];
+  proposalSummary?: SourceChangeProposalSummary;
+  sources?: ManagedIngestionSource[];
+  message: string;
+  error?: string;
+}
+
+export interface StaleQueueActionResponse {
+  success: boolean;
+  persisted: boolean;
+  source: SignalDataSource;
+  signalId: string;
+  operatorState: StaleQueueOperatorState | null;
+  stale?: StaleQueueAssessment | null;
+  message: string;
   error?: string;
 }
 
@@ -851,6 +963,87 @@ export interface ExperimentProposalResponse {
   experiment: ManualExperiment | null;
   experiments: ManualExperiment[];
   insights: ExperimentInsights;
+  message: string;
+  error?: string;
+}
+
+export interface BatchApprovalResponse {
+  success: boolean;
+  persisted: boolean;
+  signal: SignalRecord | null;
+  experiment: ManualExperiment | null;
+  message: string;
+  error?: string;
+}
+
+export interface OperatorTaskActionResponse {
+  success: boolean;
+  task: OperatorTask | null;
+  message: string;
+  error?: string;
+}
+
+export interface WeeklyPostingPackActionResponse {
+  success: boolean;
+  persisted: boolean;
+  action: WeeklyPostingPackActionEntry | null;
+  message: string;
+  error?: string;
+}
+
+export interface PostingAssistantActionResponse {
+  success: boolean;
+  persisted: boolean;
+  package: PostingAssistantPackage | null;
+  postingEntry?: PostingLogEntry | null;
+  signal?: SignalRecord | null;
+  safePosting?: SafePostingEligibilityAssessment | null;
+  message: string;
+  error?: string;
+}
+
+export interface DistributionActionResponse {
+  success: boolean;
+  persisted: boolean;
+  bundle: DistributionBundle | null;
+  message: string;
+  error?: string;
+}
+
+export interface OutreachResponse {
+  success: boolean;
+  signal: SignalRecord | null;
+  result: OutreachResult | null;
+  influencer?: InfluencerRecord | null;
+  message: string;
+  error?: string;
+}
+
+export interface InfluencerGraphActionResponse {
+  success: boolean;
+  influencer: InfluencerRecord | null;
+  interaction: InfluencerInteraction | null;
+  rows: InfluencerGraphRow[];
+  summary: InfluencerGraphSummary | null;
+  message: string;
+  error?: string;
+}
+
+export interface SafeReplyActionResponse {
+  success: boolean;
+  reply: SafeReplyItem | null;
+  rows: SafeReplyItem[];
+  summary: SafeReplySummary | null;
+  message: string;
+  error?: string;
+}
+
+export interface ZazaConnectBridgeResponse {
+  success: boolean;
+  latestExport: ZazaConnectExportPayload | null;
+  importedContext: ZazaConnectImportedContext | null;
+  importedContexts: ZazaConnectImportedContext[];
+  summary: ZazaConnectBridgeSummary | null;
   message: string;
   error?: string;
 }
@@ -990,6 +1183,8 @@ export function toGenerationSavePayload(
     promptVersion: value.promptVersion.trim(),
     generatedAt: value.generatedAt,
     editorialMode: value.editorialMode,
+    founderVoiceMode: value.founderVoiceMode,
+    founderVoiceAppliedAt: normalizeOptionalString(value.founderVoiceAppliedAt),
     campaignId: normalizeOptionalString(value.campaignId),
     pillarId: normalizeOptionalString(value.pillarId),
     audienceSegmentId: normalizeOptionalString(value.audienceSegmentId),
@@ -1057,6 +1252,8 @@ export function toFinalReviewSavePayload(
     linkedInReviewStatus: value.linkedInReviewStatus,
     redditReviewStatus: value.redditReviewStatus,
     finalReviewNotes: normalizeOptionalString(value.finalReviewNotes),
+    imagePrompt: normalizeOptionalString(value.imagePrompt),
+    videoScript: normalizeOptionalString(value.videoScript),
     assetBundleJson: normalizeOptionalString(value.assetBundleJson),
     repurposingBundleJson: normalizeOptionalString(value.repurposingBundleJson),
     publishPrepBundleJson: normalizeOptionalString(value.publishPrepBundleJson),
@@ -1072,6 +1269,13 @@ export function toFinalReviewSavePayload(
       patternType: suggestion.patternType,
       label: suggestion.label.trim(),
     })),
+    appliedReviewMacros: value.appliedReviewMacros?.map((macro) => ({
+      macroId: macro.macroId,
+      platform: macro.platform,
+      appliedAt: macro.appliedAt,
+    })),
+    founderVoiceMode: (value.founderVoiceMode ?? null) as FounderVoiceMode | null,
+    founderVoiceAppliedAt: normalizeOptionalString(value.founderVoiceAppliedAt),
   };
 }
 

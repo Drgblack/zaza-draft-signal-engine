@@ -2,14 +2,14 @@ import { IngestionRunner } from "@/components/ingestion/ingestion-runner";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAppConfig } from "@/lib/config";
-import { getManagedIngestionSourcesWithFallback } from "@/lib/ingestion/source-performance";
+import { getSourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 
 export const dynamic = "force-dynamic";
 
 export default async function IngestionPage() {
   const config = getAppConfig();
   const mode = config.isAirtableConfigured ? "airtable" : "mock";
-  const sourceRegistry = await getManagedIngestionSourcesWithFallback();
+  const sourceRegistry = await getSourceAutopilotV2State();
 
   return (
     <div className="space-y-6">
@@ -30,7 +30,13 @@ export default async function IngestionPage() {
         </CardContent>
       </Card>
 
-      <IngestionRunner sources={sourceRegistry.sources} mode={mode} />
+      <IngestionRunner
+        sources={sourceRegistry.sources}
+        proposals={sourceRegistry.proposals}
+        proposalSummary={sourceRegistry.proposalSummary}
+        recentProposalChanges={sourceRegistry.recentChanges}
+        mode={mode}
+      />
     </div>
   );
 }

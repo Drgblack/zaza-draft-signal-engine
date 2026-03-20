@@ -6,9 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import type { SourceChangeProposal, SourceChangeProposalSummary } from "@/lib/source-autopilot-v2";
 import type { IngestionRunSummary, IngestionSourceKind, ManagedIngestionSource } from "@/lib/ingestion/types";
 import type { AutonomousRunSummary, PipelineRunSummary } from "@/lib/pipeline";
-import type { AutonomousRunResponse, IngestApiResponse, SourceRegistryResponse, UpdateSourceRegistryResponse } from "@/types/api";
+import type {
+  AutonomousRunResponse,
+  IngestApiResponse,
+  SourceProposalActionResponse,
+  SourceRegistryResponse,
+  UpdateSourceRegistryResponse,
+} from "@/types/api";
 
 type ResultTone = "success" | "warning" | "error";
 type SourceFamily = "feed" | "reddit" | "query";
@@ -37,15 +44,6 @@ function getSourceFamily(kind: IngestionSourceKind): SourceFamily {
   return "feed";
 }
 
-function mergeSourceRecord(
-  sources: ManagedIngestionSource[],
-  updatedSource: ManagedIngestionSource,
-): ManagedIngestionSource[] {
-  return sources
-    .map((source) => (source.id === updatedSource.id ? updatedSource : source))
-    .sort((left, right) => left.name.localeCompare(right.name));
-}
-
 function sourcePerformanceSummary(source: ManagedIngestionSource) {
   const parts = [
     `${source.performance.totalSignals} seen`,
@@ -59,30 +57,6 @@ function sourcePerformanceSummary(source: ManagedIngestionSource) {
   }
 
   return parts.join(" · ");
-}
-
-function recommendationTone(action: ManagedIngestionSource["recommendations"][number]["action"]): ResultTone {
-  switch (action) {
-    case "pause_source":
-      return "error";
-    case "reduce_source_weight":
-      return "warning";
-    case "refine_query":
-    default:
-      return "success";
-  }
-}
-
-function recommendationBadgeLabel(action: ManagedIngestionSource["recommendations"][number]["action"]): string {
-  switch (action) {
-    case "pause_source":
-      return "Pause source";
-    case "reduce_source_weight":
-      return "Reduce weight";
-    case "refine_query":
-    default:
-      return "Refine query";
-  }
 }
 
 function buildFamilySummary(result: IngestionRunSummary) {
@@ -108,20 +82,66 @@ function buildFamilySummary(result: IngestionRunSummary) {
   };
 }
 
+function proposalTone(type: SourceChangeProposal["proposalType"]): ResultTone {
+  switch (type) {
+    case "pause_source":
+      return "error";
+    case "reduce_max_items":
+    case "reduce_source_family_cap":
+      return "warning";
+    default:
+      return "success";
+  }
+}
+
+function proposalStatusClass(status: SourceChangeProposal["status"]): string {
+  switch (status) {
+    case "approved":
+      return "bg-emerald-50 text-emerald-700";
+    case "dismissed":
+      return "bg-slate-100 text-slate-600";
+    case "open":
+    default:
+      return "bg-amber-50 text-amber-700";
+  }
+}
+
+function proposalStatusLabel(status: SourceChangeProposal["status"]): string {
+  switch (status) {
+    case "approved":
+      return "Approved";
+    case "dismissed":
+      return "Dismissed";
+    case "open":
+    default:
+      return "Open";
+  }
+}
+
 export function IngestionRunner({
   sources,
+  proposals,
+  proposalSummary,
+  recentProposalChanges,
   mode,
 }: {
   sources: ManagedIngestionSource[];
+  proposals: SourceChangeProposal[];
+  proposalSummary: SourceChangeProposalSummary;
+  recentProposalChanges: SourceChangeProposal[];
   mode: "airtable" | "mock";
 }) {
   const [managedSources, setManagedSources] = useState<ManagedIngestionSource[]>(sources);
   const [savedSources, setSavedSources] = useState<ManagedIngestionSource[]>(sources);
+  const [sourceProposals, setSourceProposals] = useState<SourceChangeProposal[]>(proposals);
+  const [proposalMetrics, setProposalMetrics] = useState<SourceChangeProposalSummary>(proposalSummary);
+  const [recentChanges, setRecentChanges] = useState<SourceChangeProposal[]>(recentProposalChanges);
   const [isRunning, setIsRunning] = useState(false);
   const [isScoring, setIsScoring] = useState(false);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
   const [isRunningAutonomous, setIsRunningAutonomous] = useState(false);
   const [savingSourceId, setSavingSourceId] = useState<string | null>(null);
+  const [processingProposalId, setProcessingProposalId] = useState<string | null>(null);
   const [lastRunLabel, setLastRunLabel] = useState("all enabled sources");
   const [result, setResult] = useState<IngestionRunSummary | null>(null);
   const [pipelineSummary, setPipelineSummary] = useState<PipelineRunSummary | null>(null);
@@ -154,6 +174,12 @@ export function IngestionRunner({
     setSavedSources(sources);
   }, [sources]);
 
+  useEffect(() => {
+    setSourceProposals(proposals);
+    setProposalMetrics(proposalSummary);
+    setRecentChanges(recentProposalChanges);
+  }, [proposals, proposalSummary, recentProposalChanges]);
+
   const enabledSources = useMemo(() => managedSources.filter((source) => source.enabled), [managedSources]);
   const redditSourceIds = useMemo(
     () => enabledSources.filter((source) => source.kind === "reddit").map((source) => source.id),
@@ -179,21 +205,23 @@ export function IngestionRunner({
       ),
     [managedSources],
   );
-  const sourceRecommendations = useMemo(
+  const openSourceProposals = useMemo(
     () =>
-      managedSources
-        .flatMap((source) =>
-          source.recommendations.map((recommendation) => ({
-            source,
-            recommendation,
-          })),
-        )
+      sourceProposals
+        .filter((proposal) => proposal.status === "open")
         .sort(
           (left, right) =>
-            right.source.performance.totalSignals - left.source.performance.totalSignals ||
-            left.source.name.localeCompare(right.source.name),
+            (left.proposalType === "pause_source" ? -1 : 0) - (right.proposalType === "pause_source" ? -1 : 0) ||
+            left.scopeLabel.localeCompare(right.scopeLabel),
         ),
-    [managedSources],
+    [sourceProposals],
+  );
+  const currentClosedProposals = useMemo(
+    () =>
+      sourceProposals
+        .filter((proposal) => proposal.status !== "open")
+        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()),
+    [sourceProposals],
   );
   const hasUnsavedSourceChanges = useMemo(
     () =>
@@ -238,6 +266,21 @@ export function IngestionRunner({
 
     setManagedSources(data.sources);
     setSavedSources(data.sources);
+    setSourceProposals(data.proposals ?? []);
+    setProposalMetrics(
+      data.proposalSummary ?? {
+        openCount: 0,
+        approvedCount: 0,
+        dismissedCount: 0,
+        openPauseCount: 0,
+        openQueryRewriteCount: 0,
+        approvedPauseCount: 0,
+        approvedResumeCount: 0,
+        approvedQueryRewriteCount: 0,
+        disabledSourceCount: 0,
+      },
+    );
+    setRecentChanges(data.recentProposalChanges ?? []);
   }
 
   async function handleSaveSource(source: ManagedIngestionSource) {
@@ -263,8 +306,7 @@ export function IngestionRunner({
         throw new Error(data.error ?? "Unable to update source settings.");
       }
 
-      setManagedSources((current) => mergeSourceRecord(current, data.sourceRecord!));
-      setSavedSources((current) => mergeSourceRecord(current, data.sourceRecord!));
+      await refreshSources();
       setSourceFeedback({
         tone: "success",
         title: "Source settings updated",
@@ -278,6 +320,48 @@ export function IngestionRunner({
       });
     } finally {
       setSavingSourceId(null);
+    }
+  }
+
+  async function handleProposalAction(proposalId: string, action: "approve" | "dismiss") {
+    setSourceFeedback(null);
+    setProcessingProposalId(proposalId);
+
+    try {
+      const response = await fetch("/api/source-proposals", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          proposalId,
+          action,
+        }),
+      });
+      const data = (await response.json()) as SourceProposalActionResponse;
+
+      if (!response.ok || !data.success || !data.sources || !data.proposals || !data.proposalSummary) {
+        throw new Error(data.error ?? "Unable to process the source proposal.");
+      }
+
+      setManagedSources(data.sources);
+      setSavedSources(data.sources);
+      setSourceProposals(data.proposals);
+      setProposalMetrics(data.proposalSummary);
+      setRecentChanges(data.recentProposalChanges ?? []);
+      setSourceFeedback({
+        tone: action === "approve" ? "success" : "warning",
+        title: action === "approve" ? "Source change applied" : "Source change dismissed",
+        body: data.message,
+      });
+    } catch (error) {
+      setSourceFeedback({
+        tone: "error",
+        title: "Source change failed",
+        body: error instanceof Error ? error.message : "Unable to process the source proposal.",
+      });
+    } finally {
+      setProcessingProposalId(null);
     }
   }
 
@@ -547,40 +631,128 @@ export function IngestionRunner({
 
       <Card>
         <CardHeader>
-          <CardTitle>Source Recommendations</CardTitle>
+          <CardTitle>Source Change Proposals</CardTitle>
           <CardDescription>
-            Advisory-only source autopilot suggestions based on approval rate, rejection rate, downstream usefulness, and posted outcome quality. Nothing changes unless the operator updates the source settings.
+            Explicit draft changes for source quality management. Approval applies the proposal to source config; dismissal preserves current settings and keeps the rationale visible.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {sourceRecommendations.length === 0 ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Open proposals</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{proposalMetrics.openCount}</p>
+              <p className="mt-1 text-sm text-slate-500">{proposalMetrics.openPauseCount} pause drafts</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Query rewrites</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{proposalMetrics.openQueryRewriteCount}</p>
+              <p className="mt-1 text-sm text-slate-500">{proposalMetrics.approvedQueryRewriteCount} approved</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Approved changes</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{proposalMetrics.approvedCount}</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {proposalMetrics.approvedPauseCount} paused · {proposalMetrics.approvedResumeCount} resumed
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Disabled sources</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{proposalMetrics.disabledSourceCount}</p>
+              <p className="mt-1 text-sm text-slate-500">{proposalMetrics.dismissedCount} dismissed drafts</p>
+            </div>
+          </div>
+
+          {openSourceProposals.length === 0 ? (
             <div className="rounded-2xl bg-slate-100 px-4 py-5 text-sm text-slate-600">
-              No source changes are being recommended right now.
+              No explicit source changes are being drafted right now.
             </div>
           ) : (
             <div className="grid gap-4 xl:grid-cols-2">
-              {sourceRecommendations.map(({ source, recommendation }) => (
-                <div key={`${source.id}-${recommendation.action}`} className="rounded-2xl bg-white/80 p-4">
+              {openSourceProposals.map((proposal) => (
+                <div key={proposal.proposalId} className="rounded-2xl bg-white/80 p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="font-medium text-slate-950">{source.name}</p>
+                      <p className="font-medium text-slate-950">{proposal.scopeLabel}</p>
                       <p className="mt-1 text-sm text-slate-600">
-                        {source.publisher} · {source.topic}
+                        {(proposal.sourceFamily ?? "source").toUpperCase()} · {proposal.changeSummary}
                       </p>
                     </div>
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${toneClasses(recommendationTone(recommendation.action))}`}>
-                      {recommendationBadgeLabel(recommendation.action)}
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${toneClasses(proposalTone(proposal.proposalType))}`}>
+                      {proposal.title}
                     </span>
                   </div>
-                  <p className="mt-3 text-sm font-medium text-slate-900">{recommendation.summary}</p>
-                  <p className="mt-1 text-sm text-slate-600">{recommendation.rationale}</p>
-                  <p className="mt-3 text-xs text-slate-500">
-                    Evidence: {sourcePerformanceSummary(source)} · {source.performance.reviewSignals} review · {source.performance.strongOutcomeSignals} strong outcome · {source.performance.weakOutcomeSignals} weak outcome.
-                  </p>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">{proposal.reason}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${proposalStatusClass(proposal.status)}`}>
+                      {proposalStatusLabel(proposal.status)}
+                    </span>
+                    <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                      {proposal.confidenceLevel} confidence
+                    </span>
+                    {proposal.supportingSignals.map((item) => (
+                      <span key={`${proposal.proposalId}-${item}`} className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => void handleProposalAction(proposal.proposalId, "approve")}
+                      disabled={processingProposalId === proposal.proposalId}
+                    >
+                      {processingProposalId === proposal.proposalId ? "Applying..." : "Approve"}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void handleProposalAction(proposal.proposalId, "dismiss")}
+                      disabled={processingProposalId === proposal.proposalId}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
+
+          {currentClosedProposals.length > 0 || recentChanges.length > 0 ? (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div className="space-y-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current closed drafts</p>
+                {(currentClosedProposals.length > 0 ? currentClosedProposals : recentChanges.slice(0, 3)).map((proposal) => (
+                  <div key={`closed-${proposal.proposalId}`} className="rounded-2xl bg-slate-50 px-4 py-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium text-slate-950">{proposal.scopeLabel}</p>
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${proposalStatusClass(proposal.status)}`}>
+                        {proposalStatusLabel(proposal.status)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">{proposal.title} · {proposal.changeSummary}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Recent source changes</p>
+                {recentChanges.length === 0 ? (
+                  <div className="rounded-2xl bg-slate-100 px-4 py-5 text-sm text-slate-600">
+                    No approved or dismissed source changes are recorded yet.
+                  </div>
+                ) : (
+                  recentChanges.map((proposal) => (
+                    <div key={`recent-${proposal.proposalId}`} className="rounded-2xl bg-white/80 px-4 py-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-medium text-slate-950">{proposal.scopeLabel}</p>
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${proposalStatusClass(proposal.status)}`}>
+                          {proposalStatusLabel(proposal.status)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">{proposal.title} · {proposal.changeSummary}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

@@ -1,12 +1,20 @@
 import { NextResponse } from "next/server";
 
+import { listSignalsWithFallback } from "@/lib/airtable";
+import { syncAttributionMemory } from "@/lib/attribution";
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
-import { getPostingPlatformLabel, getPostingLogEntries } from "@/lib/posting-log";
+import { getCampaignStrategy } from "@/lib/campaigns";
+import { listExperiments } from "@/lib/experiments";
+import { listFollowUpTasks } from "@/lib/follow-up";
+import { getPostingPlatformLabel, getPostingLogEntries, listPostingLogEntries } from "@/lib/posting-log";
+import { syncRevenueSignals } from "@/lib/revenue-signals";
+import { listPostingOutcomes } from "@/lib/outcomes";
 import {
   getStrategicValueLabel,
   strategicOutcomeRequestSchema,
 } from "@/lib/strategic-outcome-memory";
-import { getStrategicOutcome, upsertStrategicOutcome } from "@/lib/strategic-outcomes";
+import { getStrategicOutcome, listStrategicOutcomes, upsertStrategicOutcome } from "@/lib/strategic-outcomes";
+import { getWeeklyPlanStore } from "@/lib/weekly-plan";
 import type { StrategicOutcomeResponse } from "@/types/api";
 
 function metricSummary(payload: {
@@ -109,6 +117,33 @@ export async function PATCH(
   }
 
   await appendAuditEventsSafe(auditEvents);
+  const [signalsResult, postingEntries, postingOutcomes, strategicOutcomes, experiments, strategy] = await Promise.all([
+    listSignalsWithFallback({ limit: 1000 }),
+    listPostingLogEntries(),
+    listPostingOutcomes(),
+    listStrategicOutcomes(),
+    listExperiments(),
+    getCampaignStrategy(),
+  ]);
+  const weeklyPlanStore = await getWeeklyPlanStore(strategy);
+  await listFollowUpTasks({
+    signals: signalsResult.signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    weeklyPlans: weeklyPlanStore.plans,
+  });
+  await syncAttributionMemory({
+    signals: signalsResult.signals,
+    postingEntries,
+    strategicOutcomes,
+  });
+  await syncRevenueSignals({
+    signals: signalsResult.signals,
+    postingEntries,
+    strategicOutcomes,
+  });
 
   return NextResponse.json<StrategicOutcomeResponse>({
     success: true,

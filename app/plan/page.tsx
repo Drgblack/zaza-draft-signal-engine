@@ -1,8 +1,11 @@
+import { PlaybookPackSuggestions } from "@/components/playbook/playbook-pack-suggestions";
 import { RecommendedWeeklyPostingPackSection } from "@/components/plan/recommended-weekly-posting-pack";
 import { WeeklyPlanManager } from "@/components/plan/weekly-plan-manager";
+import { WeeklyRecapPanel } from "@/components/recap/weekly-recap-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { buildAudienceMemoryInsights, syncAudienceMemory } from "@/lib/audience-memory";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
@@ -21,13 +24,22 @@ import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/patte
 import { listPatterns } from "@/lib/patterns";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { syncPlaybookPacks } from "@/lib/playbook-packs";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildRecommendedWeeklyPostingPack } from "@/lib/recommended-weekly-posting-pack";
+import { syncAttributionMemory } from "@/lib/attribution";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { buildRevenueSignalsFromInputs } from "@/lib/revenue-signals";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
+import { buildWeeklyRecap } from "@/lib/weekly-recap";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanStore, WEEKLY_PLAN_TEMPLATES } from "@/lib/weekly-plan";
+import {
+  buildZazaConnectBridgeSummary,
+  getLatestZazaConnectExport,
+  listImportedZazaConnectContexts,
+} from "@/lib/zaza-connect-bridge";
 
 export const dynamic = "force-dynamic";
 
@@ -134,6 +146,50 @@ export default async function WeeklyPlanPage() {
     signals,
     postingEntries,
   });
+  const recap = buildWeeklyRecap({
+    signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    bundleSummariesByPatternId,
+  });
+  const playbookPacks = await syncPlaybookPacks({
+    signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    reuseMemoryCases,
+    recap,
+  });
+  const attributionRecords = await syncAttributionMemory({
+    signals,
+    postingEntries,
+    strategicOutcomes,
+  });
+  const revenueSignals = buildRevenueSignalsFromInputs({
+    signals,
+    postingEntries,
+    strategicOutcomes,
+  });
+  const audienceMemory = await syncAudienceMemory({
+    strategy,
+    signals,
+    postingEntries,
+    strategicOutcomes,
+    attributionRecords,
+    revenueSignals,
+  });
+  const audienceInsights = buildAudienceMemoryInsights(audienceMemory);
+  const [importedConnectContexts, latestConnectExport] = await Promise.all([
+    listImportedZazaConnectContexts(),
+    getLatestZazaConnectExport(),
+  ]);
+  const connectBridgeSummary = buildZazaConnectBridgeSummary({
+    latestExport: latestConnectExport,
+    importedContexts: importedConnectContexts,
+  });
 
   return (
     <div className="space-y-6">
@@ -172,6 +228,77 @@ export default async function WeeklyPlanPage() {
         </CardContent>
       </Card>
 
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Latest Winner Recap</CardTitle>
+            <CardDescription>
+              Advisory weekly synthesis used as light planning context only. Nothing from the recap is applied automatically.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+        <WeeklyRecapPanel recap={recap} compact />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Zaza Connect Context</CardTitle>
+          <CardDescription>
+            Imported outreach and relationship context that can lightly shape this week&apos;s content choices without turning planning into a CRM workflow.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current bridge signal</p>
+            <p className="mt-2 text-sm text-slate-700">
+              {connectBridgeSummary.importedThemeCount} imported themes · {connectBridgeSummary.collaborationOpportunityCount} collaboration opportunities · {connectBridgeSummary.influencerRelevantExportCount} influencer-relevant export items
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              {connectBridgeSummary.topNotes[0] ??
+                "No imported cross-app context is strong enough to change this week’s plan yet."}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Planning hint</p>
+            <p className="mt-2 text-sm text-slate-700">
+              {importedConnectContexts[0]?.outreachCampaignThemes[0]
+                ? `Outreach theme "${importedConnectContexts[0].outreachCampaignThemes[0].label}" is worth reflecting in trust-stage and collaboration-ready content this week.`
+                : latestConnectExport?.outreachRelevantThemes[0]
+                  ? `Latest export theme "${latestConnectExport.outreachRelevantThemes[0].label}" looks most reusable across content and outreach this week.`
+                  : "No imported bridge theme is stable enough to summarize."}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Audience Memory</CardTitle>
+          <CardDescription>
+            Segment-level memory that lightly informs planning with what each audience is actually responding to.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top audience guidance</p>
+            <p className="mt-2 text-sm text-slate-700">
+              {audienceInsights.topNotes[0] ??
+                "No audience segment has enough response memory to shape this week's plan yet."}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Planning caution</p>
+            <p className="mt-2 text-sm text-slate-700">
+              {audienceMemory.segments[0]?.toneCautions[0]
+                ? audienceMemory.segments[0].toneCautions[0]
+                : audienceMemory.segments[0]?.preferredCtaStyles[0]
+                  ? `${audienceMemory.segments[0].segmentName} currently prefers ${audienceMemory.segments[0].preferredCtaStyles[0].toLowerCase()}.`
+                  : "No audience-specific caution is strong enough to surface yet."}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Content fatigue</CardTitle>
@@ -204,6 +331,18 @@ export default async function WeeklyPlanPage() {
       </Card>
 
       <RecommendedWeeklyPostingPackSection pack={postingPack} />
+
+      <PlaybookPackSuggestions
+        title="Reusable Playbook Packs"
+        description="Repeated winners promoted into compact planning hints. Use these to keep next week grounded in structures that already worked."
+        matches={playbookPacks.slice(0, 3).map((pack) => ({
+          pack,
+          score: pack.strengthScore,
+          reason: `Strong planning hint for ${pack.platform === "x" ? "X" : pack.platform === "linkedin" ? "LinkedIn" : "Reddit"} based on repeated winning evidence.`,
+          matchedOn: [pack.mode ?? "cross-mode", pack.ctaStyle],
+        }))}
+        emptyCopy="No repeat-winning playbook pack is stable enough to suggest for planning yet."
+      />
 
       <WeeklyPlanManager
         initialPlan={plan}

@@ -316,6 +316,10 @@ export async function confirmExperimentProposal(
 function buildHookVariantProposal(
   candidate: ApprovalQueueCandidate,
 ): { proposal: ExperimentProposal; score: number } | null {
+  if (!candidate.automationConfidence.allowExperimentProposal) {
+    return null;
+  }
+
   const pkg = pickPrimaryDraftPackage(candidate);
   if (!pkg || pkg.hookVariants.length < 2) {
     return null;
@@ -325,8 +329,8 @@ function buildHookVariantProposal(
   const comparisonTarget = `${variants[0].styleLabel} vs ${variants[1].styleLabel}`;
   const whyProposedReasons: string[] = [];
 
-  if (candidate.guidance.confidence.confidenceLevel === "moderate") {
-    uniquePush(whyProposedReasons, "confidence is still moderate");
+  if (candidate.automationConfidence.level === "medium") {
+    uniquePush(whyProposedReasons, "automation confidence is still medium");
   }
   if (candidate.hypothesis.riskNote) {
     uniquePush(whyProposedReasons, candidate.hypothesis.riskNote);
@@ -370,6 +374,10 @@ function buildHookVariantProposal(
 function buildCtaVariantProposal(
   candidate: ApprovalQueueCandidate,
 ): { proposal: ExperimentProposal; score: number } | null {
+  if (!candidate.automationConfidence.allowExperimentProposal) {
+    return null;
+  }
+
   const pkg = pickPrimaryDraftPackage(candidate);
   if (!pkg || pkg.ctaVariants.length < 2) {
     return null;
@@ -380,7 +388,7 @@ function buildCtaVariantProposal(
   const whyProposed =
     candidate.expectedOutcome.riskSignals.find((signal) => signal.toLowerCase().includes("destination")) ??
     candidate.expectedOutcome.riskSignals.find((signal) => signal.toLowerCase().includes("cta")) ??
-    (candidate.guidance.confidence.confidenceLevel !== "high" ? "the call to action still looks debatable" : null);
+    (candidate.automationConfidence.level === "medium" ? "the call to action still looks debatable" : null);
 
   if (!whyProposed) {
     return null;
@@ -414,6 +422,10 @@ function buildCtaVariantProposal(
 function buildDestinationProposal(
   candidate: ApprovalQueueCandidate,
 ): { proposal: ExperimentProposal; score: number } | null {
+  if (!candidate.automationConfidence.allowExperimentProposal) {
+    return null;
+  }
+
   const pkg = pickPrimaryDraftPackage(candidate);
   const variants = pkg
     ?.linkVariants.filter(
@@ -461,6 +473,10 @@ function buildDestinationProposal(
 function buildPlatformExpressionProposal(
   candidate: ApprovalQueueCandidate,
 ): { proposal: ExperimentProposal; score: number } | null {
+  if (!candidate.automationConfidence.allowExperimentProposal) {
+    return null;
+  }
+
   const outputs = buildSignalRepurposingBundle(candidate.signal)?.outputs ?? [];
   const platformVariants = outputs
     .filter((output): output is typeof output & { platform: "x" | "linkedin" | "reddit" } => isSocialPlatform(output.platform))
@@ -470,10 +486,6 @@ function buildPlatformExpressionProposal(
     )
     .slice(0, 2);
   if (platformVariants.length < 2) {
-    return null;
-  }
-
-  if (candidate.guidance.confidence.confidenceLevel === "high" && candidate.expectedOutcome.expectedOutcomeTier === "high") {
     return null;
   }
 
@@ -506,6 +518,10 @@ function buildPlatformExpressionProposal(
 function buildEditorialModeProposal(
   candidate: ApprovalQueueCandidate,
 ): { proposal: ExperimentProposal; score: number } | null {
+  if (!candidate.automationConfidence.allowExperimentProposal) {
+    return null;
+  }
+
   if (!candidate.signal.editorialMode) {
     return null;
   }
@@ -542,6 +558,10 @@ function buildEditorialModeProposal(
 function buildPatternProposal(
   candidate: ApprovalQueueCandidate,
 ): { proposal: ExperimentProposal; score: number } | null {
+  if (!candidate.automationConfidence.allowExperimentProposal) {
+    return null;
+  }
+
   const pattern = candidate.guidance.relatedPatterns[0];
   if (!pattern) {
     return null;

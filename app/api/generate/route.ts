@@ -70,9 +70,14 @@ export async function POST(request: Request) {
     parsed.data.editorialMode ??
     sourceSignal?.signal?.editorialMode ??
     (sourceSignal?.signal ? suggestEditorialMode(sourceSignal.signal).mode : "awareness");
+  const founderVoiceMode =
+    parsed.data.founderVoiceMode ??
+    sourceSignal?.signal?.founderVoiceMode ??
+    "founder_voice_on";
   const generation = await generateDrafts(signal, {
     pattern: selectedPattern,
     editorialMode,
+    founderVoiceMode,
   });
   const currentSignalId = signal.recordId ?? parsed.data.signalId ?? null;
   const tuning = await getOperatorTuning();
@@ -95,9 +100,23 @@ export async function POST(request: Request) {
           patternName: generation.appliedPattern?.name ?? null,
           suggestedPatternId: usedSuggestedPattern ? parsed.data.suggestedPatternId ?? null : null,
           editorialMode,
+          founderVoiceMode,
         },
       },
     ];
+
+    if (founderVoiceMode === "founder_voice_on") {
+      auditEvents.push({
+        signalId: currentSignalId,
+        eventType: "FOUNDER_VOICE_APPLIED",
+        actor: "system",
+        summary: "Founder Voice Mode shaped the generated drafts.",
+        metadata: {
+          editorialMode,
+          founderVoiceMode,
+        },
+      });
+    }
 
     if (generation.appliedPattern) {
       auditEvents.push({
@@ -141,6 +160,7 @@ export async function POST(request: Request) {
     outputs: generation.outputs,
     appliedPattern: generation.appliedPattern,
     editorialMode,
+    founderVoiceMode,
     message: generation.message,
     usedFallback: generation.usedFallback,
   });

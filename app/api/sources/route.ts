@@ -1,18 +1,21 @@
 import { NextResponse } from "next/server";
 
-import { getManagedIngestionSourcesWithFallback } from "@/lib/ingestion/source-performance";
+import { getSourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import type { SourceRegistryResponse } from "@/types/api";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const result = await getManagedIngestionSourcesWithFallback();
+    const result = await getSourceAutopilotV2State();
 
     return NextResponse.json<SourceRegistryResponse>({
       success: true,
       source: result.source,
       sources: result.sources,
+      proposals: result.proposals,
+      recentProposalChanges: result.recentChanges,
+      proposalSummary: result.proposalSummary,
       message: result.error ?? result.message,
     });
   } catch (error) {

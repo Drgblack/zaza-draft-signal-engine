@@ -1,4 +1,5 @@
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import { applyFounderVoiceToGeneration, isFounderVoiceOn } from "@/lib/founder-voice";
 import { buildAssetBundle, buildSignalAssetBundle, parseAssetBundle, stringifyAssetBundle } from "@/lib/assets";
 import { GENERATION_JSON_SCHEMA, GENERATION_PROMPT_VERSION, buildGenerationSystemPrompt, buildGenerationUserPrompt } from "@/lib/generation-prompts";
 import { generateStructuredJson, getGenerationProviderConfig, getSafeLlmErrorMessage } from "@/lib/llm";
@@ -7,7 +8,7 @@ import { getPlatformIntentProfile } from "@/lib/platform-profiles";
 import { getScenarioPriority } from "@/lib/scenario-angle";
 import { generationResultSchema } from "@/types/api";
 import { HOOK_TEMPLATES } from "@/types/signal";
-import type { EditorialMode, SignalGenerationInput, SignalGenerationResult, SignalRecord } from "@/types/signal";
+import type { EditorialMode, FounderVoiceMode, SignalGenerationInput, SignalGenerationResult, SignalRecord } from "@/types/signal";
 import { ZodError } from "zod";
 
 export interface DraftGenerationRun {
@@ -173,9 +174,11 @@ export function buildMockDrafts(
   options?: {
     pattern?: SignalPattern | null;
     editorialMode?: EditorialMode;
+    founderVoiceMode?: FounderVoiceMode;
   },
 ): SignalGenerationResult {
   const editorialMode = options?.editorialMode ?? "awareness";
+  const founderVoiceMode = options?.founderVoiceMode ?? "founder_voice_on";
   const modeDefinition = getEditorialModeDefinition(editorialMode);
   const modeLead = getModeLead(editorialMode);
   const linkedInProfile = getPlatformIntentProfile("linkedin");
@@ -205,13 +208,14 @@ export function buildMockDrafts(
     promptVersion: GENERATION_PROMPT_VERSION,
     generatedAt: new Date().toISOString(),
   };
-  const assetBundle = buildAssetBundle(input, draftResult, {
+  const founderVoiceResult = applyFounderVoiceToGeneration(draftResult, founderVoiceMode);
+  const assetBundle = buildAssetBundle(input, founderVoiceResult, {
     editorialMode,
     pattern: options?.pattern ? toPatternSummary(options.pattern) : null,
   });
 
   return {
-    ...draftResult,
+    ...founderVoiceResult,
     assetBundleJson: stringifyAssetBundle(assetBundle),
     preferredAssetType: assetBundle.suggestedPrimaryAssetType,
     selectedImageAssetId: assetBundle.imageAssets[0]?.id ?? null,
@@ -309,30 +313,34 @@ export async function generateDrafts(
   options?: {
     pattern?: SignalPattern | null;
     editorialMode?: EditorialMode;
+    founderVoiceMode?: FounderVoiceMode;
   },
 ): Promise<DraftGenerationRun> {
   const providerConfig = getGenerationProviderConfig();
   const appliedPattern = toPatternSummary(options?.pattern);
   const editorialMode = options?.editorialMode ?? "awareness";
+  const founderVoiceMode = options?.founderVoiceMode ?? "founder_voice_on";
   const editorialModeLabel = getEditorialModeDefinition(editorialMode).label;
+  const founderVoiceSuffix = isFounderVoiceOn(founderVoiceMode) ? " Founder Voice Mode was applied." : "";
 
   if (providerConfig.provider === "mock") {
     return {
       outputs: buildMockDrafts(input, options),
       appliedPattern,
       message: options?.pattern
-        ? `Mock draft set returned in ${editorialModeLabel} mode with pattern guidance from ${options.pattern.name} because no live generation provider is configured.`
-        : `Mock draft set returned in ${editorialModeLabel} mode for review because no live generation provider is configured.`,
+        ? `Mock draft set returned in ${editorialModeLabel} mode with pattern guidance from ${options.pattern.name} because no live generation provider is configured.${founderVoiceSuffix}`
+        : `Mock draft set returned in ${editorialModeLabel} mode for review because no live generation provider is configured.${founderVoiceSuffix}`,
       usedFallback: true,
     };
   }
 
   try {
     const generation = await generateStructuredJson({
-      systemPrompt: buildGenerationSystemPrompt(editorialMode),
+      systemPrompt: buildGenerationSystemPrompt(editorialMode, founderVoiceMode),
       userPrompt: buildGenerationUserPrompt(input, {
         pattern: options?.pattern,
         editorialMode,
+        founderVoiceMode,
       }),
       jsonSchema: GENERATION_JSON_SCHEMA,
     });
@@ -344,12 +352,13 @@ export async function generateDrafts(
       promptVersion: GENERATION_PROMPT_VERSION,
       generatedAt: new Date().toISOString(),
     });
-    const assetBundle = buildAssetBundle(input, parsed, {
+    const founderVoiceResult = applyFounderVoiceToGeneration(parsed, founderVoiceMode);
+    const assetBundle = buildAssetBundle(input, founderVoiceResult, {
       editorialMode,
       pattern: appliedPattern,
     });
     const outputs: SignalGenerationResult = {
-      ...parsed,
+      ...founderVoiceResult,
       assetBundleJson: stringifyAssetBundle(assetBundle),
       preferredAssetType: parsed.preferredAssetType ?? assetBundle.suggestedPrimaryAssetType,
       selectedImageAssetId: parsed.selectedImageAssetId ?? assetBundle.imageAssets[0]?.id ?? null,
@@ -361,8 +370,8 @@ export async function generateDrafts(
       outputs,
       appliedPattern,
       message: options?.pattern
-        ? `Drafts generated via ${generation.source} using ${generation.modelVersion} in ${editorialModeLabel} mode with pattern guidance from ${options.pattern.name}.`
-        : `Drafts generated via ${generation.source} using ${generation.modelVersion} in ${editorialModeLabel} mode.`,
+        ? `Drafts generated via ${generation.source} using ${generation.modelVersion} in ${editorialModeLabel} mode with pattern guidance from ${options.pattern.name}.${founderVoiceSuffix}`
+        : `Drafts generated via ${generation.source} using ${generation.modelVersion} in ${editorialModeLabel} mode.${founderVoiceSuffix}`,
       usedFallback: false,
     };
   } catch (error) {
@@ -370,11 +379,11 @@ export async function generateDrafts(
     const message =
       error instanceof SyntaxError || error instanceof ZodError
         ? options?.pattern
-          ? `Live generation parsing failed. Mock draft set returned in ${editorialModeLabel} mode with pattern guidance from ${options.pattern.name}.`
-          : `Live generation parsing failed. Mock draft set returned in ${editorialModeLabel} mode for review.`
+          ? `Live generation parsing failed. Mock draft set returned in ${editorialModeLabel} mode with pattern guidance from ${options.pattern.name}.${founderVoiceSuffix}`
+          : `Live generation parsing failed. Mock draft set returned in ${editorialModeLabel} mode for review.${founderVoiceSuffix}`
         : options?.pattern
-          ? `Live generation was unavailable. Mock draft set returned in ${editorialModeLabel} mode with pattern guidance from ${options.pattern.name}.`
-          : `Live generation was unavailable. Mock draft set returned in ${editorialModeLabel} mode for review.`;
+          ? `Live generation was unavailable. Mock draft set returned in ${editorialModeLabel} mode with pattern guidance from ${options.pattern.name}.${founderVoiceSuffix}`
+          : `Live generation was unavailable. Mock draft set returned in ${editorialModeLabel} mode for review.${founderVoiceSuffix}`;
 
     return {
       outputs: fallbackOutputs,

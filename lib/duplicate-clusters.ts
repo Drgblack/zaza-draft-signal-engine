@@ -17,7 +17,7 @@ export type DuplicateClusterStatus = (typeof DUPLICATE_CLUSTER_STATUSES)[number]
 
 export const duplicateClusterSchema = z.object({
   clusterId: z.string().trim().min(1),
-  signalIds: z.array(z.string().trim().min(1)).min(2).max(12),
+  signalIds: z.array(z.string().trim().min(1)).min(2),
   canonicalSignalId: z.string().trim().min(1),
   similarityType: z.enum(DUPLICATE_CLUSTER_SIMILARITY_TYPES),
   clusterConfidence: z.enum(DUPLICATE_CLUSTER_CONFIDENCE_LEVELS),

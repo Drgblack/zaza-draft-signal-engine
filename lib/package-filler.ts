@@ -2,6 +2,7 @@ import type { AutoAdvanceAssessment } from "@/lib/auto-advance";
 import { buildSignalAssetBundle } from "@/lib/assets";
 import { evaluateApprovalPackageCompleteness, type ApprovalPackageCompleteness } from "@/lib/completeness";
 import { buildEditPatternSuggestions, inferEditPatternHistory } from "@/lib/edit-patterns";
+import type { ConversionIntentAssessment } from "@/lib/conversion-intent";
 import type { ManualExperiment } from "@/lib/experiments";
 import {
   buildSignalPublishPrepBundle,
@@ -18,6 +19,7 @@ import {
 import type { PostingOutcome } from "@/lib/outcomes";
 import type { PostingLogEntry } from "@/lib/posting-memory";
 import { buildRevisionGuidance } from "@/lib/revision-guidance";
+import { getSiteLinkById } from "@/lib/site-links";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import type { SignalRecord } from "@/types/signal";
 
@@ -43,6 +45,7 @@ export interface PackageAutofillNote {
 
 export interface PackageAutofillResult {
   eligible: boolean;
+  mode: "applied" | "suggested" | "blocked";
   signal: SignalRecord;
   notes: PackageAutofillNote[];
   appliedFields: PackageAutofillField[];
@@ -100,6 +103,7 @@ function patchPrimaryPackage(
   defaultBundle: PublishPrepBundle,
   signal: SignalRecord,
   notes: PackageAutofillNote[],
+  conversionIntent: ConversionIntentAssessment | null | undefined,
   experiments?: ManualExperiment[],
 ): PublishPrepBundle {
   const primaryPlatform = currentBundle.primaryPlatform ?? defaultBundle.primaryPlatform ?? getPrimaryPlatform(signal);
@@ -129,13 +133,25 @@ function patchPrimaryPackage(
     });
   }
 
-  if (!ctaBlocked && !trimOrNull(nextPrimaryPackage.selectedCtaId) && trimOrNull(defaultPackage.selectedCtaId)) {
-    nextPrimaryPackage.selectedCtaId = defaultPackage.selectedCtaId;
+  const preferredCtaVariant =
+    conversionIntent?.preferredCtaVariant === "soft"
+      ? defaultPackage.ctaVariants[1] ?? defaultPackage.ctaVariants[0] ?? null
+      : defaultPackage.ctaVariants[0] ?? defaultPackage.ctaVariants[1] ?? null;
+
+  if (
+    !ctaBlocked &&
+    preferredCtaVariant &&
+    trimOrNull(nextPrimaryPackage.selectedCtaId) !== preferredCtaVariant.id
+  ) {
+    nextPrimaryPackage.selectedCtaId = preferredCtaVariant.id;
     uniqueNote(notes, {
       field: "cta",
       label: "Auto-filled CTA",
       value: getSelectedCtaText(nextPrimaryPackage) ?? nextPrimaryPackage.primaryCta ?? "Selected primary CTA",
-      reason: "The strongest CTA was already selected in publish prep.",
+      reason:
+        conversionIntent?.preferredCtaVariant === "soft"
+          ? "Conversion posture kept the CTA trust-first instead of escalating pressure."
+          : "Conversion posture supports a clearer conversion-oriented CTA.",
     });
   }
 
@@ -152,24 +168,43 @@ function patchPrimaryPackage(
   if (!destinationBlocked) {
     const defaultPrimaryLink = getPrimaryLinkVariant(defaultPackage);
     const currentPrimaryLink = getPrimaryLinkVariant(nextPrimaryPackage);
+    const postureDestinationId = conversionIntent?.preferredDestinationIds.find((id) => getSiteLinkById(id));
+    const postureLink =
+      postureDestinationId && defaultPackage.linkVariants.find((variant) => variant.siteLinkId === postureDestinationId);
+    const targetPrimaryLink = postureLink ?? defaultPrimaryLink;
     const shouldAdoptLinkFields =
       (!trimOrNull(nextPrimaryPackage.siteLinkId) && !trimOrNull(nextPrimaryPackage.siteLinkLabel)) ||
-      !currentPrimaryLink;
-    if (shouldAdoptLinkFields && defaultPrimaryLink) {
-      nextPrimaryPackage.siteLinkId = trimOrNull(nextPrimaryPackage.siteLinkId) ?? trimOrNull(defaultPackage.siteLinkId);
-      nextPrimaryPackage.siteLinkLabel =
-        trimOrNull(nextPrimaryPackage.siteLinkLabel) ?? trimOrNull(defaultPackage.siteLinkLabel) ?? defaultPrimaryLink.label;
+      !currentPrimaryLink ||
+      Boolean(
+        postureDestinationId &&
+          trimOrNull(nextPrimaryPackage.siteLinkId) &&
+          !conversionIntent?.preferredDestinationIds.includes(trimOrNull(nextPrimaryPackage.siteLinkId) ?? ""),
+      );
+    if (shouldAdoptLinkFields && targetPrimaryLink) {
+      nextPrimaryPackage.siteLinkId = targetPrimaryLink.siteLinkId ?? trimOrNull(defaultPackage.siteLinkId);
+      nextPrimaryPackage.siteLinkLabel = targetPrimaryLink.destinationLabel ?? trimOrNull(defaultPackage.siteLinkLabel) ?? targetPrimaryLink.label;
       nextPrimaryPackage.siteLinkReason =
-        trimOrNull(nextPrimaryPackage.siteLinkReason) ?? trimOrNull(defaultPackage.siteLinkReason);
-      nextPrimaryPackage.siteLinkUsedFallback =
-        nextPrimaryPackage.siteLinkUsedFallback ?? defaultPackage.siteLinkUsedFallback;
+        postureLink && conversionIntent
+          ? `Conversion posture ${conversionIntent.posture.replaceAll("_", " ")} fits this destination better.`
+          : trimOrNull(nextPrimaryPackage.siteLinkReason) ?? trimOrNull(defaultPackage.siteLinkReason);
+      nextPrimaryPackage.siteLinkUsedFallback = postureLink ? false : nextPrimaryPackage.siteLinkUsedFallback ?? defaultPackage.siteLinkUsedFallback;
       nextPrimaryPackage.linkVariants =
-        nextPrimaryPackage.linkVariants.length > 0 ? nextPrimaryPackage.linkVariants : defaultPackage.linkVariants;
+        postureLink
+          ? [
+              targetPrimaryLink,
+              ...defaultPackage.linkVariants.filter((variant) => variant.siteLinkId !== targetPrimaryLink.siteLinkId),
+            ]
+          : nextPrimaryPackage.linkVariants.length > 0
+            ? nextPrimaryPackage.linkVariants
+            : defaultPackage.linkVariants;
       uniqueNote(notes, {
         field: "destination",
         label: "Auto-selected destination",
-        value: defaultPrimaryLink.label,
-        reason: "The default destination already matched the current CTA and publish-prep context.",
+        value: targetPrimaryLink.label,
+        reason:
+          postureLink && conversionIntent
+            ? `Conversion posture ${conversionIntent.posture.replaceAll("_", " ")} is a better fit for this destination.`
+            : "The default destination already matched the current CTA and publish-prep context.",
       });
     }
   }
@@ -304,6 +339,8 @@ function addEditPatternAutofill(
 export function applyApprovalPackageAutofill(input: {
   signal: SignalRecord;
   guidanceConfidenceLevel: "high" | "moderate" | "low";
+  automationConfidenceLevel: "high" | "medium" | "low";
+  conversionIntent?: ConversionIntentAssessment | null;
   assessment?: Pick<AutoAdvanceAssessment, "decision" | "draftQuality"> | null;
   allSignals: SignalRecord[];
   postingEntries: PostingLogEntry[];
@@ -324,13 +361,14 @@ export function applyApprovalPackageAutofill(input: {
   const eligible =
     hasDrafts &&
     nearComplete &&
-    input.guidanceConfidenceLevel !== "low" &&
+    input.automationConfidenceLevel !== "low" &&
     input.assessment?.draftQuality?.label !== "Weak" &&
     (input.assessment ? input.assessment.decision === "approval_ready" : true);
 
   if (!eligible) {
     return {
       eligible: false,
+      mode: "blocked",
       signal: input.signal,
       notes: [],
       appliedFields: [],
@@ -349,6 +387,7 @@ export function applyApprovalPackageAutofill(input: {
       defaultPublishPrepBundle,
       nextSignal,
       notes,
+      input.conversionIntent,
       input.experiments,
     );
 
@@ -369,8 +408,21 @@ export function applyApprovalPackageAutofill(input: {
     guidanceConfidenceLevel: input.guidanceConfidenceLevel,
   });
 
+  if (input.automationConfidenceLevel === "medium") {
+    return {
+      eligible: true,
+      mode: "suggested",
+      signal: input.signal,
+      notes,
+      appliedFields: [],
+      completenessBefore,
+      completenessAfter,
+    };
+  }
+
   return {
     eligible: true,
+    mode: "applied",
     signal: nextSignal,
     notes,
     appliedFields: notes.map((note) => note.field),

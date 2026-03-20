@@ -36,6 +36,13 @@ Convert selected teacher-relevant signals into structured, platform-specific dra
 - Publish prep layer that packages approval-ready drafts with hooks, CTAs, timing, alt text, comment prompts, and optional UTM-ready links for faster manual posting
 - Strategic outcome loop that records business-facing post results and ties them back to source, mode, pattern, platform, asset, and campaign context
 - Weekly plan auto-draft assistant that proposes next week's plan from active campaigns, recent mix, queue supply, strategic outcomes, reusable winners, and current planning gaps
+- Recommended weekly posting pack that turns the strongest current candidates into a small balanced manual posting set for this week
+- Semi-Autonomous Distribution Engine (Safe Mode) that groups staged platform variants, prompts, and follow-up notes into explicit manual distribution bundles
+- Founder Voice Mode that applies Zaza's calm, grounded, teacher-first identity layer across generation and review when enabled
+- Influencer and outreach content branch for manual relationship-building messages, collaboration prompts, and reply suggestions tied to a signal
+- Influencer graph and relationship memory for tracking contact history, reply state, and low-noise follow-up awareness
+- Cross-app Zaza Connect bridge for exporting content intelligence and importing bounded outreach or relationship context without creating a live runtime dependency
+- AI Growth Director meta-layer for compact top-level weekly focus, bottlenecks, opportunities, and next actions
 - Auto-repair loop that gives promising held candidates one explicit repair pass before leaving them for human intervention
 - Signal interpretation
 - Fixed-template content generation
@@ -43,7 +50,298 @@ Convert selected teacher-relevant signals into structured, platform-specific dra
 - Internal review workflow
 
 ## Status
-Active internal workflow with ingestion, scoring, scenario framing, generation, audit memory, operator-facing insights, a lightweight reusable pattern library, bounded pattern discovery suggestions, heuristic pattern-aware co-pilot assists, inspectable pattern coverage-gap visibility, a manual lifecycle layer for retiring weak or outdated patterns, manual pattern bundles for organising related approaches into small kits, bundle-level coverage visibility for spotting thin or missing kits, a bounded editorial-mode layer for shaping draft intent more explicitly, explicit platform intent profiles for X, LinkedIn, and Reddit, a final review workspace for last-mile manual editing decisions, a manual posting-memory layer for preserving what was actually published externally, a manual qualitative outcome layer for capturing whether those published outputs were worth repeating, a bounded reuse-memory layer that brings those judged outcomes back into new editorial decisions without auto-applying them, a manual editorial playbook-card layer for compact reusable operator guidance, a heuristic playbook-coverage layer that highlights which recurring situations still need clearer playbook support, a unified guidance layer that presents the strongest next action, relevant memory, and support context in one place, a bounded operator-tuning layer for adjusting strictness and guidance posture without code edits, an autonomous approval queue layer that prepares stronger signals for review while still keeping final posting manual, a bounded auto-repair layer that gives held near-miss candidates one inspectable repair pass, a bounded campaign strategy layer that helps the system balance campaigns, pillars, audiences, funnel stages, CTA goals, and recent cadence, a lightweight weekly planning layer that steers queue balance across campaigns, funnels, platforms, modes, and fresh-versus-evergreen mix, a bounded weekly-plan auto-draft assistant that proposes next week priorities from active campaigns, recent output mix, queue quality, reusable winners, and strategic gaps, a structured asset pipeline that packages visual and short-form video execution guidance with approval-ready drafts, a bounded repurposing engine that turns one strong idea into a few differentiated platform-ready variants, a manual publish-prep layer that packages those outputs with hooks, CTAs, timing, alt text, comment prompts, and optional trackable links for faster posting, and a strategic outcome layer that records business-facing post results without needing direct platform API integrations.
+Active internal workflow with ingestion, scoring, scenario framing, generation, audit memory, operator-facing insights, a lightweight reusable pattern library, bounded pattern discovery suggestions, heuristic pattern-aware co-pilot assists, inspectable pattern coverage-gap visibility, a manual lifecycle layer for retiring weak or outdated patterns, manual pattern bundles for organising related approaches into small kits, bundle-level coverage visibility for spotting thin or missing kits, a bounded editorial-mode layer for shaping draft intent more explicitly, explicit platform intent profiles for X, LinkedIn, and Reddit, a final review workspace for last-mile manual editing decisions, a manual posting-memory layer for preserving what was actually published externally, a manual qualitative outcome layer for capturing whether those published outputs were worth repeating, a bounded reuse-memory layer that brings those judged outcomes back into new editorial decisions without auto-applying them, a manual editorial playbook-card layer for compact reusable operator guidance, a heuristic playbook-coverage layer that highlights which recurring situations still need clearer playbook support, a unified guidance layer that presents the strongest next action, relevant memory, and support context in one place, a bounded operator-tuning layer for adjusting strictness and guidance posture without code edits, an autonomous approval queue layer that prepares stronger signals for review while still keeping final posting manual, a bounded auto-repair layer that gives held near-miss candidates one inspectable repair pass, a bounded campaign strategy layer that helps the system balance campaigns, pillars, audiences, funnel stages, CTA goals, and recent cadence, a lightweight weekly planning layer that steers queue balance across campaigns, funnels, platforms, modes, and fresh-versus-evergreen mix, a bounded weekly-plan auto-draft assistant that proposes next week priorities from active campaigns, recent output mix, queue quality, reusable winners, and strategic gaps, a structured asset pipeline that packages visual and short-form video execution guidance with approval-ready drafts, a bounded repurposing engine that turns one strong idea into a few differentiated platform-ready variants, a manual publish-prep layer that packages those outputs with hooks, CTAs, timing, alt text, comment prompts, and optional trackable links for faster posting, a safe-mode distribution layer that groups staged posting variants into manual-ready bundles, a lightweight influencer relationship-memory layer for context-aware outreach and follow-up awareness, a strategic outcome layer that records business-facing post results without needing direct platform API integrations, and a bounded Growth Director meta-layer that synthesizes planning, queue, execution, outcome, and outreach state into a short strategic operator brief.
+
+## AI Growth Director
+- Growth Director logic is centralized in `lib/growth-director.ts`.
+- The layer stays intentionally bounded:
+  - no autonomous control
+  - no hidden prioritisation overrides
+  - no conversational agent loop
+- It synthesizes existing system state across:
+  - weekly plan
+  - weekly posting pack
+  - approval and stale queue conditions
+  - operator tasks and follow-up tasks
+  - recap, optimisation, and source-autopilot signals
+  - distribution readiness
+  - revenue-linked learning
+  - outreach, influencer, and bridge context
+- `/director` now surfaces:
+  - current focus
+  - top priorities
+  - top bottlenecks
+  - strongest opportunities
+  - next 3 actions
+- `/digest` also shows a compact Director block so the operator can see the top strategic calls without opening another full page.
+- Recommendations are advisory and link back into existing workflows rather than mutating state directly.
+
+## Growth Scorecard
+- Growth scorecard logic is centralized in `lib/growth-scorecard.ts`.
+- The layer stays intentionally compact:
+  - directional health snapshot
+  - no BI dashboard
+  - no financial reporting
+  - no false precision
+- `/scorecard` now summarizes:
+  - approval-ready queue health
+  - staged posting readiness
+  - posting throughput
+  - outcome completion
+  - strong strategic outcomes
+  - revenue signals
+  - weekly pack completion
+  - stale queue pressure
+  - experiment completion
+  - campaign coverage
+- Directional indicators are heuristic and bounded:
+  - `improving`
+  - `flat`
+  - `declining`
+- The scorecard remains distinct from deeper reporting:
+  - scorecard = compact health snapshot
+  - insights = deeper analysis
+  - director = top strategic recommendations
+- Current integration points:
+  - `/scorecard`
+  - compact scorecard panel in `/digest`
+  - light scorecard context in `/director`
+- Limitations:
+  - advisory only
+  - directional, not exact forecasting
+  - depends on stored outcomes, revenue signals, and posting-state quality
+
+## Zaza Connect Bridge
+- Bridge logic is centralized in `lib/zaza-connect-bridge.ts`.
+- The bridge stays intentionally loose and serializable:
+  - export current content intelligence as compact JSON
+  - import bounded outreach, collaboration, and relationship context from Zaza Connect
+  - no live runtime dependency between apps
+- Current export payloads include:
+  - strong content candidates
+  - outreach-relevant themes
+  - influencer-relevant posts
+  - campaign support signals
+  - distribution opportunities
+  - relationship-context hints
+- Current import payloads can carry:
+  - relationship stage hints
+  - creator relevance tags
+  - outreach campaign themes
+  - collaboration opportunities
+  - reply-context signals
+- Current operator surfaces:
+  - `/connect-bridge`
+  - compact bridge notes in `/digest`
+  - light planning context in `/plan`
+  - bridge-aware outreach generation in `/signals/[id]/outreach`
+- Limitations:
+  - no live CRM sync
+  - no outreach sending
+  - no cross-repo deployment coupling
+  - no hidden background sync
+
+## Founder Voice Mode
+- Founder voice logic is centralized in `lib/founder-voice.ts`.
+- The mode stays intentionally bounded:
+  - `founder_voice_on`
+  - `founder_voice_off`
+- When on, the layer reinforces:
+  - calm authority
+  - grounded, observational phrasing
+  - teacher empathy
+  - trust-first communication
+  - low-hype language
+- The layer is applied in:
+  - generation prompts and mock outputs
+  - visible generation-state metadata
+  - final-review rewrite suggestions
+  - weekly posting pack and posting-assistant surfaces through lightweight badges
+- The layer is still operator-visible and editable:
+  - generation shows a founder-voice toggle
+  - final review can stage a visible `Rewrite in founder voice` pass
+  - saved mode is carried with the signal record
+- Limitations:
+  - heuristic text shaping only
+  - no personal-storytelling engine
+  - no persona overfitting
+  - no hidden auto-posting or irreversible rewrite
+
+## Outreach Branch
+- Outreach logic is centralized in `lib/outreach.ts`.
+- The branch stays intentionally bounded:
+  - `initial_contact`
+  - `follow_up`
+  - `reply`
+  - `collaboration_pitch`
+  - `thank_you`
+- It uses the current signal plus light recipient context to generate:
+  - influencer outreach notes
+  - collaboration prompts
+  - reply suggestions
+- Tone guardrails stay explicit:
+  - short
+  - human
+  - non-promotional
+  - relationship-first
+  - founder-voice aligned when enabled
+- Current operator surface:
+  - `/signals/[id]/outreach`
+  - copy-ready manual messages
+  - optional recipient, context, collaboration goal, and inbound-message support
+- Limitations:
+  - no CRM
+  - no sending automation
+  - no scraping
+  - no auto-reply
+  - content support only
+
+## Influencer Graph
+- Relationship memory is centralized in `lib/influencer-graph.ts`.
+- The layer stays intentionally lightweight:
+  - influencer identity
+  - platform and handle
+  - tags
+  - relationship stage
+  - last interaction
+  - interaction history
+- Current relationship stages are:
+  - `new`
+  - `contacted`
+  - `replied`
+  - `engaged`
+  - `collaborator`
+- Current interaction types are:
+  - `message_sent`
+  - `follow_up_sent`
+  - `reply_received`
+  - `note`
+- `/influencers` now provides:
+  - add influencer
+  - recent interaction history
+  - lightweight interaction recording
+  - follow-up and pending-reply visibility
+- Outreach generation can now use saved relationship context so follow-ups and replies do not read like first-contact messages when prior interaction exists.
+- `/digest` surfaces the same memory as low-noise awareness:
+  - follow-up needed
+  - replies pending
+  - new relationship opportunities
+- Limitations:
+  - no CRM
+  - no sending automation
+  - no scraping
+  - no account sync
+  - memory and context only
+
+## Safe Autonomous Reply Handling
+- Safe reply handling is centralized in `lib/safe-replies.ts`.
+- The layer stays intentionally strict and suggest-first:
+  - no auto-send
+  - only low-risk replies can be staged
+  - ambiguous or high-stakes replies stay manual
+- Current safe reply types are:
+  - `thank_you`
+  - `simple_acknowledgement`
+  - `clarification`
+  - `soft_follow_up`
+  - `manual_review_required`
+- Current risk levels are:
+  - `low`
+  - `medium`
+  - `high`
+- Eligibility remains explicit and visible:
+  - `safe_to_stage`
+  - `review_required`
+  - `blocked`
+- Reply blocking rules are intentionally conservative. The system will not safe-stage replies that look:
+  - emotional or conflict-heavy
+  - legal or policy-sensitive
+  - payment, pricing, or refund-related
+  - support-style or account-specific
+  - unclear enough to need real judgement
+- `/replies` now acts as the bounded safe-reply queue:
+  - low-risk replies can be staged
+  - staged replies can be edited and approved for manual send
+  - blocked or review-required replies stay visible with reasons
+- Founder voice is applied to safe reply suggestions by default so the tone stays calm, teacher-first, and low-pressure.
+- `/digest` now surfaces:
+  - low-risk replies ready for review
+  - replies that still need manual judgement
+- Limitations:
+  - no auto-send
+  - no support-ticket handling
+  - no complaint or dispute automation
+  - no broad DM automation
+  - safe suggestions only
+
+## Audience Memory Layer
+- Audience memory is centralized in `lib/audience-memory.ts`.
+- The layer stays intentionally segment-level and privacy-light:
+  - no individual tracking
+  - no CRM segmentation
+  - no invasive profiling
+  - no ad-targeting infrastructure
+- It derives bounded memory for each saved audience segment from existing structured state such as:
+  - `audienceSegmentId`
+  - strategic outcomes
+  - attribution memory
+  - revenue signals
+  - posted destination and platform history
+- Current memory output stays compact and explanatory:
+  - strongest modes
+  - strongest platforms
+  - strongest destinations
+  - preferred CTA styles
+  - weak combinations
+  - tone cautions
+  - short supporting notes
+- The system now uses audience memory lightly in:
+  - expected-outcome ranking
+  - weekly plan auto-draft
+  - flywheel optimisation proposals
+  - outreach generation context
+  - insights and planning surfaces
+- Typical guidance looks like:
+  - “New teachers respond better to Helpful Tip on LinkedIn.”
+  - “School leaders underperform on harsher framing.”
+  - “Primary teachers show better outcomes with softer CTAs.”
+- Limitations:
+  - heuristic only
+  - advisory only
+  - segment-level only
+  - thin evidence intentionally produces little or no guidance
+
+## Conversion-Intent Optimisation
+- Conversion-intent logic is centralized in `lib/conversion-intent.ts`.
+- The layer stays intentionally bounded and explainable:
+  - `awareness_first`
+  - `trust_first`
+  - `soft_conversion`
+  - `direct_conversion`
+- It derives posture from existing structured state such as:
+  - funnel stage
+  - editorial mode
+  - publish-prep destination
+  - attribution memory
+  - revenue signals
+  - audience memory
+  - campaign context
+  - conflict state
+- Current uses stay light-touch:
+  - approval ranking gets a small posture-aware adjustment
+  - package autofill can prefer a softer or stronger CTA variant
+  - publish prep can prefer a better-matched destination when posture is clear
+  - review surfaces show a compact posture label with rationale
+  - insights summarize which postures and platform-posture pairs perform best
+- Guardrails remain explicit:
+  - trust-first is preferred when support is weak
+  - Reddit avoids direct-conversion posture by default
+  - conflicts and weak commercial proof block harder CTA escalation
+- Limitations:
+  - heuristic only
+  - no hard-sell automation
+  - no ad-funnel system
+  - posture guidance supports judgement rather than replacing it
 
 ## Campaign Strategy Layer
 - Campaign strategy is centralized in `lib/campaigns.ts`.
@@ -118,6 +416,38 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - it only runs for near-complete candidates with non-low confidence and usable draft quality
   - explicit operator choices are preserved and experiment conflicts prevent autofill for the affected field
   - autofilled choices stay visible in the approval queue and final review and can be edited normally
+- Outcome follow-up autopilot is also bounded and operator-visible:
+  - it generates follow-up tasks for posted items, experiments, and weekly packs when manual learning data is missing
+  - current task types include outcome rating, strategic outcome completion, experiment result completion, and weekly-pack outcome review
+  - timing rules stay simple: around 24h for qualitative outcomes, around 3d for strategic outcomes, and later weekly-pack review once a plan window has passed
+  - tasks stay visible on `/digest` and `/follow-up`
+  - tasks can be completed or dismissed manually, and matching tasks auto-complete when the required outcome data is later recorded
+- Batch approval prep is also bounded and operator-visible:
+  - it stages a small 3-5 item review batch from the strongest approval-ready candidates
+  - selection stays explicit: expected value, completeness, confidence, weekly alignment, fatigue balance, and campaign balance all matter
+  - package autofill runs before staging so CTA, destination, timing, hook, and asset direction are usually near-final
+  - operators can take fast actions from `/review/batch`:
+    - approve and keep package
+    - approve but soften CTA
+    - hold for destination fix
+    - convert to experiment
+    - evergreen later
+  - full final review remains available per item when the batch surface is not enough
+- Review command center is now compressed around `/review`:
+  - saved views include ready to approve, stale queue, needs judgement, missing outcomes, experiment-linked, fatigued, campaign-critical, evergreen, and auto-repaired work
+  - approval-ready cards default to compact summaries with rationale chips and expandable support detail
+  - `/digest` now links directly into those filtered review lanes so it works as the daily start page
+- Stale queue cleanup is now layered into approval ranking and review:
+  - stale states include fresh, aging, stale, stale but reusable, and stale needs refresh
+  - bounded reasons include age, campaign drift, fatigue, destination or CTA overuse, weekly-plan mismatch, expected-value decay, and repeated deprioritization
+  - suggested actions stay explicit and reversible: downgrade priority, refresh, move to evergreen later, or suppress from the top queue
+  - operator actions are inspectable and stored separately from the signal record
+  - evergreen later is a preservation lane for current queue items and is distinct from posted-winner evergreen resurfacing
+- Final review now keeps the main actions persistent:
+  - sticky action rail for save, approve, hold, apply suggestion, log posting, and experiment jump-out
+  - keyboard shortcuts for next or previous candidate, focused platform changes, save, approve, hold, apply suggestion, posting log, experiments, and support-detail toggle
+  - lightweight diff-first editing shows the main generated-vs-final delta without pretending to be a full git-style diff
+  - diff view is intentionally limited to the most meaningful changed span or changed lines
 - Current limitations:
   - no auto-posting
   - image generation is still a provider-agnostic placeholder hook
@@ -125,6 +455,9 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - no full campaign calendar UI
   - no large job orchestration system
   - no attribution model or probabilistic forecasting
+  - stale cleanup is heuristic only
+  - no silent deletion or hidden archival
+  - refresh requests do not rewrite or regenerate drafts automatically
 
 ## Auto-Repair Loop
 - Auto-repair is centralized in `lib/auto-repair.ts`.
@@ -326,6 +659,13 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - plan-gap visibility on `/review`
   - light plan context in final review
   - weekly alignment summaries in `/insights`
+- `/weekly-pack` now turns that same weekly context into a bounded manual posting set:
+  - default size stays between 3 and 5 items
+  - selection uses approval ranking plus evergreen resurfacing, but does not simply take the top 5 raw scores
+  - balance is maintained across platform, funnel, editorial mode, campaign pressure, freshness, destination variety, and fatigue pressure
+  - evergreen only enters when it closes a genuine weekly gap or keeps the pack practical
+  - operators can approve or remove suggested pack items, but the system never schedules or publishes automatically
+- `/digest` now surfaces the same weekly pack as the daily start-page short list, and `/insights` shows the pack backlog and coverage quality lightly.
 - Auto-draft reasons stay short and traceable, for example:
   - awareness was over-represented recently
   - an active campaign is under-supported
@@ -432,3 +772,501 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - heuristic only
   - uses structured signals and explicit keyword families rather than embeddings or semantic search
   - not exhaustive
+
+## Review Command Center
+- `/review` now acts as the compressed command center with preset views such as:
+  - ready to approve
+  - needs judgement
+  - missing outcomes
+  - experiment-linked
+  - fatigued
+  - campaign-critical
+  - evergreen
+  - auto-repaired
+- Approval-ready cards are denser and more scan-first:
+  - rationale chips
+  - why it matters
+  - what is missing
+  - what was auto-filled
+  - action now
+  - expandable support detail
+- Final review now keeps a sticky action rail visible for:
+  - save
+  - approve focused draft
+  - hold focused draft
+  - apply suggestion
+  - log posting
+  - experiments shortcut
+- Final review keyboard shortcuts:
+  - `Ctrl/Cmd+S` save
+  - `1`, `2`, `3` focus X / LinkedIn / Reddit
+  - `[` and `]` move between drafts
+  - `A` approve focused draft
+  - `H` hold focused draft
+  - `G` apply first suggestion
+  - `P` open posting log
+  - `J` and `K` move to next or previous review record
+  - `?` toggle shortcut help
+- Diff-first editing remains lightweight and explainable:
+  - generated vs final edits are summarized visually
+  - this is not a full Git-style diff tool
+
+## Weekly Winner Recap
+- `/recap` now produces a compact operator-facing weekly synthesis grounded in stored posting outcomes, strategic outcomes, reuse calls, experiments, and posting-memory metadata.
+- recap items can surface winners, underperformers, reuse candidates, and pause candidates across:
+  - platforms
+  - editorial modes
+  - saved patterns
+  - pattern bundles
+  - destination pages
+  - source families
+  - linked experiments
+- the recap is intentionally bounded:
+  - heuristic only
+  - based on recorded operator outcomes rather than predictive modelling
+  - advisory for planning and reuse, not auto-applied
+- `/digest` and `/plan` now surface the same recap as light planning context.
+
+## Source Autopilot V2
+- Source-change drafting is centralized in `lib/source-autopilot-v2.ts`.
+- The layer turns weak or strong source signals into explicit inspectable proposals instead of broad advice.
+- Current proposal types include:
+  - `pause_source`
+  - `resume_source`
+  - `reduce_max_items`
+  - `increase_max_items`
+  - `rewrite_query`
+  - reserved family-cap proposal types for later expansion
+- Proposal heuristics stay compact and grounded in stored evidence such as:
+  - approval-ready rate
+  - rejection rate
+  - usefulness rate
+  - duplicate-linked rate
+  - qualitative reuse or do-not-repeat memory
+  - strategic outcome strength
+- Query rewrite drafts are intentionally small and inspectable:
+  - the system tightens weak queries by adding stronger teacher communication, evidence, workload, or parent-message terms when current query quality looks too broad
+  - the operator still approves or dismisses the rewrite
+- `/ingestion` now shows:
+  - open source proposals
+  - exact current-to-proposed changes
+  - approve and dismiss actions
+  - recent approved or dismissed source changes
+- `/insights` now shows a compact source-autopilot summary with open drafts and recent approved changes.
+- Limitations:
+  - heuristic only
+  - no automatic source mutation
+  - no hidden external service management
+  - family-cap proposal types are defined but not yet operator-actionable in this run
+
+## Conflict Detector
+- Package-alignment checks are now centralized in `lib/conflicts.ts`.
+- The detector is intentionally bounded and heuristic-only. It uses existing structured package state rather than ML contradiction detection.
+- Current conflict types include:
+  - `cta_destination_mismatch`
+  - `mode_funnel_mismatch`
+  - `platform_tone_mismatch`
+  - `hypothesis_package_mismatch`
+  - `campaign_context_mismatch`
+  - `expected_outcome_mismatch`
+  - `destination_overreach`
+  - `reddit_promo_conflict`
+- Conflicts surface in:
+  - `/review` approval cards as compact chips and expandable detail
+  - final review as a small conflict panel with bounded quick fixes
+  - `/digest` as a compact daily conflict note
+  - `/insights` as a lightweight conflict-pattern summary
+- Behavior stays advisory:
+  - conflicts lightly de-prioritize approval ranking
+  - they do not hard-block workflow
+  - they do not auto-rewrite the package
+  - they do not mutate destinations or CTAs unless the operator applies a quick fix locally in final review
+
+## Operator Tasks
+- Operator work generation is centralized in `lib/operator-tasks.ts`.
+- The queue turns unresolved operational gaps into explicit tasks instead of leaving them scattered across review, follow-up, ingestion, and duplicate-cluster screens.
+- Current task types include:
+  - `fill_missing_strategic_outcome`
+  - `resolve_borderline_case`
+  - `confirm_duplicate_cluster`
+  - `approve_source_recommendation`
+  - `finish_incomplete_package`
+  - `resolve_conflict`
+  - `complete_experiment_result`
+  - `refresh_stale_candidate`
+- Tasks are generated from current structured system state such as:
+  - follow-up gaps for strategic outcomes and experiment results
+  - held or borderline signals
+  - suggested duplicate clusters
+  - open source-autopilot proposals
+  - incomplete approval packages
+  - high-severity package conflicts
+  - stale candidates that need refresh
+- `/tasks` is now the bounded operator queue, and `/digest` plus `/insights` surface the backlog lightly.
+- Completion and dismissal stay intentionally simple:
+  - tasks can be marked done or dismissed
+  - duplicate-cluster confirmation and source-proposal approval support safe quick actions directly from the task queue
+  - tasks auto-close when the underlying unresolved state is actually gone
+
+## Recommended Weekly Posting Pack
+- Weekly posting-pack selection is centralized in `lib/weekly-posting-pack.ts`.
+- The pack is intentionally bounded:
+  - manual only
+  - advisory only
+  - no scheduler
+  - no auto-posting
+- Each recommended item carries:
+  - why it was selected
+  - strongest value signal
+  - key caution
+  - campaign and funnel context
+  - readiness state
+- The pack stays balanced by explicit heuristics instead of hidden optimization:
+  - platform spread matters
+  - funnel and editorial-mode variety matter
+  - campaign-critical items can stay in
+  - evergreen fills gaps, but does not dominate
+  - destination repetition and fatigue still reduce inclusion odds
+- Operators can:
+  - open final review for any pack item
+  - approve a recommendation
+  - remove an item and let the next best alternate surface after refresh
+- Current limitations:
+  - no drag-and-drop planner
+  - no auto-scheduling
+  - no direct publishing from the pack surface
+- Limitations:
+  - single-operator only
+  - no assignment model
+  - no notification engine
+  - no broad project-management workflow
+
+## Review Macros
+- Review macros are centralized in `lib/review-macros.ts`.
+- The current fixed macro set is:
+  - `approve_keep_package`
+  - `approve_soften_cta`
+  - `hold_for_destination_fix`
+  - `convert_to_experiment`
+  - `evergreen_later`
+  - `approve_with_safe_tone`
+- Macros surface in batch review and final review as explicit decision bundles with:
+  - a label
+  - a short description
+  - visible action chips showing what will happen
+- Execution stays intentionally bounded:
+  - batch review executes the macro immediately
+  - final review stages the macro visibly in local draft state and saves it through the normal final-review save action
+  - macro changes remain editable before save
+- Use cases:
+  - reduce repetitive approve or hold clicks
+  - stage safer CTA or tone edits without hiding the changes
+  - route unresolved candidates toward experiments or evergreen-later handling faster
+- Limitations:
+  - fixed macro set only
+  - no macro builder
+  - no hidden automation chains
+  - no irreversible rewrite behavior
+
+## Reusable Playbook Packs
+- Reusable playbook packs are centralized in `lib/playbook-packs.ts`.
+- These packs are system-derived, not manually authored:
+  - repeated strong outcomes
+  - reuse-memory support
+  - weekly recap winners
+  - experiment-backed winner signals
+  all contribute to whether a compact pack is promoted.
+- Each pack stays intentionally small and structured:
+  - platform
+  - mode
+  - CTA style
+  - destination type
+  - summary
+  - why it works
+  - example references
+- Packs are used as bounded hints rather than templates:
+  - generation can surface matching packs as reuse suggestions
+  - final review can surface matching packs as structure checks
+  - planning and insights can show the strongest current packs
+- Operators can explicitly reference a pack, which records `PLAYBOOK_PACK_USED`.
+- Limitations:
+  - heuristic only
+  - read-only
+  - no user-authored pack editing
+  - no large template hierarchy
+
+## Confidence Calibration Layer
+- Automation confidence is centralized in `lib/confidence.ts`.
+- This is an explicit heuristic trust layer, not an ML score.
+- Every approval-ready candidate now gets an automation confidence lane:
+  - `high`
+  - `medium`
+  - `low`
+- Confidence is derived from existing structured signals such as:
+  - approval-package completeness
+  - conflict severity
+  - expected-outcome strength
+  - hypothesis clarity
+  - fatigue
+  - source trust
+  - reuse or pattern support
+- The lane safely gates automation behavior:
+  - `high`: bounded autofill can apply, batch prep can include the candidate, and ranking gets a stronger lift
+  - `medium`: the system can suggest bounded autofill and experiment ideas, but it does not silently apply them
+  - `low`: the item stays visible, but autopilot is blocked and the candidate is treated as a judgement-first case
+- The lane is visible in:
+  - `/review`
+  - final review
+  - batch prep
+  - `/insights`
+- Limitations:
+  - heuristic only
+  - fully inspectable
+  - no black-box probability scoring
+  - no hidden workflow blocking
+
+## Semi-Autonomous Posting Assistant
+- Posting-assistant logic is centralized in `lib/posting-assistant.ts`.
+- The assistant is intentionally bounded and manual-confirmed:
+  - it assembles a final posting package
+  - it stages that package for operator confirmation
+  - it never publishes directly to a platform API
+- Each staged posting package stays explicit and editable:
+  - final caption
+  - selected hook
+  - selected CTA
+  - selected destination and UTM-ready URL
+  - selected asset direction
+  - timing suggestion
+  - comment prompt
+  - alt text
+  - readiness reason
+- The workflow is split cleanly:
+  - `staged_for_posting` means the package is ready for manual copy-and-post work
+  - `posted` means the operator has confirmed the live post and the posting log has been updated from the staged package
+- The assistant is surfaced on:
+  - `/posting` as the ready-to-post workspace
+  - `/weekly-pack` for quick staging from the recommended weekly set
+  - `/digest` as a compact ready-to-post summary
+  - final review as a direct `Stage for posting` action
+
+## Semi-Autonomous Posting (Strict Guardrails)
+- Strict safe-mode posting logic is centralized in `lib/safe-posting.ts`.
+- Safe mode is off by default and must be explicitly enabled in `/settings`.
+- A staged package is only eligible for `Post now (safe mode)` when all of these are true:
+  - package status is `staged_for_posting`
+  - automation confidence is `high`
+  - package completeness is `complete`
+  - no unresolved conflicts remain
+  - the item is not linked to an active experiment
+  - safe-mode posting is enabled
+  - the platform has an explicitly supported safe route
+- Eligibility is surfaced as one of:
+  - `eligible_safe_post`
+  - `manual_only`
+  - `blocked`
+- `manual_only` means the package is otherwise usable, but the current platform route stays manual in strict safe mode.
+- `blocked` means one or more guardrails failed, such as:
+  - safe mode disabled
+  - incomplete package
+  - medium or low confidence
+  - unresolved conflicts
+  - experiment-linked content
+- Safe posting does not call any external social platform APIs in this run.
+- The execution path is a bounded internal simulation that:
+  - preserves the staged package
+  - writes to posting memory
+  - marks the entry as posted with execution source `engine_safe_mode`
+  - preserves staged state on failure instead of discarding anything
+- Operator controls currently include:
+  - safe-mode posting enabled or disabled
+  - final confirmation required or optional
+- Limitations:
+  - strict scope only
+  - off by default
+  - no background posting
+  - no unsupported platform automation
+  - no broad auto-posting
+- The layer reuses existing structured choices rather than generating lots of new variants:
+  - final review draft state
+  - publish-prep package
+  - destination selection
+  - asset bundle selection
+  - timing and comment guidance
+- Limitations:
+  - no direct publishing
+  - no scheduler
+  - no OAuth or account connections
+  - manual confirmation remains required
+
+## Semi-Autonomous Distribution Engine
+- Distribution logic is centralized in `lib/distribution.ts`.
+- The layer stays intentionally safe and manual:
+  - no auto-posting
+  - no social platform APIs
+  - no background scheduling
+  - no automated replies
+- It groups staged posting packages into explicit distribution bundles with:
+  - full post package copy
+  - platform-ready variants
+  - comment reply prompt
+  - follow-up note
+  - compact distribution checklist
+- Current distribution action types are:
+  - `prepare_post_package`
+  - `prepare_multi_platform_set`
+  - `prepare_reddit_version`
+  - `prepare_linkedin_version`
+  - `prepare_x_version`
+  - `prepare_comment_reply`
+  - `prepare_follow_up_message`
+- `/posting` now acts as the safe-mode distribution workspace:
+  - grouped bundles appear above individual staged packages
+  - each bundle keeps copy-ready outputs and required operator steps visible
+  - `Prepare bundle` records low-noise audit history without publishing anything
+- `/digest` now surfaces:
+  - ready-for-distribution counts
+  - multi-platform bundle visibility
+  - direct links into the distribution workspace
+- Limitations:
+  - copy-and-execute only
+  - no scheduler
+  - no direct send or post actions
+  - current follow-up notes are derived from staged posting and sequence context, not outbound API state
+
+## Cross-Platform Narrative Sequencing
+- Narrative sequencing is centralized in `lib/narrative-sequences.ts`.
+- The layer stays intentionally bounded:
+  - compact 2 to 4 step arcs
+  - operator-visible ordering
+  - no scheduling automation
+  - no long-form storytelling engine
+- Current sequence role types are:
+  - `awareness_hook`
+  - `reflection`
+  - `discussion`
+  - `trust_builder`
+  - `conversion_prompt`
+  - `follow_up`
+- Sequences are formed heuristically from existing structured state such as:
+  - available platform drafts
+  - campaign context
+  - funnel stage
+  - editorial mode
+  - publish-prep CTA and destination logic
+  - repurposing support
+- Weekly pack items can now surface as:
+  - standalone recommendations
+  - or one step inside a named cross-platform arc
+- Final review and posting assistant also show light sequence context so the operator can see where the current platform output sits in the larger arc.
+- Limitations:
+  - heuristic only
+  - no auto-scheduling
+  - no direct publishing
+  - no campaign orchestration system
+
+## Content Flywheel Self-Optimisation
+- Flywheel optimisation is centralized in `lib/flywheel-optimisation.ts`.
+- This layer is intentionally advisory only:
+  - no automatic config mutation
+  - no autonomous planning rewrites
+  - no black-box optimisation
+- It turns stored signals into bounded next actions across the content system:
+  - `do_more_of`
+  - `do_less_of`
+  - `pause`
+  - `reuse`
+  - `test_next`
+  - `rebalance`
+  - `repair_upstream`
+- Proposal inputs come from existing structured state rather than a separate scoring engine:
+  - weekly recap winners and underperformers
+  - source autopilot proposals
+  - playbook coverage gaps
+  - weekly posting pack balance
+  - evergreen availability
+  - experiment proposals
+  - cross-platform sequencing context
+- Proposals stay compact and operator-visible:
+  - target
+  - reason
+  - supporting signals
+  - suggested action
+  - workflow link
+- The optimisation view is surfaced on:
+  - `/optimisation`
+  - `/digest` as a compact next-action block
+  - `/insights` as a distinct optimisation layer separate from raw reporting
+- Limitations:
+  - heuristic only
+  - advisory only
+  - no auto-apply
+  - no giant optimisation dashboard
+
+## Commercial Attribution Memory
+- Commercial attribution memory is centralized in `lib/attribution.ts`.
+- The layer stays intentionally lightweight and internal:
+  - no analytics integrations
+  - no pixels
+  - no revenue dashboard
+  - no external API ingestion
+- Each attribution record links:
+  - post
+  - platform
+  - destination
+  - UTM tag
+  - outcome type
+  - outcome strength
+  - note
+- Attribution is derived from existing posting and strategic-outcome memory, with simple inference from business-facing notes when direct metrics are thin.
+- The system uses attribution memory to improve:
+  - expected-outcome ranking
+  - weekly recap commercial notes
+  - playbook-pack evidence quality
+  - destination and platform insights
+- Attribution is surfaced lightly in:
+  - posting-memory insights
+  - strategic-outcome insights
+  - weekly recap
+- Limitations:
+  - heuristic only
+  - incomplete by design
+  - no multi-touch attribution
+  - best used as directional commercial memory rather than precise measurement
+
+## Revenue Signal Feedback Loop
+- Revenue signal memory is centralized in `lib/revenue-signals.ts`.
+- This layer stays intentionally lightweight and directional:
+  - no Stripe integration
+  - no financial dashboard
+  - no exact revenue calculation
+  - no multi-touch attribution model
+- Each revenue signal links a posted item back to:
+  - signal
+  - posting entry
+  - platform
+  - destination
+  - UTM tag
+  - signal type
+  - strength
+  - confidence
+  - notes
+- Revenue signals can be:
+  - inferred from strategic outcomes
+  - or recorded manually in posting history when the operator has clearer business feedback
+- The system uses revenue signals to improve:
+  - expected-outcome ranking
+  - weekly recap commercial highlights
+  - playbook-pack commercial evidence
+  - flywheel optimisation proposals
+  - destination, platform, and pattern revenue insights
+- Revenue signals are surfaced lightly in:
+  - posting history
+  - insights
+  - digest
+  - weekly recap
+- Limitations:
+  - signal-based only
+  - advisory only
+  - intentionally incomplete
+  - best used for directional learning about business value rather than precise attribution

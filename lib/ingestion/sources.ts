@@ -208,6 +208,7 @@ function normalizeOverrideForStorage(
     enabled: value.enabled,
     maxItemsPerRun: value.maxItemsPerRun,
     priority: value.priority,
+    query: value.query,
     notes: value.notes,
   });
 
@@ -223,6 +224,10 @@ function normalizeOverrideForStorage(
 
   if (next.priority !== undefined && next.priority !== base.priority) {
     normalized.priority = next.priority;
+  }
+
+  if (next.query !== undefined && next.query !== base.query) {
+    normalized.query = next.query;
   }
 
   if (next.notes !== undefined && next.notes !== base.notes) {

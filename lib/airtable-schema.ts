@@ -1,5 +1,6 @@
 import {
   EDITORIAL_MODES,
+  FOUNDER_VOICE_MODES,
   CTA_GOALS,
   FINAL_DRAFT_REVIEW_STATUSES,
   FUNNEL_STAGES,
@@ -121,6 +122,8 @@ export const AIRTABLE_SIGNAL_FIELD_DEFINITIONS: Record<SignalFieldKey, AirtableS
   anonymisedUserPattern: { label: "Anonymised User Pattern?", kind: "checkbox" },
   relatedZazaFrameworkTag: { label: "Related Zaza Framework Tag", kind: "text" },
   editorialMode: { label: "Editorial Mode", kind: "select", allowedValues: EDITORIAL_MODES },
+  founderVoiceMode: { label: "Founder Voice Mode", kind: "select", allowedValues: FOUNDER_VOICE_MODES },
+  founderVoiceAppliedAt: { label: "Founder Voice Applied At", kind: "text" },
   campaignId: { label: "Campaign ID", kind: "text" },
   pillarId: { label: "Pillar ID", kind: "text" },
   audienceSegmentId: { label: "Audience Segment ID", kind: "text" },

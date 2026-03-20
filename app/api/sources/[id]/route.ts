@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { listSignalsWithFallback } from "@/lib/airtable";
-import { buildManagedIngestionSources } from "@/lib/ingestion/source-performance";
 import { updateIngestionSource } from "@/lib/ingestion/sources";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { listPostingOutcomes } from "@/lib/outcomes";
+import { buildSourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import {
   sourceRegistryUpdateRequestSchema,
@@ -41,18 +41,19 @@ export async function PATCH(
       listStrategicOutcomes(),
     ]);
 
-    const managedSource = buildManagedIngestionSources(
-      [updatedSource],
-      signalResult.signals,
+    const autopilotState = await buildSourceAutopilotV2State({
+      source: signalResult.source,
+      sourceRegistry: [updatedSource],
+      signals: signalResult.signals,
       postingEntries,
       postingOutcomes,
       strategicOutcomes,
-    )[0];
+    });
 
     return NextResponse.json<UpdateSourceRegistryResponse>({
       success: true,
       source: signalResult.source,
-      sourceRecord: managedSource,
+      sourceRecord: autopilotState.sources[0],
       message: "Source settings updated.",
     });
   } catch (error) {

@@ -16,6 +16,7 @@ import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPatterns } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { parsePublishPrepBundle } from "@/lib/publish-prep";
+import { getReviewMacroDefinition } from "@/lib/review-macros";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
@@ -135,6 +136,8 @@ export async function PATCH(
     publishPrepBundleJson: review.publishPrepBundleJson ?? previousSignal.publishPrepBundleJson,
     selectedRepurposedOutputIdsJson:
       review.selectedRepurposedOutputIdsJson ?? previousSignal.selectedRepurposedOutputIdsJson,
+    founderVoiceMode: review.founderVoiceMode ?? previousSignal.founderVoiceMode,
+    founderVoiceAppliedAt: review.founderVoiceAppliedAt ?? previousSignal.founderVoiceAppliedAt,
     finalReviewStartedAt: startedAt,
     finalReviewedAt: previousSignal.finalReviewedAt,
   };
@@ -160,6 +163,8 @@ export async function PATCH(
     publishPrepBundleJson: review.publishPrepBundleJson ?? previousSignal.publishPrepBundleJson,
     selectedRepurposedOutputIdsJson:
       review.selectedRepurposedOutputIdsJson ?? previousSignal.selectedRepurposedOutputIdsJson,
+    founderVoiceMode: review.founderVoiceMode ?? previousSignal.founderVoiceMode,
+    founderVoiceAppliedAt: review.founderVoiceAppliedAt ?? previousSignal.founderVoiceAppliedAt,
     finalReviewStartedAt: startedAt,
     finalReviewedAt,
   });
@@ -362,6 +367,35 @@ export async function PATCH(
         platform: suggestion.platform,
         patternType: suggestion.patternType,
         suggestionKey: suggestion.key,
+      },
+    });
+  }
+
+  for (const macro of review.appliedReviewMacros ?? []) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "REVIEW_MACRO_APPLIED",
+      actor: "operator",
+      summary: `Applied review macro ${getReviewMacroDefinition(macro.macroId).label}.`,
+      metadata: {
+        macroId: macro.macroId,
+        candidateId: id,
+        platform: macro.platform,
+      },
+    });
+  }
+
+  if (
+    review.founderVoiceAppliedAt &&
+    review.founderVoiceAppliedAt !== previousSignal.founderVoiceAppliedAt
+  ) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "FOUNDER_VOICE_APPLIED",
+      actor: "operator",
+      summary: "Applied founder voice revision during final review.",
+      metadata: {
+        founderVoiceMode: review.founderVoiceMode ?? nextSignal.founderVoiceMode ?? "founder_voice_on",
       },
     });
   }

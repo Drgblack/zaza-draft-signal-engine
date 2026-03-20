@@ -1,41 +1,499 @@
 # Codex Runs
 
 ## Current Run
-Run 67 adds Approval Autopilot Package Filler:
-- new centralized helper in `lib/package-filler.ts`
-- near-complete approval-ready candidates can now receive bounded package autofill for:
-  - hook choice
-  - CTA choice
-  - destination link
-  - timing suggestion
-  - asset direction and primary asset selection
-  - attached revision guidance note
-  - attached learned edit-pattern note
-- autofill only runs when:
-  - the candidate already has generated drafts
-  - confidence is not low
-  - draft quality is not weak
-  - the package is near-complete rather than heavily incomplete
-  - no active experiment conflicts exist for the field being filled
-- explicit operator choices are preserved:
-  - existing hook, CTA, destination, timing, and asset selections are not overwritten
-  - experiment-linked CTA, destination, or hook fields are left untouched
-- approval ranking now uses the autofilled package view so completeness and queue priority improve before surfacing
-- `/review` now shows compact approval-autopilot notes on approval-ready cards
-- `/signals/[id]/review` now opens with the autofilled package state already visible and editable
-- `/insights` now shows lightweight approval-autopilot usage and field-frequency summaries
-- audit logging now supports:
-  - `PACKAGE_AUTOFILL_APPLIED`
-  - `CTA_AUTOFILLED`
-  - `DESTINATION_AUTOFILLED`
-  - `ASSET_DIRECTION_AUTOFILLED`
-- this run remains bounded:
-  - no auto-posting
-  - no hidden locking
-  - no autonomous review completion
-  - no unbounded rewriting
+Run 95 adds Growth Scorecard:
+- added a centralized scorecard helper in `lib/growth-scorecard.ts`
+- the system can now compute one compact growth-health snapshot from existing structured state such as:
+  - approval-ready queue
+  - staged posting readiness
+  - weekly recap throughput and outcome completion
+  - strategic-value wins
+  - revenue signals
+  - stale queue pressure
+  - weekly pack completion
+  - experiment completion
+  - campaign coverage
+- added a dedicated `/scorecard` page for:
+  - compact metric cards
+  - directional indicators
+  - top health concerns
+  - top positives
+- digest now includes a compact scorecard panel so the operator can see health shifts without opening another page
+- Growth Director now also references scorecard context lightly instead of staying isolated from the health snapshot
+- added low-noise audit coverage for:
+  - `GROWTH_SCORECARD_COMPUTED`
+- kept the layer intentionally bounded:
+  - no giant dashboard
+  - no BI tooling
+  - no financial reporting
+  - directional and advisory only
+
+Run 94 adds Conversion-Intent Optimisation:
+- added a centralized conversion-intent helper in `lib/conversion-intent.ts`
+- the system can now classify each candidate into one bounded posture:
+  - `awareness_first`
+  - `trust_first`
+  - `soft_conversion`
+  - `direct_conversion`
+- posture assignment stays explicit and explainable using existing structured state such as:
+  - funnel stage
+  - editorial mode
+  - publish-prep destination
+  - attribution memory
+  - revenue signals
+  - audience memory
+  - campaign context
+  - conflict state
+- conversion intent now influences the system lightly through:
+  - approval ranking
+  - approval package autofill
+  - publish-prep CTA and destination selection
+  - review visibility
+  - insights reporting
+- review surfaces now show a compact conversion posture label and rationale instead of silently changing CTA pressure
+- added low-noise audit coverage for:
+  - `CONVERSION_INTENT_ASSIGNED`
+- kept the layer intentionally bounded:
+  - trust-first by default when support is weak
+  - no aggressive CTA escalation
+  - no ad-funnel software
+  - advisory heuristic only
+
+Run 93 adds Audience Memory Layer:
+- added a centralized audience-memory helper in `lib/audience-memory.ts`
+- the system can now derive bounded segment-level memory from:
+  - saved audience segment ids
+  - strategic outcomes
+  - attribution memory
+  - revenue signals
+  - posted platform and destination history
+- current audience memory stays compact and explanatory:
+  - strongest modes
+  - strongest platforms
+  - strongest destinations
+  - preferred CTA styles
+  - weak combinations
+  - tone cautions
+  - supporting outcome notes
+- audience memory now influences the system lightly through:
+  - expected-outcome ranking
+  - weekly plan auto-draft
+  - flywheel optimisation proposals
+  - outreach generation context
+  - insights and planning UI
+- added low-noise audit coverage for:
+  - `AUDIENCE_MEMORY_UPDATED`
+- kept the layer intentionally bounded:
+  - no individual tracking
+  - no CRM segmentation
+  - no invasive profiling
+  - heuristic segment-level memory only
+
+Run 92 adds Safe Autonomous Reply Handling:
+- added a centralized safe-reply helper in `lib/safe-replies.ts`
+- the system can now classify pending inbound relationship replies into explicit safe-reply lanes using bounded heuristics from:
+  - inbound message clarity
+  - emotional or complaint language
+  - legal or policy language
+  - payment or support language
+  - relationship-memory context
+- current reply types stay intentionally small:
+  - `thank_you`
+  - `simple_acknowledgement`
+  - `clarification`
+  - `soft_follow_up`
+  - `manual_review_required`
+- current reply outcomes stay explicit:
+  - `safe_to_stage`
+  - `review_required`
+  - `blocked`
+- added a dedicated `/replies` queue so the operator can:
+  - stage low-risk replies
+  - edit reply text
+  - approve a reply for manual sending
+  - dismiss a suggestion
+- approving a safe reply records the outbound interaction back into relationship memory so the reply loop stays grounded in the influencer graph
+- `/digest` now surfaces:
+  - low-risk replies ready for review
+  - staged reply count
+  - manual-review and blocked reply pressure
+- added low-noise audit coverage for:
+  - `SAFE_REPLY_CLASSIFIED`
+  - `SAFE_REPLY_STAGED`
+  - `SAFE_REPLY_APPROVED`
+  - `SAFE_REPLY_DISMISSED`
+- kept the layer intentionally bounded:
+  - no auto-send
+  - no support-ticket automation
+  - no complaints or dispute handling
+  - no broad DM automation
+  - founder-voice-aligned suggestions only
+
+Run 91 adds AI Growth Director:
+- added a centralized meta-layer helper in `lib/growth-director.ts`
+- the system can now synthesize existing planning, queue, outcome, distribution, revenue, source, and outreach state into one bounded strategic brief
+- added a dedicated `/director` page that surfaces:
+  - current focus
+  - top priorities
+  - top bottlenecks
+  - strongest opportunities
+  - next 3 actions
+- digest now includes a compact Growth Director block so the top calls are visible without opening another page
+- recommendation logic stays grounded in existing structured state such as:
+  - weekly plan and weekly posting pack
+  - approval queue confidence and stale pressure
+  - operator tasks and follow-up gaps
+  - weekly recap and optimisation proposals
+  - source-autopilot pressure
+  - distribution readiness
+  - revenue signals
+  - influencer and Zaza Connect context
+- added low-noise audit coverage for:
+  - `GROWTH_DIRECTOR_SUMMARY_GENERATED`
+- kept the layer intentionally bounded:
+  - advisory only
+  - no autonomous controller behavior
+  - no hidden prioritisation override
+  - no new black-box scoring system
+
+Run 90 adds Cross-App Zaza Connect Integration:
+- added a centralized cross-app bridge helper in `lib/zaza-connect-bridge.ts`
+- the signal engine can now export compact JSON context for Zaza Connect without creating a live runtime dependency
+- current export payloads stay bounded and serializable:
+  - strong content candidates
+  - outreach-relevant themes
+  - influencer-relevant posts
+  - campaign support signals
+  - distribution opportunities
+  - relationship-context hints
+- the signal engine can now import bounded Zaza Connect context such as:
+  - relationship stage hints
+  - creator relevance tags
+  - outreach campaign themes
+  - collaboration opportunities
+  - reply-context signals
+- added a dedicated `/connect-bridge` surface for:
+  - creating bridge exports
+  - importing pasted Zaza Connect JSON
+  - viewing last export and imported context summaries
+- outreach generation now references imported bridge context when relevant, so messages can stay aware of:
+  - imported themes
+  - collaboration hints
+  - relationship cues
+- `/digest` and `/plan` now surface lightweight bridge context instead of treating content and outreach memory as isolated systems
+- added low-noise audit coverage for:
+  - `ZAZA_CONNECT_EXPORT_CREATED`
+  - `ZAZA_CONNECT_CONTEXT_IMPORTED`
+  - `ZAZA_CONNECT_BRIDGE_REFERENCED`
+- kept the bridge intentionally bounded:
+  - no live sync
+  - no outreach sending
+  - no CRM
+  - no hard cross-repo coupling
+
+Run 88 adds Revenue Signal Feedback Loop:
+- added a centralized revenue-signal helper in `lib/revenue-signals.ts`
+- the system can now persist lightweight business-value signals linking:
+  - post
+  - platform
+  - destination
+  - UTM context
+  - revenue-signal type
+  - strength
+  - confidence
+  - notes
+- revenue signals can be created in two bounded ways:
+  - inferred from strategic outcomes
+  - manually tagged in posting history when the operator has clearer downstream evidence
+- added a dedicated `PATCH /api/signals/[id]/posting-log/[postingLogId]/revenue-signal` route so revenue memory can be recorded without adding a separate dashboard
+- posting history now shows a compact revenue-signal editor alongside qualitative and strategic outcome capture
+- expected-outcome ranking now uses revenue history as a light support or caution factor
+- weekly recap now folds revenue signals into commercial highlights
+- playbook packs can now count revenue evidence, not just attribution evidence
+- optimisation proposals can now surface stronger next actions from revenue-linked winners
+- digest and insights now show compact revenue-signal visibility instead of a financial reporting layer
+- added low-noise audit coverage for:
+  - `REVENUE_SIGNAL_RECORDED`
+- kept the layer intentionally bounded:
+  - no financial dashboards
+  - no payment integrations
+  - no exact revenue tracking
+  - directional learning only
 
 ## Previous Runs
+- Run 87 adds Influencer Graph + Relationship Memory:
+- new centralized relationship-memory helper in `lib/influencer-graph.ts`
+- the system now stores lightweight influencer records with:
+  - name
+  - platform
+  - handle
+  - tags
+  - relationship stage
+  - last interaction
+  - notes
+- interaction history is now tracked explicitly with:
+  - `message_sent`
+  - `follow_up_sent`
+  - `reply_received`
+  - `note`
+- relationship stages stay bounded and inspectable:
+  - `new`
+  - `contacted`
+  - `replied`
+  - `engaged`
+  - `collaborator`
+- new `/influencers` page now provides:
+  - add-influencer flow
+  - interaction history
+  - lightweight interaction recording
+  - follow-up and pending-reply visibility
+- outreach generation now accepts optional saved relationship context so:
+  - follow-ups feel aware of prior messages
+  - replies do not sound like first-contact outreach
+  - founder-voice outreach can stay contextual without becoming a CRM flow
+- `/digest` now surfaces relationship-memory awareness with:
+  - follow-up needed count
+  - replies pending count
+  - relationship opportunities
+- new `POST /api/influencers` route supports:
+  - adding influencer memory
+  - recording interactions
+- audit logging now supports:
+  - `INFLUENCER_ADDED`
+  - `INTERACTION_RECORDED`
+- this run remains bounded:
+  - no CRM
+  - no messaging automation
+  - no scraping
+  - no account sync
+  - memory only
+
+## Previous Runs
+- Run 86 adds Semi-Autonomous Distribution Engine (Safe Mode):
+- new centralized safe-mode distribution helper in `lib/distribution.ts`
+- the system now groups staged posting packages into explicit manual distribution bundles instead of leaving each staged platform post isolated
+- current bounded distribution action types include:
+  - `prepare_post_package`
+  - `prepare_multi_platform_set`
+  - `prepare_reddit_version`
+  - `prepare_linkedin_version`
+  - `prepare_x_version`
+  - `prepare_comment_reply`
+  - `prepare_follow_up_message`
+- added new `POST /api/distribution` route for explicit low-noise bundle preparation and audit logging
+- `/posting` now shows:
+  - grouped distribution bundles above individual staged packages
+  - platform-ready variants grouped by signal
+  - compact distribution checklists
+  - copy-ready comment and follow-up prompts
+  - explicit `Prepare bundle` action with no external posting behavior
+- `/digest` now surfaces:
+  - ready-for-distribution bundle counts
+  - multi-platform bundle visibility
+  - direct path into the distribution workspace
+- audit logging now supports:
+  - `DISTRIBUTION_PREPARED`
+- this run remains bounded:
+  - no posting APIs
+  - no scheduler
+  - no automated replies
+  - no background publishing
+  - manual execution only
+
+- Run 85 adds Influencer & Outreach Content Branch:
+- new centralized outreach helper in `lib/outreach.ts`
+- the system now supports a separate manual outreach branch with bounded message types:
+  - `initial_contact`
+  - `follow_up`
+  - `reply`
+  - `collaboration_pitch`
+  - `thank_you`
+- outreach generation stays explicit and inspectable, using:
+  - the current signal
+  - light recipient context
+  - optional collaboration goal
+  - optional inbound message
+  - founder-voice mode when enabled
+- new `POST /api/outreach` route generates short, manual-ready outreach copy without sending anything
+- `/signals/[id]/outreach` now provides:
+  - outreach-type selection
+  - platform selection
+  - friendly vs professional tone selection
+  - reply-suggestion support via inbound-message context
+  - copy-ready output for manual use
+- signal detail and final review now link into the outreach branch for lighter workflow integration
+- audit logging now supports:
+  - `OUTREACH_MESSAGE_GENERATED`
+- this run remains bounded:
+  - no CRM
+  - no sending automation
+  - no scraping
+  - no cold outreach engine
+  - content support only
+
+- Run 84 adds Founder Voice Mode:
+- new centralized founder-voice helper in `lib/founder-voice.ts`
+- the system now has an explicit identity layer with two bounded modes:
+  - `founder_voice_on`
+  - `founder_voice_off`
+- founder voice heuristics stay inspectable and grounded in brand rules, including:
+  - calm authority
+  - teacher empathy
+  - trust-first communication
+  - grounded observational phrasing
+  - short sentences
+  - low-hype wording
+- generation now applies founder voice in:
+  - live generation prompts
+  - mock-mode drafts
+  - saved generation metadata
+- `/signals/[id]/generate` now shows:
+  - founder-voice toggle
+  - founder-voice applied indicator
+  - identity-layer notes alongside editorial mode
+- `/signals/[id]/review` now shows:
+  - founder-voice state badge
+  - `Rewrite in founder voice` suggestion
+  - visible, reversible founder-voice edits before save
+- weekly posting pack and posting assistant now show lightweight founder-voice badges when the signal uses the identity layer
+- audit logging now supports:
+  - `FOUNDER_VOICE_APPLIED`
+- this run remains bounded:
+  - no persona engine
+  - no long-form storytelling automation
+  - no rigid style overfit
+  - heuristic text shaping only
+  - no hidden posting or irreversible rewrite
+
+- Run 72 adds Source Autopilot V2:
+- new centralized proposal and action helper in `lib/source-autopilot-v2.ts`
+- the system now drafts exact inspectable source changes instead of only broad recommendations
+- current proposal types include:
+  - `pause_source`
+  - `resume_source`
+  - `reduce_max_items`
+  - `increase_max_items`
+  - `rewrite_query`
+  - reserved family-cap proposal types for later expansion
+- proposal heuristics stay bounded and explainable using:
+  - approval-ready rate
+  - rejection rate
+  - usefulness rate
+  - duplicate-linked rate
+  - qualitative reuse and do-not-repeat memory
+  - strategic outcome quality
+- query sources can now draft explicit rewrite proposals with inspectable current and proposed query text
+- source override persistence now supports query rewrites in addition to enable, cap, priority, and notes
+- `/ingestion` now shows:
+  - open source-change proposals
+  - exact current-to-proposed changes
+  - compact supporting signal chips
+  - approve and dismiss actions
+  - recent approved or dismissed source changes
+- `/insights` now includes a compact source-autopilot summary for open drafts and recent source-change activity
+- audit logging now supports:
+  - `SOURCE_CHANGE_PROPOSED`
+  - `SOURCE_CHANGE_APPROVED`
+  - `SOURCE_CHANGE_DISMISSED`
+- this run remains bounded:
+  - no auto-apply without approval
+  - no hidden config mutation
+  - no ML optimisation
+  - family-cap proposals are defined but not yet actionable
+
+- Run 71 adds Autonomous Winner Recap:
+- new centralized recap helper in `lib/weekly-recap.ts`
+- the system can now build a compact weekly recap from stored evidence including:
+  - posting log entries
+  - qualitative outcomes
+  - strategic outcomes
+  - reuse recommendations
+  - pattern and bundle linkage
+  - destination metadata
+  - source-family context
+  - linked experiment activity
+- recap now surfaces bounded weekly sections for:
+  - winners
+  - underperformers
+  - reuse next week
+  - pause or reduce
+  - experiment learnings
+  - evidence gaps
+- `/recap` now provides a dedicated operator-facing weekly synthesis page
+- `/digest` and `/plan` now surface the same recap as light planning context
+- weekly plan auto-draft now references recap winners and cautions lightly without auto-applying decisions
+- audit logging now supports:
+  - `WEEKLY_RECAP_GENERATED`
+- this run remains bounded:
+  - heuristic only
+  - no BI dashboard
+  - no predictive planning
+  - no automatic plan changes
+  - no attribution modelling
+
+- Run 69 adds Batch Approval Prep:
+- new centralized batch helper in `lib/batch-approval.ts`
+- bounded batch selection now stages 3-5 top candidates using:
+  - approval-ready state
+  - expected outcome ranking
+  - completeness
+  - confidence
+  - weekly-plan fit
+  - fatigue and campaign balance
+- batch prep now runs after approval autopilot so staged candidates arrive with near-final CTA, destination, timing, and asset direction when safe
+- new dedicated `/review/batch` page provides one shared batch-review surface with:
+  - compact rationale and caution
+  - draft preview
+  - hook, CTA, destination, and timing controls
+  - fast actions for approve, hold, skip, and convert to experiment
+  - quick macro for `approve but soften CTA`
+- new `POST /api/batch-approval` route persists those bounded actions without bypassing normal signal storage
+- `/review` now links directly into the current batch, `/digest` surfaces the current prepared set, and `/insights` now shows light batch-prep usage and outcome summaries
+- audit logging now supports:
+  - `BATCH_APPROVAL_PREP_CREATED`
+  - `BATCH_ITEM_APPROVED`
+  - `BATCH_ITEM_HELD`
+  - `BATCH_ITEM_SKIPPED`
+  - `BATCH_ITEM_CONVERTED_TO_EXPERIMENT`
+ - this run remains bounded:
+  - no bulk publishing
+  - no scheduling
+  - no hidden auto-approval
+  - no full collaborative editor
+
+- Run 68 adds Outcome Follow-Up Autopilot:
+- new centralized task helper and store in `lib/follow-up.ts`
+- current bounded follow-up task types include:
+  - `rate_post_outcome`
+  - `complete_strategic_outcome`
+  - `complete_experiment_result`
+  - `review_weekly_pack_outcomes`
+- task generation now uses simple timing and state rules:
+  - roughly 24h after posting for qualitative outcome rating
+  - roughly 3d after posting for strategic outcome completion
+  - active experiments with partial variant coverage
+  - older weekly plans whose posts still lack strategic outcome coverage
+- task ids are stable and deduped so the system does not keep creating duplicate reminders
+- `/digest` now treats follow-up tasks as a first-class section
+- new dedicated `/follow-up` page gives the operator a compact queue for:
+  - opening the linked item
+  - marking the task done
+  - dismissing the task intentionally
+- outcome and experiment update routes now resync the follow-up store so matching tasks auto-complete when the required data is recorded
+- `/insights` now shows lightweight follow-up visibility:
+  - open task count
+  - overdue task count
+  - experiment-result gaps
+  - strategic outcome completion coverage
+- audit logging now supports:
+  - `FOLLOW_UP_TASK_CREATED`
+  - `FOLLOW_UP_TASK_COMPLETED`
+  - `FOLLOW_UP_TASK_DISMISSED`
+- this run remains bounded:
+  - no notifications
+  - no email or push system
+  - no analytics sync
+  - no automatic experiment closure
 - Run 50 adds Site Link Registry + Real UTM Packaging:
 - new centralized site-link registry in `lib/site-links.ts`
 - publish prep now selects real `zazadraft.com` destinations instead of generic placeholder links
@@ -1566,3 +2024,381 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
   - no automatic A/B engine
   - no auto-posting or auto-scheduling
   - no automatic winner selection
+
+## Run 70
+- compressed `/review` into a clearer command-center surface with:
+  - stronger summary hierarchy
+  - preset review views
+  - faster links into batch review, missing outcomes, and judgement work
+- approval-ready queue cards now emphasize:
+  - why it matters
+  - what is missing
+  - what was auto-filled
+  - action now
+  - expandable support detail
+- final review now includes:
+  - sticky action rail
+  - discoverable shortcut help
+  - lightweight generated-vs-final diff visibility
+  - focused-draft controls across X, LinkedIn, and Reddit
+- current final review shortcuts:
+  - `Ctrl/Cmd+S`
+  - `1`, `2`, `3`
+  - `[`, `]`
+  - `A`
+  - `H`
+  - `G`
+  - `P`
+  - `J`, `K`
+  - `?`
+- digest was lightly polished as a stronger daily starting page with clearer start-here cards
+- kept the layer intentionally bounded:
+  - no full redesign
+  - no new component system
+  - no collaboration layer
+  - no heavy diff tooling
+
+## Run 71
+- added bounded weekly winner recap logic in `lib/weekly-recap.ts`
+- weekly recap now synthesizes what actually worked, what underperformed, what should be reused, and what should be paused using recorded weekly evidence
+- recap can surface compact winners and cautions across:
+  - platforms
+  - editorial modes
+  - patterns
+  - bundles
+  - destinations
+  - source families
+  - linked experiments
+- added a dedicated `/recap` page and light recap integration in `/digest` and `/plan`
+- weekly plan auto-draft now references recap winners and pause notes as advisory planning context
+- added low-noise audit coverage for:
+  - `WEEKLY_RECAP_GENERATED`
+- kept the layer intentionally bounded:
+  - heuristic only
+  - advisory only
+  - no automatic plan changes
+  - no vanity analytics dashboard
+
+## Run 74
+- added bounded package-alignment checks in `lib/conflicts.ts`
+- the detector now flags meaningful internal package conflicts such as:
+  - CTA / destination mismatch
+  - mode / funnel mismatch
+  - platform / tone mismatch
+  - hypothesis / package mismatch
+  - campaign-context mismatch
+  - expected-outcome mismatch
+  - destination overreach
+  - Reddit promo conflict
+- approval-ready ranking now applies a light conflict penalty so mismatched packages stay visible but drift lower in the queue
+- `/review` approval cards now surface compact conflict chips and expandable conflict detail
+- final review now shows a small conflict panel with bounded quick actions:
+  - hold for destination fix
+  - soften CTA
+  - switch destination
+  - convert to experiment
+- `/digest` now surfaces current package-conflict pressure as a compact daily note
+- `/insights` now shows lightweight conflict pattern summaries across conflict type, platform, and editorial mode
+- added low-noise audit coverage for:
+  - `CONFLICT_DETECTED`
+  - `CONFLICT_RESOLVED`
+- kept the layer intentionally bounded:
+  - heuristic only
+  - advisory only
+  - no hard blocking
+  - no full rule engine
+  - no auto-rewrite of whole packages
+
+## Run 75
+- added unified operator-task generation in `lib/operator-tasks.ts`
+- the system now turns key unresolved states into explicit operator tasks such as:
+  - missing strategic outcomes
+  - borderline review cases
+  - suggested duplicate clusters
+  - open source recommendations
+  - incomplete approval packages
+  - high-severity package conflicts
+  - stale candidates that need refresh
+  - unresolved experiment-result coverage
+- task generation is centralized and tied to real system entities instead of introducing a generic project-management layer
+- `/tasks` now provides a bounded operator queue with:
+  - priority
+  - linked item
+  - reason
+  - open-item action
+  - mark done
+  - dismiss
+  - safe quick actions for duplicate confirmation and source recommendation approval
+- `/digest` now treats operator tasks as a first-class daily section and `/insights` now shows the light task backlog and bottleneck mix
+- task state stays reliable:
+  - tasks auto-close when the underlying unresolved state is actually gone
+  - dismissed tasks stay dismissed while the underlying issue still exists
+  - completion and dismissal are both audited
+- added low-noise audit coverage for:
+  - `OPERATOR_TASK_CREATED`
+  - `OPERATOR_TASK_COMPLETED`
+  - `OPERATOR_TASK_DISMISSED`
+  - `OPERATOR_TASK_AUTO_CLOSED`
+- kept the layer intentionally bounded:
+  - single-operator only
+  - no notifications
+  - no assignments
+  - no general project-management workflows
+
+## Run 76
+- added centralized weekly posting-pack selection in `lib/weekly-posting-pack.ts`
+- the system now generates a bounded manual posting set for the current week instead of only exposing raw queue ranking
+- pack selection stays explicit and balanced:
+  - 3 to 5 items by default
+  - approval-ready candidates lead
+  - evergreen is only used when it fills a real weekly gap
+  - platform, funnel, editorial-mode, campaign, freshness, destination variety, and fatigue balance all matter
+- added a dedicated `/weekly-pack` page with:
+  - compact weekly coverage summary
+  - per-item inclusion rationale
+  - strongest value signal
+  - key caution
+  - quick actions to approve or remove a recommended item
+- `/digest` now surfaces the same weekly posting pack as a first-class daily-start section
+- `/insights` now shows lightweight weekly-pack usefulness and coverage metrics
+- added low-noise audit coverage for:
+  - `WEEKLY_POSTING_PACK_GENERATED`
+  - `WEEKLY_POSTING_PACK_ITEM_REMOVED`
+  - `WEEKLY_POSTING_PACK_ITEM_APPROVED`
+- kept the layer intentionally bounded:
+  - manual only
+  - advisory only
+  - no scheduler
+  - no auto-posting
+
+## Run 77
+- added centralized review-macro definitions in `lib/review-macros.ts`
+- the system now exposes a fixed, explicit one-click decision layer for common review outcomes:
+  - approve and keep package
+  - approve but soften CTA
+  - hold for destination fix
+  - convert to experiment
+  - evergreen later
+  - approve with safer tone
+- batch review now renders the shared macros as explicit decision cards instead of scattered ad hoc buttons
+- final review now stages the same macros visibly in local draft state so the operator can inspect and save the result without hidden persistence
+- macro actions remain bounded and editable:
+  - status changes are visible immediately
+  - CTA and tone edits are visible in the draft or publish-prep package
+  - experiment and evergreen-later macros add clear staged intent instead of silently mutating state
+- added low-noise audit coverage for:
+  - `REVIEW_MACRO_APPLIED`
+- kept the layer intentionally bounded:
+  - fixed macro set only
+  - no macro builder
+  - no automation chains
+  - no irreversible hidden transformations
+
+## Run 78
+- added derived reusable playbook packs in `lib/playbook-packs.ts`
+- the system now promotes repeated winner structures into compact reusable packs when evidence is stable enough:
+  - weekly recap winners
+  - strong reuse-memory cases
+  - strategic outcomes
+  - experiment-backed winners
+- each pack stays structured and lightweight rather than turning into a template library:
+  - platform
+  - mode
+  - CTA style
+  - destination type
+  - summary
+  - why it works
+  - example references
+- generation and final review now surface matching packs as bounded reuse hints
+- planning and insights now surface the strongest current packs as reusable weekly guidance
+- added low-noise audit coverage for:
+  - `PLAYBOOK_PACK_CREATED`
+  - `PLAYBOOK_PACK_USED`
+- kept the layer intentionally bounded:
+  - read-only
+  - heuristic only
+  - no large template system
+  - no user-authored pack editor
+
+## Run 79
+- added a centralized automation-confidence layer in `lib/confidence.ts`
+- every approval-ready candidate now gets an explicit automation lane:
+  - `high`
+  - `medium`
+  - `low`
+- confidence stays explainable and heuristic-only, using existing structured support such as:
+  - completeness
+  - conflict severity
+  - expected-outcome strength
+  - hypothesis clarity
+  - fatigue
+  - source trust
+  - reuse and pattern support
+- wired the lane into the main automation controls:
+  - `high` allows bounded package autofill, batch inclusion, and a stronger ranking lift
+  - `medium` keeps autofill and experiment logic in suggestion-only mode
+  - `low` blocks autopilot and pushes the candidate toward operator judgement
+- `/review` and final review now show the automation-confidence lane directly so the operator can see why the system did or did not act
+- `/insights` now includes lightweight automation-confidence distribution and usage visibility
+- added low-noise audit coverage for:
+  - `CONFIDENCE_ASSIGNED`
+- kept the layer intentionally bounded:
+  - no ML scoring
+  - no black-box logic
+  - no hidden automation overrides
+
+## Run 80
+- added a centralized semi-autonomous posting assistant in `lib/posting-assistant.ts`
+- the system can now assemble and persist a final manual posting package with:
+  - final caption
+  - selected hook
+  - selected CTA
+  - selected destination and UTM-ready URL
+  - selected asset direction
+  - timing suggestion
+  - comment prompt
+  - alt text
+  - readiness reason
+- added a dedicated `POST /api/posting-assistant` route for:
+  - staging a package
+  - canceling a staged package
+  - confirming manual posting from the staged package
+- added a dedicated `/posting` workspace so staged items are easy to copy, confirm, and carry into the posting log without re-entry
+- weekly posting pack items can now be staged directly for manual posting, and staged counts are surfaced on `/weekly-pack`
+- `/digest` now includes a compact ready-to-post section and count so staged execution work is visible from the daily starting page
+- `/insights` now includes lightweight visibility into staged package count, stage-to-posted conversion, platform mix, and early strong-outcome support
+- added low-noise audit coverage for:
+  - `POSTING_PACKAGE_STAGED`
+  - `POSTING_PACKAGE_UPDATED`
+  - `POSTING_PACKAGE_CANCELED`
+  - `POSTING_CONFIRMED_MANUALLY`
+- kept the layer intentionally bounded:
+  - no direct platform APIs
+  - no auto-posting
+  - no scheduling automation
+  - operator confirmation remains required
+
+## Run 89
+- added strict safe-mode posting in `lib/safe-posting.ts`
+- safe-mode posting is off by default and must be explicitly enabled in `/settings`
+- a staged package is only eligible for strict safe-mode posting when all guardrails pass:
+  - package status is `staged_for_posting`
+  - automation confidence is `high`
+  - completeness is `complete`
+  - no unresolved conflicts remain
+  - the item is not linked to an active experiment
+  - the platform has an explicitly supported safe route
+- posting assistant now surfaces one of three clear states per staged item:
+  - `eligible_safe_post`
+  - `manual_only`
+  - `blocked`
+- `manual_only` keeps unsupported routes visible without opening a hidden posting path
+- `blocked` keeps failure reasons explicit, including:
+  - safe mode disabled
+  - incomplete package
+  - medium or low confidence
+  - unresolved conflicts
+  - experiment-linked content
+- safe-mode execution stays strictly bounded:
+  - no external platform APIs
+  - no background publishing
+  - no unsupported platform execution
+  - staged state is preserved on failure
+- successful safe-mode execution writes to posting memory and records execution source as `engine_safe_mode`
+- added low-noise audit coverage for:
+  - `SAFE_POSTING_ELIGIBILITY_COMPUTED`
+  - `SAFE_POSTING_INITIATED`
+  - `SAFE_POSTING_CONFIRMED`
+  - `SAFE_POSTING_COMPLETED`
+  - `SAFE_POSTING_FAILED`
+  - `SAFE_POSTING_BLOCKED`
+
+## Run 81
+- added a centralized cross-platform narrative-sequencing helper in `lib/narrative-sequences.ts`
+- the system can now promote one strong signal into a compact cross-platform arc instead of treating X, LinkedIn, and Reddit outputs as unrelated posts
+- current bounded role types are:
+  - `awareness_hook`
+  - `reflection`
+  - `discussion`
+  - `trust_builder`
+  - `conversion_prompt`
+  - `follow_up`
+- sequence formation stays heuristic and inspectable, using:
+  - available platform drafts
+  - campaign context
+  - funnel stage
+  - editorial mode
+  - publish-prep CTA and destination logic
+  - repurposing support
+- weekly posting pack items can now surface compact sequence context with:
+  - sequence label
+  - role in sequence
+  - suggested order
+- final review now shows the active platform draft as a sequence step when a coherent arc exists
+- posting assistant now shows staged items as part of a sequence when the signal carries a cross-platform arc
+- digest and insights now include lightweight sequence visibility instead of a new planner or scheduler
+- added low-noise audit coverage for:
+  - `NARRATIVE_SEQUENCE_CREATED`
+  - `NARRATIVE_SEQUENCE_STEP_ASSIGNED`
+  - `NARRATIVE_SEQUENCE_REFERENCED`
+- kept the layer intentionally bounded:
+  - no auto-scheduling
+  - no campaign orchestration UI
+  - no direct publishing automation
+  - heuristic sequencing only
+
+## Run 82
+- added a centralized flywheel-optimisation helper in `lib/flywheel-optimisation.ts`
+- the system can now turn existing flywheel evidence into compact optimisation proposals instead of only reporting raw insights
+- proposal categories stay bounded and operator-visible:
+  - `do_more_of`
+  - `do_less_of`
+  - `pause`
+  - `reuse`
+  - `test_next`
+  - `rebalance`
+  - `repair_upstream`
+- proposal evidence is drawn from existing structured layers rather than a separate scoring engine:
+  - weekly recap winners and underperformers
+  - source autopilot proposals
+  - playbook coverage gaps
+  - weekly posting pack balance
+  - evergreen availability
+  - experiment proposals
+  - narrative sequencing context
+- added a dedicated `/optimisation` page with grouped, linked proposals and compact supporting evidence
+- `/digest` now surfaces the top optimisation proposals as a first-class next-action block
+- `/insights` now shows optimisation as a distinct “what to do next” layer, separate from descriptive reporting
+- added low-noise audit coverage for:
+  - `OPTIMISATION_PROPOSAL_GENERATED`
+- kept the layer intentionally bounded:
+  - advisory only
+  - heuristic only
+  - no auto-apply
+  - no giant optimisation dashboard
+
+## Run 83
+- added a centralized commercial-attribution helper in `lib/attribution.ts`
+- the system can now persist lightweight attribution memory linking:
+  - post
+  - platform
+  - destination
+  - UTM tag
+  - outcome type
+  - outcome strength
+  - notes
+- attribution is derived from existing posting-log and strategic-outcome memory rather than external analytics integrations
+- strategic-outcome recording now syncs attribution memory automatically and logs:
+  - `ATTRIBUTION_RECORDED`
+- expected-outcome ranking now uses attribution history as a light commercial support or caution factor
+- weekly recap now surfaces compact commercial-attribution highlights instead of only qualitative or strategic notes
+- playbook packs now count commercially attributed wins so reuse evidence is more business-weighted
+- insights now include:
+  - top destination paths
+  - strongest platform and destination combos
+  - pattern or mode rows linked to commercial outcomes
+- kept the layer intentionally bounded:
+  - no external analytics
+  - no multi-touch attribution
+  - no revenue dashboard
+  - heuristic internal memory only

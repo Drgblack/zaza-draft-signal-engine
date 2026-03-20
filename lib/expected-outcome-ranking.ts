@@ -1,4 +1,15 @@
 import type { AutoAdvanceAssessment } from "@/lib/auto-advance";
+import {
+  buildAttributionHistorySnapshot,
+  buildAttributionRecordsFromInputs,
+  type AttributionRecord,
+} from "@/lib/attribution";
+import {
+  buildRevenueHistorySnapshot,
+  buildRevenueSignalsFromInputs,
+  type RevenueSignal,
+} from "@/lib/revenue-signals";
+import { buildAudienceSignalGuidance, type AudienceMemoryState } from "@/lib/audience-memory";
 import type { CampaignCadenceSummary, CampaignStrategy } from "@/lib/campaigns";
 import { getSignalContentContextSummary } from "@/lib/campaigns";
 import type { ApprovalPackageCompleteness } from "@/lib/completeness";
@@ -297,6 +308,9 @@ export function assessExpectedOutcome(input: {
   postingEntries: PostingLogEntry[];
   postingOutcomes: PostingOutcome[];
   strategicOutcomes: StrategicOutcome[];
+  attributionRecords?: AttributionRecord[];
+  revenueSignals?: RevenueSignal[];
+  audienceMemory?: AudienceMemoryState | null;
   experiments?: ManualExperiment[];
   strategy?: CampaignStrategy;
   cadence?: CampaignCadenceSummary;
@@ -317,6 +331,8 @@ export function assessExpectedOutcome(input: {
     strategicOutcomes: input.strategicOutcomes,
   });
   const destinationId = destinationHistory.destination.siteLink?.id ?? null;
+  const destinationLabel =
+    destinationHistory.destination.label ?? destinationHistory.destination.url ?? null;
   const contextHistory = buildContextHistory({
     signal: input.signal,
     primaryPlatform,
@@ -340,6 +356,34 @@ export function assessExpectedOutcome(input: {
   const sourceProfile = getSourceProfile(input.signal);
   const strategicContext =
     input.strategy ? getSignalContentContextSummary(input.signal, input.strategy) : null;
+  const attributionRecords = input.attributionRecords ?? buildAttributionRecordsFromInputs({
+    postingEntries: input.postingEntries,
+    strategicOutcomes: input.strategicOutcomes,
+    signals: input.allSignals,
+  });
+  const attributionHistory = buildAttributionHistorySnapshot({
+    records: attributionRecords,
+    platform: primaryPlatform,
+    destination: destinationHistory.destination.label ?? destinationHistory.destination.url ?? null,
+    editorialMode: input.signal.editorialMode,
+  });
+  const revenueSignals = input.revenueSignals ?? buildRevenueSignalsFromInputs({
+    postingEntries: input.postingEntries,
+    strategicOutcomes: input.strategicOutcomes,
+    signals: input.allSignals,
+  });
+  const revenueHistory = buildRevenueHistorySnapshot({
+    records: revenueSignals,
+    platform: primaryPlatform,
+    destination: destinationHistory.destination.label ?? destinationHistory.destination.url ?? null,
+    editorialMode: input.signal.editorialMode,
+  });
+  const audienceGuidance = buildAudienceSignalGuidance({
+    state: input.audienceMemory ?? null,
+    signal: input.signal,
+    primaryPlatform,
+    destinationLabel,
+  });
 
   if (input.completeness.completenessState === "complete") {
     score += 2;
@@ -383,6 +427,20 @@ export function assessExpectedOutcome(input: {
     score -= 1;
     uniquePush(riskSignals, input.hypothesis.riskNote);
     pushFactor(riskFactors, "hypothesis:risk", "Hypothesis risk");
+  }
+
+  if (audienceGuidance.expectedOutcomeDelta > 0) {
+    score += audienceGuidance.expectedOutcomeDelta;
+    for (const note of audienceGuidance.positiveSignals) {
+      uniquePush(positiveSignals, note);
+    }
+    pushFactor(positiveFactors, "audience:positive", "Audience memory support");
+  } else if (audienceGuidance.expectedOutcomeDelta < 0) {
+    score += audienceGuidance.expectedOutcomeDelta;
+    for (const note of audienceGuidance.riskSignals) {
+      uniquePush(riskSignals, note);
+    }
+    pushFactor(riskFactors, "audience:risk", "Audience memory caution");
   }
 
   if (contextHistory.sampleCount >= 2 && (contextHistory.averageScore >= 1.2 || contextHistory.leadTotal > 0)) {
@@ -430,6 +488,40 @@ export function assessExpectedOutcome(input: {
     score -= 1;
     uniquePush(riskSignals, "Destination link is often misaligned to CTA intent");
     pushFactor(riskFactors, "destination:misaligned_cta", "CTA-link misalignment");
+  }
+
+  if (
+    attributionHistory.sampleCount >= 2 &&
+    (attributionHistory.leadCount + attributionHistory.signupCount > 0 || attributionHistory.strongCount >= 2)
+  ) {
+    score += 2;
+    uniquePush(positiveSignals, "Commercial attribution memory supports this platform and destination");
+    pushFactor(positiveFactors, "attribution:strong_combo", "Commercial attribution support");
+  } else if (
+    attributionHistory.sampleCount >= 2 &&
+    attributionHistory.averageScore <= 0 &&
+    attributionHistory.weakCount >= attributionHistory.strongCount
+  ) {
+    score -= 1;
+    uniquePush(riskSignals, "Commercial attribution memory is weak for this platform and destination");
+    pushFactor(riskFactors, "attribution:weak_combo", "Weak commercial attribution");
+  }
+
+  if (
+    revenueHistory.sampleCount >= 1 &&
+    (revenueHistory.paidCount > 0 || revenueHistory.trialCount > 0 || revenueHistory.highStrengthCount >= 2)
+  ) {
+    score += 2;
+    uniquePush(positiveSignals, "Revenue memory supports this platform and destination");
+    pushFactor(positiveFactors, "revenue:strong_combo", "Revenue signal support");
+  } else if (
+    revenueHistory.sampleCount >= 2 &&
+    revenueHistory.averageScore <= 1 &&
+    revenueHistory.lowStrengthCount >= revenueHistory.highStrengthCount
+  ) {
+    score -= 1;
+    uniquePush(riskSignals, "Revenue memory is weak for this platform and destination");
+    pushFactor(riskFactors, "revenue:weak_combo", "Weak revenue support");
   }
 
   if (revisionGuidance.positive && revisionGuidance.evidenceCount >= 1) {

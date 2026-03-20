@@ -1,14 +1,21 @@
 import { NextResponse } from "next/server";
 
+import { listSignalsWithFallback } from "@/lib/airtable";
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
-import { getPostingPlatformLabel, getPostingLogEntries } from "@/lib/posting-log";
+import { getCampaignStrategy } from "@/lib/campaigns";
+import { listExperiments } from "@/lib/experiments";
+import { listFollowUpTasks } from "@/lib/follow-up";
+import { getPostingPlatformLabel, getPostingLogEntries, listPostingLogEntries } from "@/lib/posting-log";
 import {
   getOutcomeQualityLabel,
   getPostingOutcome,
+  listPostingOutcomes,
   getReuseRecommendationLabel,
   postingOutcomeRequestSchema,
   upsertPostingOutcome,
 } from "@/lib/outcomes";
+import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
+import { getWeeklyPlanStore } from "@/lib/weekly-plan";
 import type { PostingOutcomeResponse } from "@/types/api";
 
 export async function PATCH(
@@ -90,6 +97,23 @@ export async function PATCH(
   }
 
   await appendAuditEventsSafe(auditEvents);
+  const [signalsResult, postingEntries, postingOutcomes, strategicOutcomes, experiments, strategy] = await Promise.all([
+    listSignalsWithFallback({ limit: 1000 }),
+    listPostingLogEntries(),
+    listPostingOutcomes(),
+    listStrategicOutcomes(),
+    listExperiments(),
+    getCampaignStrategy(),
+  ]);
+  const weeklyPlanStore = await getWeeklyPlanStore(strategy);
+  await listFollowUpTasks({
+    signals: signalsResult.signals,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+    weeklyPlans: weeklyPlanStore.plans,
+  });
 
   return NextResponse.json<PostingOutcomeResponse>({
     success: true,

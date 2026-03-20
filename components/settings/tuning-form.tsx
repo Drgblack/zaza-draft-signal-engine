@@ -14,6 +14,8 @@ type FormState = {
   copilotConservatism: string;
   transformabilityRescueStrength: string;
   patternSuggestionStrictness: string;
+  safeModePosting: string;
+  safeModePostingConfirmation: string;
 };
 
 type TuningState = {
