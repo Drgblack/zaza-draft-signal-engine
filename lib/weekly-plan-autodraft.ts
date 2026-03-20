@@ -237,8 +237,8 @@ export function buildWeeklyPlanAutoDraft(input: {
   });
 
   let freshCandidateCount = 0;
-  let evergreenCandidateCount = evergreenSummary.surfacedCount;
-  let reusedCandidateCount = evergreenSummary.directReuseCount;
+  const evergreenCandidateCount = evergreenSummary.surfacedCount;
+  const reusedCandidateCount = evergreenSummary.directReuseCount;
   for (const signal of approvalReadySignals) {
     freshCandidateCount += 1;
 

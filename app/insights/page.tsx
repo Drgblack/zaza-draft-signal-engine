@@ -4,22 +4,35 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
 import { appendAuditEventsSafe, listAuditEvents } from "@/lib/audit";
+import { assessAutonomousSignal } from "@/lib/auto-advance";
+import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { BUNDLE_COVERAGE_STRENGTH_LABELS, type BundleCoverageStrength } from "@/lib/bundle-coverage";
 import { buildCampaignCadenceSummary, buildCampaignDistributionInsights, getCampaignStrategy } from "@/lib/campaigns";
+import {
+  filterSignalsForActiveReviewQueue,
+  indexConfirmedClusterByCanonicalSignalId,
+  listDuplicateClusters,
+} from "@/lib/duplicate-clusters";
+import { buildExpectedOutcomeInsights } from "@/lib/expected-outcome-ranking";
 import { buildExperimentInsights, listExperiments } from "@/lib/experiments";
+import { buildAutonomousExperimentProposals, buildExperimentProposalInsights, listExperimentProposals } from "@/lib/experiment-proposals";
 import { buildFatigueModel } from "@/lib/fatigue";
 import { listFeedbackEntries } from "@/lib/feedback";
+import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
+import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { listPlaybookCards } from "@/lib/playbook-cards";
-import { buildPatternBundleUsageRows, listPatternBundles } from "@/lib/pattern-bundles";
+import { buildPatternBundleUsageRows, indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { buildPatternHealthAssessments, buildPatternHealthSummary } from "@/lib/pattern-health";
 import { PATTERN_TYPE_LABELS } from "@/lib/pattern-definitions";
 import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
 import { buildPatternEffectivenessSummaries, listPatterns } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
+import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
-import { buildWeeklyPlanInsights, getCurrentWeeklyPlan, getWeeklyPlanStore } from "@/lib/weekly-plan";
+import { buildWeeklyPlanInsights, buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanStore } from "@/lib/weekly-plan";
 import { buildSignalInsights, INSIGHT_WINDOWS, type InsightObservation, type InsightWindow } from "@/lib/insights";
 
 export const dynamic = "force-dynamic";
@@ -82,6 +95,18 @@ function confidenceClasses(level: "high" | "moderate" | "low"): string {
   }
 
   return "bg-slate-100 text-slate-700 ring-slate-200";
+}
+
+function expectedOutcomeClasses(tier: "high" | "medium" | "low"): string {
+  if (tier === "high") {
+    return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  }
+
+  if (tier === "low") {
+    return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+
+  return "bg-sky-50 text-sky-700 ring-sky-200";
 }
 
 function WindowLink({
@@ -149,6 +174,7 @@ export default async function InsightsPage({
   const postingOutcomes = await listPostingOutcomes();
   const strategicOutcomes = await listStrategicOutcomes();
   const experiments = await listExperiments();
+  const storedExperimentProposals = await listExperimentProposals();
   const patterns = await listPatterns();
   const allPatterns = await listPatterns({ includeRetired: true });
   const bundles = await listPatternBundles();
@@ -158,6 +184,32 @@ export default async function InsightsPage({
   const strategy = await getCampaignStrategy();
   const currentWeeklyPlan = await getCurrentWeeklyPlan(strategy);
   const weeklyPlanStore = await getWeeklyPlanStore(strategy);
+  const duplicateClusters = await listDuplicateClusters();
+  const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
+  const reuseMemoryCases = buildReuseMemoryCases({
+    signals,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const playbookCoverageSummary = buildPlaybookCoverageSummary({
+    signals,
+    playbookCards,
+    postingEntries,
+    postingOutcomes,
+    bundleSummariesByPatternId,
+  });
+  const guidanceBySignalId = buildFeedbackAwareCopilotGuidanceMap(
+    signals,
+    feedbackEntries,
+    patterns,
+    bundleSummariesByPatternId,
+    undefined,
+    playbookCards,
+    reuseMemoryCases,
+    playbookCoverageSummary,
+    tuning.settings,
+  );
   const patternEffectivenessSummaries = buildPatternEffectivenessSummaries(
     allPatterns,
     auditEvents,
@@ -189,6 +241,78 @@ export default async function InsightsPage({
   });
   const campaignInsights = buildCampaignDistributionInsights(signals, strategy, postingEntries);
   const campaignCadence = buildCampaignCadenceSummary(signals, strategy, postingEntries);
+  const weeklyPlanState = buildWeeklyPlanState(currentWeeklyPlan, strategy, signals, postingEntries);
+  const confirmedClustersByCanonicalSignalId = indexConfirmedClusterByCanonicalSignalId(duplicateClusters);
+  const visibleSignals = filterSignalsForActiveReviewQueue(signals, duplicateClusters);
+  const autonomousAssessments = visibleSignals.map((signal) => ({
+    signal,
+    guidance: buildUnifiedGuidanceModel({
+      signal,
+      guidance: guidanceBySignalId[signal.recordId],
+      context: "review",
+      tuning: tuning.settings,
+    }),
+    assessment: assessAutonomousSignal(
+      signal,
+      buildUnifiedGuidanceModel({
+        signal,
+        guidance: guidanceBySignalId[signal.recordId],
+        context: "review",
+        tuning: tuning.settings,
+      }),
+    ),
+  }));
+  const approvalReadyCandidates = rankApprovalCandidates(
+    autonomousAssessments.filter((item) => item.assessment.decision === "approval_ready"),
+    12,
+    {
+      strategy,
+      cadence: campaignCadence,
+      weeklyPlan: currentWeeklyPlan,
+      weeklyPlanState,
+      confirmedClustersByCanonicalSignalId,
+      allSignals: signals,
+      postingEntries,
+      postingOutcomes,
+      strategicOutcomes,
+      experiments,
+    },
+  );
+  const expectedOutcomeInsights = buildExpectedOutcomeInsights(approvalReadyCandidates);
+  const autofilledCandidates = approvalReadyCandidates.filter((candidate) => candidate.packageAutofill.notes.length > 0);
+  const autofillFieldCounts = new Map<string, number>();
+  for (const candidate of autofilledCandidates) {
+    for (const note of candidate.packageAutofill.notes) {
+      autofillFieldCounts.set(note.label, (autofillFieldCounts.get(note.label) ?? 0) + 1);
+    }
+  }
+  const autofillTopFields = [...autofillFieldCounts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+    .slice(0, 5);
+  const postingIdsBySignalId = new Map<string, string[]>();
+  for (const entry of postingEntries) {
+    postingIdsBySignalId.set(entry.signalId, [...(postingIdsBySignalId.get(entry.signalId) ?? []), entry.id]);
+  }
+  const postingOutcomeById = new Map(postingOutcomes.map((outcome) => [outcome.postingLogId, outcome]));
+  const strategicOutcomeById = new Map(strategicOutcomes.map((outcome) => [outcome.postingLogId, outcome]));
+  const autofilledPostedCount = autofilledCandidates.filter(
+    (candidate) => (postingIdsBySignalId.get(candidate.signal.recordId)?.length ?? 0) > 0,
+  ).length;
+  const autofilledStrongOutcomeCount = autofilledCandidates.filter((candidate) =>
+    (postingIdsBySignalId.get(candidate.signal.recordId) ?? []).some((postingId) => {
+      const postingOutcome = postingOutcomeById.get(postingId);
+      const strategicOutcome = strategicOutcomeById.get(postingId);
+      return postingOutcome?.outcomeQuality === "strong" || strategicOutcome?.strategicValue === "high";
+    }),
+  ).length;
+  const experimentProposals = buildAutonomousExperimentProposals({
+    candidates: approvalReadyCandidates,
+    experiments,
+    storedProposals: storedExperimentProposals,
+    maxProposals: 6,
+  });
+  const experimentProposalInsights = buildExperimentProposalInsights(experimentProposals);
   const weeklyPlanInsights = buildWeeklyPlanInsights(
     weeklyPlanStore.plans,
     strategy,
@@ -359,6 +483,197 @@ export default async function InsightsPage({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Expected Outcome Ranking</CardTitle>
+          <CardDescription>
+            Bounded expected-value assessment for approval-ready candidates. It combines readiness with strategic support such as destination history, prior outcomes, source quality, fatigue, experiments, and campaign fit.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="High expected value"
+              value={String(expectedOutcomeInsights.highCount)}
+              detail="Approval-ready candidates with the strongest combined commercial support."
+            />
+            <MetricCard
+              label="Medium expected value"
+              value={String(expectedOutcomeInsights.mediumCount)}
+              detail="Candidates with enough support to stay near the top but not dominate the queue."
+            />
+            <MetricCard
+              label="Low expected value"
+              value={String(expectedOutcomeInsights.lowCount)}
+              detail="Candidates that are still viable but held back by weak support or visible risks."
+            />
+            <MetricCard
+              label="Top high-value platform"
+              value={expectedOutcomeInsights.platformRows[0]?.label ?? "None yet"}
+              detail={
+                expectedOutcomeInsights.platformRows[0]
+                  ? `${expectedOutcomeInsights.platformRows[0].count} high-tier candidates in the current queue.`
+                  : "No platform has enough high-tier support yet."
+              }
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className="space-y-3">
+              {approvalReadyCandidates.length === 0 ? (
+                <EmptyState copy="No approval-ready candidates are available yet, so expected-value ranking has nothing to summarize." />
+              ) : (
+                approvalReadyCandidates.slice(0, 5).map((candidate) => (
+                  <div key={candidate.signal.recordId} className="rounded-2xl bg-white/80 px-4 py-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className={expectedOutcomeClasses(candidate.expectedOutcome.expectedOutcomeTier)}>
+                        {candidate.expectedOutcome.expectedOutcomeTier} expected value
+                      </Badge>
+                      <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                        #{approvalReadyCandidates.findIndex((item) => item.signal.recordId === candidate.signal.recordId) + 1}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <Link href={`/signals/${candidate.signal.recordId}/review`} className="font-medium text-slate-950 hover:text-[color:var(--accent)]">
+                        {candidate.signal.sourceTitle}
+                      </Link>
+                      <span className="text-sm text-slate-500">{candidate.expectedOutcome.platformLabel}</span>
+                      {candidate.expectedOutcome.modeLabel ? <span className="text-sm text-slate-500">{candidate.expectedOutcome.modeLabel}</span> : null}
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      {candidate.expectedOutcome.expectedOutcomeReasons[0] ?? "Expected outcome support is still forming."}
+                    </p>
+                    {candidate.expectedOutcome.expectedOutcomeReasons[1] ? (
+                      <p className="mt-2 text-sm text-slate-500">{candidate.expectedOutcome.expectedOutcomeReasons[1]}</p>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-white/80 px-4 py-4">
+                <p className="font-medium text-slate-950">Most common positive supports</p>
+                <div className="mt-3 space-y-2">
+                  {expectedOutcomeInsights.topPositiveFactors.length === 0 ? (
+                    <p className="text-sm text-slate-500">No stable positive support factors yet.</p>
+                  ) : (
+                    expectedOutcomeInsights.topPositiveFactors.map((factor) => (
+                      <div key={factor.label} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-slate-600">{factor.label}</span>
+                        <span className="font-medium text-slate-950">{factor.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-white/80 px-4 py-4">
+                <p className="font-medium text-slate-950">Most common drag factors</p>
+                <div className="mt-3 space-y-2">
+                  {expectedOutcomeInsights.topRiskFactors.length === 0 ? (
+                    <p className="text-sm text-slate-500">No recurring risk cluster is strong enough to surface yet.</p>
+                  ) : (
+                    expectedOutcomeInsights.topRiskFactors.map((factor) => (
+                      <div key={factor.label} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-slate-600">{factor.label}</span>
+                        <span className="font-medium text-slate-950">{factor.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {expectedOutcomeInsights.destinationRows[0]
+                  ? `${expectedOutcomeInsights.destinationRows[0].label} is the destination most often attached to high expected-value candidates in the current queue.`
+                  : "No destination pattern is strong enough to call out yet."}
+              </div>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {expectedOutcomeInsights.modeRows[0]
+                  ? `${expectedOutcomeInsights.modeRows[0].label} is the editorial mode most often appearing in the current high expected-value tier.`
+                  : "No editorial mode is dominating the current high expected-value tier."}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Approval Autopilot</CardTitle>
+          <CardDescription>
+            Bounded package-filler visibility for near-complete candidates. It only fills low-risk package gaps and never bypasses final review.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Autofilled candidates"
+              value={String(autofilledCandidates.length)}
+              detail="Approval-ready candidates that received at least one bounded package fill."
+            />
+            <MetricCard
+              label="Most common fill"
+              value={autofillTopFields[0]?.label ?? "None yet"}
+              detail={
+                autofillTopFields[0]
+                  ? `${autofillTopFields[0].count} candidates used this autofill most recently.`
+                  : "No package autofill pattern is stable enough yet."
+              }
+            />
+            <MetricCard
+              label="Autofilled already posted"
+              value={String(autofilledPostedCount)}
+              detail="Signals that later moved from approval prep into the manual posting log."
+            />
+            <MetricCard
+              label="Autofilled strong outcomes"
+              value={String(autofilledStrongOutcomeCount)}
+              detail="Autofilled candidates with strong qualitative or strategic outcomes where data exists."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Most common autofill fields</p>
+              <div className="mt-3 space-y-2">
+                {autofillTopFields.length === 0 ? (
+                  <p className="text-sm text-slate-500">No approval-ready candidate required package autofill recently.</p>
+                ) : (
+                  autofillTopFields.map((field) => (
+                    <div key={field.label} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-slate-600">{field.label}</span>
+                      <span className="font-medium text-slate-950">{field.count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Recent autofill examples</p>
+              <div className="mt-3 space-y-3">
+                {autofilledCandidates.length === 0 ? (
+                  <p className="text-sm text-slate-500">No recent approval-ready candidate needed bounded packaging help.</p>
+                ) : (
+                  autofilledCandidates.slice(0, 4).map((candidate) => (
+                    <div key={candidate.signal.recordId} className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                      <Link href={`/signals/${candidate.signal.recordId}/review`} className="font-medium text-slate-950 hover:text-[color:var(--accent)]">
+                        {candidate.signal.sourceTitle}
+                      </Link>
+                      <p className="mt-2 text-sm text-slate-600">
+                        {candidate.packageAutofill.notes.slice(0, 2).map((note) => `${note.label}: ${note.value}`).join(" · ")}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <Card>
           <CardHeader>
@@ -454,7 +769,7 @@ export default async function InsightsPage({
         <CardHeader>
           <CardTitle>Manual Experiments</CardTitle>
           <CardDescription>
-            Bounded operator-run comparisons such as hook A vs B, CTA style A vs B, editorial mode shifts, or destination tests.
+            Bounded operator-run comparisons, plus system-proposed experiments when uncertainty is strong enough to justify a deliberate test.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -470,18 +785,38 @@ export default async function InsightsPage({
               detail="Experiments the operator has explicitly closed."
             />
             <MetricCard
-              label="Top active"
-              value={experimentInsights.activeExperiments[0]?.name ?? "None yet"}
-              detail={experimentInsights.activeExperiments[0]?.comparisonSummary ?? "No active comparison is stable enough yet."}
+              label="Open proposals"
+              value={String(experimentProposalInsights.openCount)}
+              detail={experimentProposalInsights.summaries[0] ?? "No open proposal is strong enough to surface right now."}
             />
             <MetricCard
-              label="Top completed"
-              value={experimentInsights.completedExperiments[0]?.name ?? "None yet"}
-              detail={experimentInsights.completedExperiments[0]?.comparisonSummary ?? "No completed comparison is stable enough yet."}
+              label="System proposed"
+              value={String(experimentInsights.systemProposedCount)}
+              detail={experimentInsights.byType[0] ? `${experimentInsights.byType[0].label} is the most common tracked type.` : "No tracked experiment type trend is stable enough yet."}
             />
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Open proposals</p>
+              <div className="mt-3 space-y-3">
+                {experimentProposalInsights.openProposals.length === 0 ? (
+                  <EmptyState copy="No autonomous experiment proposal is strong enough to surface right now." />
+                ) : (
+                  experimentProposalInsights.openProposals.map((proposal) => (
+                    <div key={proposal.proposalId} className="rounded-2xl bg-white/80 px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-medium text-slate-950">{proposal.sourceTitle}</p>
+                        <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{proposal.candidateVariants.length} variants</Badge>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">{proposal.whyProposed}</p>
+                      <p className="mt-2 text-sm text-slate-500">{proposal.expectedLearningGoal}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Active experiments</p>
               <div className="mt-3 space-y-3">
@@ -490,10 +825,7 @@ export default async function InsightsPage({
                 ) : (
                   experimentInsights.activeExperiments.map((experiment) => (
                     <div key={experiment.experimentId} className="rounded-2xl bg-white/80 px-4 py-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-medium text-slate-950">{experiment.name}</p>
-                        <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{experiment.variantCount} variants</Badge>
-                      </div>
+                      <p className="font-medium text-slate-950">{experiment.name}</p>
                       <p className="mt-2 text-sm text-slate-600">{experiment.comparisonSummary ?? experiment.hypothesis}</p>
                       <p className="mt-2 text-sm text-slate-500">
                         {experiment.highValueCount} high-value · {experiment.leadTotal} leads · {experiment.clickTotal} clicks
@@ -505,35 +837,23 @@ export default async function InsightsPage({
             </div>
 
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Completed experiments</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Experiment types</p>
               <div className="mt-3 space-y-3">
-                {experimentInsights.completedExperiments.length === 0 ? (
-                  <EmptyState copy="No completed experiments have enough linked evidence yet." />
+                {experimentInsights.byType.length === 0 && experimentProposalInsights.byType.length === 0 ? (
+                  <EmptyState copy="No proposal or experiment type is stable enough to summarize cleanly yet." />
                 ) : (
-                  experimentInsights.completedExperiments.map((experiment) => (
-                    <div key={experiment.experimentId} className="rounded-2xl bg-white/80 px-4 py-4">
-                      <p className="font-medium text-slate-950">{experiment.name}</p>
-                      <p className="mt-2 text-sm text-slate-600">{experiment.comparisonSummary ?? experiment.hypothesis}</p>
-                      <p className="mt-2 text-sm text-slate-500">
-                        {experiment.highValueCount} high-value · {experiment.leadTotal} leads
-                      </p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Comparison summaries</p>
-              <div className="mt-3 space-y-3">
-                {experimentInsights.summaries.length === 0 ? (
-                  <EmptyState copy="No experiment has enough outcome evidence to summarize cleanly yet." />
-                ) : (
-                  experimentInsights.summaries.map((summary) => (
-                    <div key={summary} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
-                      {summary}
-                    </div>
-                  ))
+                  <>
+                    {experimentProposalInsights.byType.map((row) => (
+                      <div key={`proposal:${row.experimentType}`} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                        Proposed {row.label}: {row.count}
+                      </div>
+                    ))}
+                    {experimentInsights.byType.map((row) => (
+                      <div key={`experiment:${row.experimentType}`} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                        Tracked {row.label}: {row.count}
+                      </div>
+                    ))}
+                  </>
                 )}
                 <Link href="/experiments" className="inline-block text-sm text-[color:var(--accent)] underline underline-offset-4">
                   Open experiments

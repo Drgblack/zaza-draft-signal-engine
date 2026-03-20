@@ -58,6 +58,10 @@ import type {
   ExperimentInsights,
   ManualExperiment,
 } from "@/lib/experiments";
+import type {
+  ExperimentProposal,
+  ExperimentProposalInsights,
+} from "@/lib/experiment-proposals";
 import {
   TUNING_PRESETS,
   operatorTuningSettingsSchema,
@@ -424,6 +428,11 @@ export {
   experimentCreateRequestSchema,
   experimentStatusSchema,
 } from "@/lib/experiments";
+export {
+  experimentProposalActionRequestSchema,
+  experimentProposalSchema,
+  experimentProposalStatusSchema,
+} from "@/lib/experiment-proposals";
 
 export const campaignStatusSchema = z.enum(["active", "inactive"]);
 
@@ -826,6 +835,19 @@ export interface BorderlineReviewResponse {
 export interface ExperimentResponse {
   success: boolean;
   persisted: boolean;
+  experiment: ManualExperiment | null;
+  experiments: ManualExperiment[];
+  insights: ExperimentInsights;
+  message: string;
+  error?: string;
+}
+
+export interface ExperimentProposalResponse {
+  success: boolean;
+  persisted: boolean;
+  proposal: ExperimentProposal | null;
+  proposals: ExperimentProposal[];
+  proposalInsights: ExperimentProposalInsights;
   experiment: ManualExperiment | null;
   experiments: ManualExperiment[];
   insights: ExperimentInsights;

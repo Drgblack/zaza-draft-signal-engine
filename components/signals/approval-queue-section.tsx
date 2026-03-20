@@ -52,6 +52,18 @@ function fatigueClasses(severity: "low" | "moderate") {
   return "bg-slate-100 text-slate-700 ring-slate-200";
 }
 
+function expectedOutcomeClasses(tier: ApprovalQueueCandidate["expectedOutcome"]["expectedOutcomeTier"]) {
+  switch (tier) {
+    case "high":
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+    case "medium":
+      return "bg-sky-50 text-sky-700 ring-sky-200";
+    case "low":
+    default:
+      return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+}
+
 function stageLabel(stage: AutoAdvanceAssessment["stage"]): string {
   switch (stage) {
     case "auto_interpret":
@@ -143,12 +155,23 @@ export function ApprovalQueueSection({
   cadence,
   weeklyPlan,
   weeklyPlanState,
+  experimentContextsBySignalId,
 }: {
   candidates: ApprovalQueueCandidate[];
   strategy: CampaignStrategy;
   cadence: CampaignCadenceSummary;
   weeklyPlan: WeeklyPlan | null;
   weeklyPlanState: WeeklyPlanState | null;
+  experimentContextsBySignalId?: Record<
+    string,
+    Array<{
+      name: string;
+      statusLabel: string;
+      learningGoal: string | null;
+      comparisonTarget: string | null;
+      variantLabels: string[];
+    }>
+  >;
 }) {
   return (
     <div id="approval-ready">
@@ -180,6 +203,7 @@ export function ApprovalQueueSection({
               const publishPrepSummary = buildPublishPrepBundleSummary(publishPrepBundle);
               const planAlignment = getWeeklyPlanAlignment(candidate.signal, weeklyPlan, strategy, weeklyPlanState);
               const latestRepair = getLatestAutoRepairEntry(candidate.signal);
+              const experimentContexts = experimentContextsBySignalId?.[candidate.signal.recordId] ?? [];
 
               return (
                 <div key={candidate.signal.recordId} className="rounded-2xl bg-white/80 p-4">
@@ -187,6 +211,9 @@ export function ApprovalQueueSection({
                     <div className="space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="inline-flex rounded-full bg-slate-950 px-2.5 py-1 text-xs font-medium text-white">#{index + 1}</span>
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${expectedOutcomeClasses(candidate.expectedOutcome.expectedOutcomeTier)}`}>
+                        {candidate.expectedOutcome.expectedOutcomeTier} expected value
+                      </span>
                       <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${confidenceClasses(candidate.guidance.confidence.confidenceLevel)}`}>
                         {getEditorialConfidenceLabel(candidate.guidance.confidence.confidenceLevel)} confidence
                       </span>
@@ -263,6 +290,55 @@ export function ApprovalQueueSection({
                       </div>
                       {candidate.hypothesis.riskNote ? <p className="mt-3 text-slate-500">Watch: {candidate.hypothesis.riskNote}</p> : null}
                     </div>
+                    <div>
+                      <p className="font-medium text-slate-900">Experiment context</p>
+                      {experimentContexts.length > 0 ? (
+                        <div className="mt-2 space-y-2">
+                          {experimentContexts.map((experiment) => (
+                            <div key={`${experiment.name}:${experiment.variantLabels.join("|")}`} className="rounded-2xl bg-white/70 px-3 py-3">
+                              <p className="font-medium text-slate-900">
+                                {experiment.name} · {experiment.statusLabel}
+                              </p>
+                              <p className="mt-2">
+                                Variants: {experiment.variantLabels.join(" · ")}
+                              </p>
+                              {experiment.learningGoal ? <p className="mt-2 text-slate-500">Learning goal: {experiment.learningGoal}</p> : null}
+                              {experiment.comparisonTarget ? <p className="mt-2 text-slate-500">Compare: {experiment.comparisonTarget}</p> : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2">No active experiment context is attached to this candidate.</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-900">Expected outcome</p>
+                      <p className="mt-2">{candidate.expectedOutcome.expectedOutcomeReasons[0] ?? "Expected outcome support is still forming."}</p>
+                      {candidate.expectedOutcome.expectedOutcomeReasons[1] ? (
+                        <p className="mt-2 text-slate-500">{candidate.expectedOutcome.expectedOutcomeReasons[1]}</p>
+                      ) : null}
+                      {candidate.expectedOutcome.positiveSignals.length > 0 ? (
+                        <p className="mt-2 text-slate-500">Supports: {candidate.expectedOutcome.positiveSignals.join(" · ")}</p>
+                      ) : null}
+                      {candidate.expectedOutcome.riskSignals.length > 0 ? (
+                        <p className="mt-2 text-slate-500">Risks: {candidate.expectedOutcome.riskSignals.join(" · ")}</p>
+                      ) : null}
+                    </div>
+                    {candidate.packageAutofill.notes.length > 0 ? (
+                      <div>
+                        <p className="font-medium text-slate-900">Approval autopilot</p>
+                        <div className="mt-2 space-y-2">
+                          {candidate.packageAutofill.notes.slice(0, 4).map((note) => (
+                            <div key={`${note.field}:${note.value}`} className="rounded-2xl bg-white/70 px-3 py-3">
+                              <p className="font-medium text-slate-900">
+                                {note.label}: {note.value}
+                              </p>
+                              <p className="mt-2 text-slate-500">{note.reason}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                     <div>
                       <p className="font-medium text-slate-900">Why it ranked high</p>
                       <p className="mt-2">{candidate.rankReasons.join(" · ") || "Strong support surfaced."}</p>

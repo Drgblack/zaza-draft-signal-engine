@@ -8,10 +8,23 @@ import type { PostingLogEntry } from "@/lib/posting-memory";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 
 export const EXPERIMENT_STATUSES = ["draft", "active", "completed"] as const;
+export const EXPERIMENT_TYPES = [
+  "hook_variant_test",
+  "cta_variant_test",
+  "destination_test",
+  "editorial_mode_test",
+  "platform_expression_test",
+  "pattern_vs_no_pattern_test",
+] as const;
+export const EXPERIMENT_SOURCES = ["operator", "system_proposal"] as const;
 
 export type ExperimentStatus = (typeof EXPERIMENT_STATUSES)[number];
+export type ExperimentType = (typeof EXPERIMENT_TYPES)[number];
+export type ExperimentSource = (typeof EXPERIMENT_SOURCES)[number];
 
 export const experimentStatusSchema = z.enum(EXPERIMENT_STATUSES);
+export const experimentTypeSchema = z.enum(EXPERIMENT_TYPES);
+export const experimentSourceSchema = z.enum(EXPERIMENT_SOURCES);
 
 export const experimentVariantSchema = z.object({
   variantId: z.string().trim().min(1),
@@ -28,6 +41,11 @@ export const experimentSchema = z.object({
   name: z.string().trim().min(1),
   hypothesis: z.string().trim().min(1),
   status: experimentStatusSchema,
+  experimentType: experimentTypeSchema.nullable().default(null),
+  learningGoal: z.string().trim().nullable().default(null),
+  comparisonTarget: z.string().trim().nullable().default(null),
+  source: experimentSourceSchema.default("operator"),
+  proposalId: z.string().trim().nullable().default(null),
   variants: z.array(experimentVariantSchema).max(12).default([]),
   createdAt: z.string().trim().min(1),
   updatedAt: z.string().trim().min(1),
@@ -43,6 +61,11 @@ export const experimentCreateRequestSchema = z.object({
   name: z.string().trim().min(1).max(120),
   hypothesis: z.string().trim().min(1).max(280),
   status: experimentStatusSchema.default("active"),
+  experimentType: experimentTypeSchema.optional(),
+  learningGoal: z.string().trim().min(1).max(240).optional(),
+  comparisonTarget: z.string().trim().min(1).max(160).optional(),
+  source: experimentSourceSchema.default("operator"),
+  proposalId: z.string().trim().min(1).max(160).optional(),
   variantLabel: z.string().trim().min(1).max(80).optional(),
   signalId: z.string().trim().min(1).optional(),
   postingId: z.string().trim().min(1).optional(),
@@ -110,6 +133,11 @@ export interface ExperimentOutcomeSummary {
   name: string;
   hypothesis: string;
   status: ExperimentStatus;
+  experimentType: ExperimentType | null;
+  learningGoal: string | null;
+  comparisonTarget: string | null;
+  source: ExperimentSource;
+  proposalId: string | null;
   variantCount: number;
   totalPostingCount: number;
   highValueCount: number;
@@ -128,6 +156,8 @@ export interface ExperimentInsights {
   activeCount: number;
   draftCount: number;
   completedCount: number;
+  systemProposedCount: number;
+  byType: Array<{ experimentType: ExperimentType; label: string; count: number }>;
   allExperiments: ExperimentOutcomeSummary[];
   activeExperiments: ExperimentOutcomeSummary[];
   completedExperiments: ExperimentOutcomeSummary[];
@@ -229,6 +259,11 @@ export async function createExperiment(input: z.infer<typeof experimentCreateReq
     name: input.name.trim(),
     hypothesis: input.hypothesis.trim(),
     status: input.status,
+    experimentType: input.experimentType ?? null,
+    learningGoal: input.learningGoal?.trim() ?? null,
+    comparisonTarget: input.comparisonTarget?.trim() ?? null,
+    source: input.source,
+    proposalId: input.proposalId?.trim() ?? null,
     variants,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -500,6 +535,11 @@ function buildExperimentOutcomeSummary(
     name: experiment.name,
     hypothesis: experiment.hypothesis,
     status: experiment.status,
+    experimentType: experiment.experimentType,
+    learningGoal: experiment.learningGoal,
+    comparisonTarget: experiment.comparisonTarget,
+    source: experiment.source,
+    proposalId: experiment.proposalId,
     variantCount: experiment.variants.length,
     totalPostingCount: variants.reduce((sum, variant) => sum + variant.postingCount, 0),
     highValueCount: variants.reduce((sum, variant) => sum + variant.highValueCount, 0),
@@ -548,6 +588,22 @@ export function buildExperimentInsights(input: {
         left.name.localeCompare(right.name),
     );
   const summariesCopy: string[] = [];
+  const byType = Array.from(
+    summaries.reduce((map, experiment) => {
+      if (!experiment.experimentType) {
+        return map;
+      }
+
+      map.set(experiment.experimentType, (map.get(experiment.experimentType) ?? 0) + 1);
+      return map;
+    }, new Map<ExperimentType, number>()),
+  )
+    .map(([experimentType, count]) => ({
+      experimentType,
+      label: getExperimentTypeLabel(experimentType),
+      count,
+    }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
 
   if (activeExperiments[0]?.comparisonSummary) {
     summariesCopy.push(activeExperiments[0].comparisonSummary);
@@ -566,6 +622,8 @@ export function buildExperimentInsights(input: {
     activeCount: activeExperiments.length,
     draftCount: summaries.filter((experiment) => experiment.status === "draft").length,
     completedCount: completedExperiments.length,
+    systemProposedCount: summaries.filter((experiment) => experiment.source === "system_proposal").length,
+    byType,
     allExperiments: summaries,
     activeExperiments: activeExperiments.slice(0, 4),
     completedExperiments: completedExperiments.slice(0, 4),
@@ -601,4 +659,22 @@ export function getExperimentStatusLabel(status: ExperimentStatus): string {
   }
 
   return "Active";
+}
+
+export function getExperimentTypeLabel(experimentType: ExperimentType): string {
+  switch (experimentType) {
+    case "hook_variant_test":
+      return "Hook variant test";
+    case "cta_variant_test":
+      return "CTA variant test";
+    case "destination_test":
+      return "Destination test";
+    case "editorial_mode_test":
+      return "Editorial mode test";
+    case "platform_expression_test":
+      return "Platform expression test";
+    case "pattern_vs_no_pattern_test":
+    default:
+      return "Pattern vs no-pattern test";
+  }
 }

@@ -7,12 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { getAuditEvents } from "@/lib/audit";
+import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { getCampaignStrategy } from "@/lib/campaigns";
 import { buildEditPatternSuggestions, listLearnedEditPatterns } from "@/lib/edit-patterns";
 import { buildEvergreenSummary, getEvergreenCandidateById } from "@/lib/evergreen";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { buildFinalReviewSummary } from "@/lib/final-review";
+import { getExperimentStatusLabel, listExperiments, listExperimentsForSignal } from "@/lib/experiments";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { buildCandidateHypothesis } from "@/lib/hypotheses";
@@ -24,6 +26,7 @@ import { listPatterns } from "@/lib/patterns";
 import { getPostingLogEntries, listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { getOperatorTuning } from "@/lib/tuning";
+import { applyApprovalPackageAutofill } from "@/lib/package-filler";
 import { buildRevisionGuidance } from "@/lib/revision-guidance";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanAlignment } from "@/lib/weekly-plan";
@@ -70,6 +73,7 @@ export default async function FinalReviewPage({
   const patterns = await listPatterns();
   const playbookCards = await listPlaybookCards();
   const bundles = await listPatternBundles();
+  const experiments = await listExperiments();
   const tuning = await getOperatorTuning();
   const strategy = await getCampaignStrategy();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
@@ -134,6 +138,16 @@ export default async function FinalReviewPage({
     weeklyBoosts: weeklyPlanAlignment.boosts,
     weeklyCautions: weeklyPlanAlignment.cautions,
   });
+  const packageAutofill = applyApprovalPackageAutofill({
+    signal,
+    guidanceConfidenceLevel: guidance.confidence.confidenceLevel,
+    assessment: assessAutonomousSignal(signal, guidance),
+    allSignals,
+    postingEntries: allPostingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+    experiments,
+  });
   await appendAuditEventsSafe([
     {
       signalId: signal.recordId,
@@ -146,7 +160,38 @@ export default async function FinalReviewPage({
         riskNote: hypothesis.riskNote,
       },
     },
+    ...(packageAutofill.notes.length > 0
+      ? [
+          {
+            signalId: signal.recordId,
+            eventType: "PACKAGE_AUTOFILL_APPLIED" as const,
+            actor: "system" as const,
+            summary: `Approval autopilot filled ${packageAutofill.notes.slice(0, 2).map((note) => note.field.replaceAll("_", " ")).join(" and ")} for ${signal.sourceTitle}.`,
+            metadata: {
+              fields: packageAutofill.appliedFields.join(","),
+              completenessBefore: packageAutofill.completenessBefore.completenessState,
+              completenessAfter: packageAutofill.completenessAfter.completenessState,
+            },
+          },
+        ]
+      : []),
   ]);
+  const experimentContexts = listExperimentsForSignal(experiments, signal.recordId, allPostingEntries)
+    .map((experiment) => {
+      const matchingVariants = experiment.variants.filter((variant) => variant.linkedSignalIds.includes(signal.recordId));
+      if (matchingVariants.length === 0) {
+        return null;
+      }
+
+      return {
+        name: experiment.name,
+        statusLabel: getExperimentStatusLabel(experiment.status),
+        learningGoal: experiment.learningGoal,
+        comparisonTarget: experiment.comparisonTarget,
+        variantLabels: matchingVariants.map((variant) => variant.variantLabel),
+      };
+    })
+    .filter((experiment): experiment is NonNullable<typeof experiment> => Boolean(experiment));
 
   if (!signal.xDraft || !signal.linkedInDraft || !signal.redditDraft) {
     return (
@@ -216,13 +261,15 @@ export default async function FinalReviewPage({
       />
 
       <FinalReviewWorkspace
-        signal={signal}
+        signal={packageAutofill.signal}
         source={result.source}
         appliedPatternName={appliedPatternName}
         editSuggestions={editSuggestions}
         revisionGuidance={revisionGuidance.insightsByPlatform}
         guidanceConfidenceLevel={guidance.confidence.confidenceLevel}
         hypothesis={hypothesis}
+        packageAutofillNotes={packageAutofill.notes}
+        experimentContexts={experimentContexts}
         initialPostingEntries={postingEntries}
         evergreenContext={evergreenContext?.signalId === signal.recordId ? evergreenContext : null}
         weeklyPlanContext={{

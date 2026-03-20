@@ -54,6 +54,7 @@ import {
   type PostingLogEntry,
   type PostingPlatform,
 } from "@/lib/posting-memory";
+import type { PackageAutofillNote } from "@/lib/package-filler";
 import { getPlatformIntentProfile } from "@/lib/platform-profiles";
 import { formatDateTime } from "@/lib/utils";
 import type { SignalDataSource, SignalRecord } from "@/types/signal";
@@ -360,6 +361,8 @@ export function FinalReviewWorkspace({
   revisionGuidance,
   guidanceConfidenceLevel,
   hypothesis,
+  packageAutofillNotes,
+  experimentContexts,
   initialPostingEntries,
   weeklyPlanContext,
   evergreenContext,
@@ -371,6 +374,14 @@ export function FinalReviewWorkspace({
   revisionGuidance: Record<"x" | "linkedin" | "reddit", RevisionGuidanceInsight>;
   guidanceConfidenceLevel: "high" | "moderate" | "low";
   hypothesis: CandidateHypothesis;
+  packageAutofillNotes?: PackageAutofillNote[];
+  experimentContexts?: Array<{
+    name: string;
+    statusLabel: string;
+    learningGoal: string | null;
+    comparisonTarget: string | null;
+    variantLabels: string[];
+  }>;
   initialPostingEntries: PostingLogEntry[];
   weeklyPlanContext?: {
     weekLabel: string;
@@ -957,6 +968,22 @@ export function FinalReviewWorkspace({
             </div>
           </div>
 
+          {packageAutofillNotes && packageAutofillNotes.length > 0 ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Approval autopilot</p>
+              <div className="mt-3 space-y-2">
+                {packageAutofillNotes.slice(0, 4).map((note) => (
+                  <div key={`${note.field}:${note.value}`} className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                    <p className="font-medium text-slate-900">
+                      {note.label}: {note.value}
+                    </p>
+                    <p className="mt-2 text-slate-500">{note.reason}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
             <p className="font-medium text-slate-900">Post hypothesis</p>
             <p className="mt-2">
@@ -974,6 +1001,24 @@ export function FinalReviewWorkspace({
             </div>
             {hypothesis.riskNote ? <p className="mt-3 text-xs text-slate-500">Watch: {hypothesis.riskNote}</p> : null}
           </div>
+
+          {experimentContexts && experimentContexts.length > 0 ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Experiment context</p>
+              <div className="mt-3 space-y-3">
+                {experimentContexts.map((experiment) => (
+                  <div key={`${experiment.name}:${experiment.variantLabels.join("|")}`} className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                    <p className="font-medium text-slate-900">
+                      {experiment.name} · {experiment.statusLabel}
+                    </p>
+                    <p className="mt-2">Variants: {experiment.variantLabels.join(" · ")}</p>
+                    {experiment.learningGoal ? <p className="mt-2 text-slate-500">Learning goal: {experiment.learningGoal}</p> : null}
+                    {experiment.comparisonTarget ? <p className="mt-2 text-slate-500">Compare: {experiment.comparisonTarget}</p> : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
             <p className="font-medium text-slate-900">Posting memory</p>

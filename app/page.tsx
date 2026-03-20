@@ -14,6 +14,7 @@ import {
   indexConfirmedClusterByCanonicalSignalId,
   listDuplicateClusters,
 } from "@/lib/duplicate-clusters";
+import { listExperiments } from "@/lib/experiments";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
@@ -25,6 +26,7 @@ import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPatterns } from "@/lib/patterns";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
 import { formatDateTime } from "@/lib/utils";
@@ -40,7 +42,9 @@ export default async function DashboardPage() {
   const bundles = await listPatternBundles();
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const strategicOutcomes = await listStrategicOutcomes();
   const duplicateClusters = await listDuplicateClusters();
+  const experiments = await listExperiments();
   const strategy = await getCampaignStrategy();
   const tuning = await getOperatorTuning();
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
@@ -98,7 +102,11 @@ export default async function DashboardPage() {
       weeklyPlan,
       weeklyPlanState,
       confirmedClustersByCanonicalSignalId,
+      allSignals: signals,
       postingEntries,
+      postingOutcomes,
+      strategicOutcomes,
+      experiments,
     },
   );
   const workflowBuckets = getWorkflowBuckets(visibleSignals);

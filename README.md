@@ -93,18 +93,38 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - thin support coverage
 - Approval ranking is heuristic and inspectable. It uses existing structured support such as:
   - confidence
+  - package completeness
+  - expected outcome support
+  - candidate hypothesis quality
+  - destination history
+  - source quality
   - reuse memory
   - playbook support
   - pattern / bundle support
   - draft quality
   - review priority
   - novelty and repetition risk
+  - fatigue
+  - campaign and funnel fit
+  - active experiment context
+- Expected outcome ranking is a bounded heuristic layer, not predictive ML. It nudges queue ordering toward items with stronger commercial support while keeping readiness, completeness, and operator review in control.
+- Autonomous experiment proposals are also bounded and operator-confirmed:
+  - supported types include hook, CTA, destination, editorial-mode, platform-expression, and pattern-vs-no-pattern tests
+  - proposals trigger only when tradeoffs or uncertainty are visible in current structured state
+  - confirming a proposal creates a real experiment with bounded variants attached
+  - there is no automatic posting, scheduling, or winner selection
+- Approval autopilot package filler is also bounded and operator-visible:
+  - it can fill low-risk missing package elements such as hook, CTA, destination, timing, and asset direction
+  - it only runs for near-complete candidates with non-low confidence and usable draft quality
+  - explicit operator choices are preserved and experiment conflicts prevent autofill for the affected field
+  - autofilled choices stay visible in the approval queue and final review and can be edited normally
 - Current limitations:
   - no auto-posting
   - image generation is still a provider-agnostic placeholder hook
   - no video rendering engine
   - no full campaign calendar UI
   - no large job orchestration system
+  - no attribution model or probabilistic forecasting
 
 ## Auto-Repair Loop
 - Auto-repair is centralized in `lib/auto-repair.ts`.

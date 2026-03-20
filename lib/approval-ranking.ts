@@ -2,11 +2,16 @@ import type { AutoAdvanceAssessment } from "@/lib/auto-advance";
 import type { CampaignCadenceSummary, CampaignStrategy } from "@/lib/campaigns";
 import { getSignalContentContextSummary } from "@/lib/campaigns";
 import { evaluateApprovalPackageCompleteness, type ApprovalPackageCompleteness } from "@/lib/completeness";
+import { assessExpectedOutcome, type ExpectedOutcomeAssessment } from "@/lib/expected-outcome-ranking";
+import type { ManualExperiment } from "@/lib/experiments";
 import { buildFatigueModel, type FatigueAssessment } from "@/lib/fatigue";
 import type { UnifiedGuidance } from "@/lib/guidance";
 import { buildCandidateHypothesis, type CandidateHypothesis } from "@/lib/hypotheses";
+import type { PostingOutcome } from "@/lib/outcomes";
+import { applyApprovalPackageAutofill, type PackageAutofillResult } from "@/lib/package-filler";
 import type { PostingLogEntry } from "@/lib/posting-memory";
 import { buildSignalRepurposingBundle } from "@/lib/repurposing";
+import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import type { WeeklyPlan, WeeklyPlanState } from "@/lib/weekly-plan";
 import { getWeeklyPlanAlignment } from "@/lib/weekly-plan";
 import type { SignalRecord } from "@/types/signal";
@@ -19,6 +24,8 @@ export interface ApprovalQueueCandidate {
   completeness: ApprovalPackageCompleteness;
   fatigue: FatigueAssessment;
   hypothesis: CandidateHypothesis;
+  expectedOutcome: ExpectedOutcomeAssessment;
+  packageAutofill: PackageAutofillResult;
   rankScore: number;
   rankReasons: string[];
 }
@@ -35,9 +42,9 @@ function uniquePush(target: string[], value: string | null | undefined) {
 function scoreConfidence(level: UnifiedGuidance["confidence"]["confidenceLevel"]): number {
   switch (level) {
     case "high":
-      return 5;
-    case "moderate":
       return 3;
+    case "moderate":
+      return 1;
     case "low":
     default:
       return 0;
@@ -57,7 +64,11 @@ export function rankApprovalCandidates(
     weeklyPlan?: WeeklyPlan | null;
     weeklyPlanState?: WeeklyPlanState | null;
     confirmedClustersByCanonicalSignalId?: Record<string, DuplicateCluster>;
+    allSignals?: SignalRecord[];
     postingEntries?: PostingLogEntry[];
+    postingOutcomes?: PostingOutcome[];
+    strategicOutcomes?: StrategicOutcome[];
+    experiments?: ManualExperiment[];
   },
 ): ApprovalQueueCandidate[] {
   const fatigueModel = buildFatigueModel({
@@ -74,35 +85,61 @@ export function rankApprovalCandidates(
     .map((candidate) => {
       let rankScore = 0;
       const rankReasons: string[] = [];
+      const packageAutofill = applyApprovalPackageAutofill({
+        signal: candidate.signal,
+        guidanceConfidenceLevel: candidate.guidance.confidence.confidenceLevel,
+        assessment: candidate.assessment,
+        allSignals: options?.allSignals ?? candidates.map((item) => item.signal),
+        postingEntries: options?.postingEntries ?? [],
+        postingOutcomes: options?.postingOutcomes ?? [],
+        strategicOutcomes: options?.strategicOutcomes ?? [],
+        experiments: options?.experiments ?? [],
+      });
+      const rankedSignal = packageAutofill.signal;
       const resolvedContext =
-        options?.strategy ? getSignalContentContextSummary(candidate.signal, options.strategy) : null;
-      const repurposingBundle = buildSignalRepurposingBundle(candidate.signal);
-      const confirmedCluster = options?.confirmedClustersByCanonicalSignalId?.[candidate.signal.recordId] ?? null;
+        options?.strategy ? getSignalContentContextSummary(rankedSignal, options.strategy) : null;
+      const repurposingBundle = buildSignalRepurposingBundle(rankedSignal);
+      const confirmedCluster = options?.confirmedClustersByCanonicalSignalId?.[rankedSignal.recordId] ?? null;
       const planAlignment =
         options?.strategy && options?.weeklyPlan
           ? getWeeklyPlanAlignment(
-              candidate.signal,
+              rankedSignal,
               options.weeklyPlan,
               options.strategy,
               options.weeklyPlanState,
             )
           : null;
       const completeness = evaluateApprovalPackageCompleteness({
-        signal: candidate.signal,
+        signal: rankedSignal,
         guidanceConfidenceLevel: candidate.guidance.confidence.confidenceLevel,
       });
-      const fatigue = fatigueModel.assessmentsById[candidate.signal.recordId] ?? {
+      const fatigue = fatigueModel.assessmentsById[rankedSignal.recordId] ?? {
         warnings: [],
         scorePenalty: 0,
         summary: "No clear fatigue signal surfaced.",
       };
       const hypothesis = buildCandidateHypothesis({
-        signal: candidate.signal,
+        signal: rankedSignal,
         guidance: candidate.guidance,
         assessment: candidate.assessment,
         strategy: options?.strategy,
         weeklyBoosts: planAlignment?.boosts,
         weeklyCautions: planAlignment?.cautions,
+      });
+      const expectedOutcome = assessExpectedOutcome({
+        signal: rankedSignal,
+        guidance: candidate.guidance,
+        assessment: candidate.assessment,
+        completeness,
+        fatigue,
+        hypothesis,
+        allSignals: options?.allSignals ?? candidates.map((item) => item.signal),
+        postingEntries: options?.postingEntries ?? [],
+        postingOutcomes: options?.postingOutcomes ?? [],
+        strategicOutcomes: options?.strategicOutcomes ?? [],
+        experiments: options?.experiments ?? [],
+        strategy: options?.strategy,
+        cadence: options?.cadence,
       });
 
       rankScore += scoreConfidence(candidate.guidance.confidence.confidenceLevel);
@@ -113,17 +150,17 @@ export function rankApprovalCandidates(
       }
 
       if (candidate.guidance.reuseMemory?.highlights.find((highlight) => highlight.tone === "positive")) {
-        rankScore += 3;
+        rankScore += 2;
         uniquePush(rankReasons, "Strong reuse support");
       }
 
       if (candidate.guidance.relatedPlaybookCards[0]) {
-        rankScore += 2;
+        rankScore += 1;
         uniquePush(rankReasons, "Playbook support exists");
       }
 
       if (candidate.guidance.relatedPatterns[0]) {
-        rankScore += 2;
+        rankScore += 1;
         uniquePush(rankReasons, "Pattern support exists");
       }
 
@@ -139,15 +176,15 @@ export function rankApprovalCandidates(
         rankScore += 1;
       }
 
-      if (candidate.signal.reviewPriority === "Urgent") {
+      if (rankedSignal.reviewPriority === "Urgent") {
         rankScore += 2;
         uniquePush(rankReasons, "Urgent review priority");
-      } else if (candidate.signal.reviewPriority === "High") {
+      } else if (rankedSignal.reviewPriority === "High") {
         rankScore += 1;
         uniquePush(rankReasons, "High review priority");
       }
 
-      if ((candidate.signal.signalNoveltyScore ?? 0) >= 70) {
+      if ((rankedSignal.signalNoveltyScore ?? 0) >= 70) {
         rankScore += 1;
         uniquePush(rankReasons, "Strong novelty");
       }
@@ -172,10 +209,17 @@ export function rankApprovalCandidates(
         uniquePush(rankReasons, `Missing ${completeness.missingElements[0] ?? "package pieces"}`);
       }
 
-      if (fatigue.scorePenalty > 0) {
-        rankScore -= fatigue.scorePenalty;
-        uniquePush(rankReasons, fatigue.summary);
+      if (packageAutofill.notes.length > 0) {
+        rankScore += Math.min(2, packageAutofill.notes.length);
+        uniquePush(rankReasons, `Approval autopilot filled ${packageAutofill.notes.slice(0, 2).map((note) => note.field.replaceAll("_", " ")).join(" and ")}`);
       }
+
+      rankScore += expectedOutcome.expectedOutcomeScore;
+      uniquePush(
+        rankReasons,
+        `${expectedOutcome.expectedOutcomeTier === "high" ? "High" : expectedOutcome.expectedOutcomeTier === "medium" ? "Medium" : "Low"} expected value`,
+      );
+      uniquePush(rankReasons, expectedOutcome.expectedOutcomeReasons[0]);
 
       if (planAlignment) {
         rankScore += planAlignment.scoreDelta;
@@ -205,7 +249,7 @@ export function rankApprovalCandidates(
         uniquePush(rankReasons, "Helps rebalance funnel mix");
       }
 
-      if ((candidate.signal.similarityToExistingContent ?? 0) >= 80) {
+      if ((rankedSignal.similarityToExistingContent ?? 0) >= 80) {
         rankScore -= 1;
         uniquePush(rankReasons, "Some repetition risk");
       }
@@ -236,11 +280,14 @@ export function rankApprovalCandidates(
 
       return {
         ...candidate,
+        signal: rankedSignal,
         completeness,
         fatigue,
         hypothesis,
+        expectedOutcome,
+        packageAutofill,
         rankScore,
-        rankReasons: rankReasons.slice(0, 3),
+        rankReasons: rankReasons.slice(0, 4),
       };
     })
     .sort(

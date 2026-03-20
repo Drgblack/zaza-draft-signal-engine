@@ -18,6 +18,7 @@ import {
   listDuplicateClusters,
 } from "@/lib/duplicate-clusters";
 import { buildEvergreenSummary } from "@/lib/evergreen";
+import { listExperiments } from "@/lib/experiments";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { generateDrafts, toGenerationInputFromSignal } from "@/lib/generator";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
@@ -1562,6 +1563,7 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
   const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, workingSignals, postingEntries);
   const confirmedClustersByCanonicalSignalId = indexConfirmedClusterByCanonicalSignalId(await listDuplicateClusters());
+  const experiments = await listExperiments();
   const evergreenSummary = buildEvergreenSummary({
     signals: workingSignals,
     postingEntries,
@@ -1583,7 +1585,11 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
       weeklyPlan,
       weeklyPlanState,
       confirmedClustersByCanonicalSignalId,
+      allSignals: workingSignals,
       postingEntries,
+      postingOutcomes,
+      strategicOutcomes,
+      experiments,
     },
   );
   const approvalReadyRecords = rankedApprovalCandidates.map((candidate) =>

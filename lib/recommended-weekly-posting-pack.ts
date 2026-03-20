@@ -5,7 +5,6 @@ import {
   buildSignalPublishPrepBundle,
   getPrimaryLinkVariant,
   getSelectedCtaText,
-  getSelectedHookText,
   type PublishPrepPackage,
 } from "@/lib/publish-prep";
 import { getPostingPlatformLabel, type PostingPlatform } from "@/lib/posting-memory";

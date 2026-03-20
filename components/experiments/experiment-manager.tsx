@@ -12,6 +12,14 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 type ExperimentStatus = "draft" | "active" | "completed";
+type ExperimentType =
+  | "hook_variant_test"
+  | "cta_variant_test"
+  | "destination_test"
+  | "editorial_mode_test"
+  | "platform_expression_test"
+  | "pattern_vs_no_pattern_test";
+type ExperimentSource = "operator" | "system_proposal";
 
 type ExperimentVariant = {
   variantId: string;
@@ -26,6 +34,11 @@ type ManualExperiment = {
   name: string;
   hypothesis: string;
   status: ExperimentStatus;
+  experimentType: ExperimentType | null;
+  learningGoal: string | null;
+  comparisonTarget: string | null;
+  source: ExperimentSource;
+  proposalId: string | null;
   variants: ExperimentVariant[];
   updatedAt: string;
 };
@@ -54,6 +67,11 @@ type ExperimentOutcomeSummary = {
   name: string;
   hypothesis: string;
   status: ExperimentStatus;
+  experimentType: ExperimentType | null;
+  learningGoal: string | null;
+  comparisonTarget: string | null;
+  source: ExperimentSource;
+  proposalId: string | null;
   variantCount: number;
   totalPostingCount: number;
   highValueCount: number;
@@ -69,6 +87,8 @@ type ExperimentInsights = {
   activeCount: number;
   draftCount: number;
   completedCount: number;
+  systemProposedCount: number;
+  byType: Array<{ experimentType: ExperimentType; label: string; count: number }>;
   allExperiments: ExperimentOutcomeSummary[];
   activeExperiments: ExperimentOutcomeSummary[];
   completedExperiments: ExperimentOutcomeSummary[];
@@ -137,6 +157,25 @@ function statusLabel(status: ExperimentStatus): string {
   }
 
   return "Active";
+}
+
+function experimentTypeLabel(value: ExperimentType | null): string | null {
+  switch (value) {
+    case "hook_variant_test":
+      return "Hook variant test";
+    case "cta_variant_test":
+      return "CTA variant test";
+    case "destination_test":
+      return "Destination test";
+    case "editorial_mode_test":
+      return "Editorial mode test";
+    case "platform_expression_test":
+      return "Platform expression test";
+    case "pattern_vs_no_pattern_test":
+      return "Pattern vs no-pattern";
+    default:
+      return null;
+  }
 }
 
 function feedbackClasses(tone: "success" | "error"): string {
@@ -473,6 +512,14 @@ export function ExperimentManager({
                 <CardHeader>
                   <div className="flex flex-wrap items-center gap-3">
                     <Badge className={statusBadgeClasses(experiment.status)}>{statusLabel(experiment.status)}</Badge>
+                    {experiment.source === "system_proposal" ? (
+                      <Badge className="bg-sky-50 text-sky-700 ring-sky-200">System proposed</Badge>
+                    ) : null}
+                    {experimentTypeLabel(experiment.experimentType) ? (
+                      <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                        {experimentTypeLabel(experiment.experimentType)}
+                      </Badge>
+                    ) : null}
                     <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
                       {experiment.variantCount} variants
                     </Badge>
@@ -484,6 +531,12 @@ export function ExperimentManager({
                   <CardDescription>{experiment.hypothesis}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5">
+                  {experiment.learningGoal || experiment.comparisonTarget ? (
+                    <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+                      {experiment.learningGoal ? <p><span className="font-medium text-slate-900">Learning goal:</span> {experiment.learningGoal}</p> : null}
+                      {experiment.comparisonTarget ? <p className="mt-2"><span className="font-medium text-slate-900">Compare:</span> {experiment.comparisonTarget}</p> : null}
+                    </div>
+                  ) : null}
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <div className="rounded-2xl bg-white/80 px-4 py-4">
                       <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Strategic mix</p>

@@ -13,6 +13,7 @@ import {
   listDuplicateClusters,
 } from "@/lib/duplicate-clusters";
 import { buildEvergreenSummary } from "@/lib/evergreen";
+import { listExperiments } from "@/lib/experiments";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { buildFatigueModel } from "@/lib/fatigue";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
@@ -43,6 +44,7 @@ export default async function WeeklyPlanPage() {
   const postingOutcomes = await listPostingOutcomes();
   const strategicOutcomes = await listStrategicOutcomes();
   const duplicateClusters = await listDuplicateClusters();
+  const experiments = await listExperiments();
   const tuning = await getOperatorTuning();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
@@ -97,7 +99,11 @@ export default async function WeeklyPlanPage() {
       weeklyPlan: plan,
       weeklyPlanState,
       confirmedClustersByCanonicalSignalId,
+      allSignals: signals,
       postingEntries,
+      postingOutcomes,
+      strategicOutcomes,
+      experiments,
     },
   );
   const evergreenSummary = buildEvergreenSummary({

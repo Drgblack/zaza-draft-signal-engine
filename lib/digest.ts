@@ -7,6 +7,7 @@ import {
   indexConfirmedClusterByCanonicalSignalId,
   type DuplicateCluster,
 } from "@/lib/duplicate-clusters";
+import type { ManualExperiment } from "@/lib/experiments";
 import type { SignalFeedback } from "@/lib/feedback-definitions";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import type { ManagedIngestionSource } from "@/lib/ingestion/types";
@@ -127,6 +128,7 @@ export function buildOperatorDigest(input: {
   weeklyPlanState: WeeklyPlanState | null;
   tuning: OperatorTuningSettings;
   managedSources: ManagedIngestionSource[];
+  experiments?: ManualExperiment[];
   now?: Date;
 }): OperatorDigest {
   const now = input.now ?? new Date();
@@ -180,7 +182,11 @@ export function buildOperatorDigest(input: {
       weeklyPlan: input.weeklyPlan,
       weeklyPlanState: input.weeklyPlanState,
       confirmedClustersByCanonicalSignalId,
+      allSignals: input.signals,
       postingEntries: input.postingEntries,
+      postingOutcomes: input.postingOutcomes,
+      strategicOutcomes: input.strategicOutcomes,
+      experiments: input.experiments ?? [],
     },
   ).map((candidate) => ({
     signalId: candidate.signal.recordId,

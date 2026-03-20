@@ -1,13 +1,12 @@
 import type { CampaignCadenceSummary, CampaignStrategy } from "@/lib/campaigns";
 import { getSignalContentContextSummary } from "@/lib/campaigns";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
-import { getOutcomeQualityLabel, getReuseRecommendationLabel, type PostingOutcome } from "@/lib/outcomes";
+import { getOutcomeQualityLabel, type PostingOutcome } from "@/lib/outcomes";
 import type { PatternBundle } from "@/lib/pattern-bundles";
 import type { PostingLogEntry, PostingPlatform } from "@/lib/posting-memory";
 import { getPostingPlatformLabel } from "@/lib/posting-memory";
 import { buildSignalPublishPrepBundle } from "@/lib/publish-prep";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
-import { getStrategicValueLabel } from "@/lib/strategic-outcome-memory";
 import type { WeeklyPlan, WeeklyPlanState } from "@/lib/weekly-plan";
 import { getWeeklyPlanAlignment } from "@/lib/weekly-plan";
 import type { EditorialMode, FunnelStage, SignalRecord } from "@/types/signal";
@@ -109,29 +108,6 @@ function hasReusableDraftMaterial(signal: SignalRecord): boolean {
       signal.repurposingBundleJson ||
       signal.publishPrepBundleJson,
   );
-}
-
-function getMostRecentBySignal<T extends { signalId: string }>(
-  values: T[],
-  timestampSelector: (value: T) => string,
-): Map<string, T> {
-  const map = new Map<string, T>();
-
-  for (const value of values) {
-    const current = map.get(value.signalId);
-    if (!current) {
-      map.set(value.signalId, value);
-      continue;
-    }
-
-    const currentTime = new Date(timestampSelector(current)).getTime();
-    const nextTime = new Date(timestampSelector(value)).getTime();
-    if (nextTime >= currentTime) {
-      map.set(value.signalId, value);
-    }
-  }
-
-  return map;
 }
 
 function getMostRecentByPostingLog<T extends { postingLogId: string }>(

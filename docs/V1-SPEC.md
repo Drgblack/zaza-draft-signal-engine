@@ -206,6 +206,14 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - low-risk posting-log metadata capture for selected hook, CTA, timing, destination, and UTM context
   - compact package mix visibility on `/insights`, including destination usage
   - no direct publishing, scheduler, social-platform API integration, or attribution model
+- Approval autopilot package filler with:
+  - centralized bounded autofill logic in `lib/package-filler.ts`
+  - safe completion of near-finished package gaps such as selected hook, selected CTA, destination, timing, asset direction, and primary asset selection
+  - attached revision-guidance and learned edit-pattern notes when meaningful structured support exists
+  - autofill eligibility limited to non-low-confidence candidates with usable draft quality and near-complete packages
+  - explicit preservation of operator selections and experiment-linked field ambiguity
+  - compact autofill visibility in `/review`, `/signals/[id]/review`, and `/insights`
+  - no auto-posting, hidden locking, or unbounded rewriting
 - Strategic outcome loop with:
   - centralized manual business-outcome storage in `lib/strategic-outcomes.ts`
   - one strategic outcome record per posting-log entry
@@ -975,12 +983,31 @@ Build a private internal dashboard for manually submitting signals, lightly clas
 - Repair history is persisted on the signal and surfaced lightly in review and detail views.
 - Approval ranking is heuristic and inspectable. Current inputs include:
   - editorial confidence
+  - package completeness
+  - expected strategic value support
+  - candidate hypothesis quality
+  - similar outcome history
+  - destination-page performance
+  - source quality
   - reuse memory
   - playbook support
   - pattern or bundle support
   - draft quality
   - review priority
   - novelty and repetition risk
+  - fatigue
+  - campaign and funnel relevance
+  - active experiment context
+- Expected outcome ranking is bounded and explicit:
+  - it helps answer "what is most likely to matter commercially next?"
+  - it does not replace readiness or completeness
+  - it remains heuristic and operator-trustworthy
+  - it is not predictive ML or attribution modelling
+- Autonomous experiment proposals are also bounded:
+  - the system may propose hook, CTA, destination, editorial-mode, platform-expression, or pattern-vs-no-pattern tests
+  - proposals only surface when structured uncertainty or tradeoffs are meaningful enough to test
+  - operator confirmation is required before a real experiment is created
+  - there is no auto-posting, no auto-scheduling, and no automatic winner selection
 - Current audit coverage now includes:
   - `AUTO_INTERPRETED`
   - `AUTO_GENERATED`
@@ -989,6 +1016,10 @@ Build a private internal dashboard for manually submitting signals, lightly clas
   - `AUTO_REPAIR_ATTEMPTED`
   - `AUTO_REPAIR_PROMOTED`
   - `AUTO_REPAIR_FAILED`
+  - `EXPECTED_OUTCOME_RANKING_COMPUTED`
+  - `EXPERIMENT_PROPOSED`
+  - `EXPERIMENT_PROPOSAL_CONFIRMED`
+  - `EXPERIMENT_PROPOSAL_DISMISSED`
 - Current limitations:
   - final review remains manual
   - scheduling and posting remain manual

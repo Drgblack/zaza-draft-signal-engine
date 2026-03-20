@@ -3,11 +3,12 @@ import Link from "next/link";
 import { ApprovalQueueSection, EvergreenResurfacingSection } from "@/components/signals/approval-queue-section";
 import { BorderlineReviewWorkbenchSection } from "@/components/signals/borderline-review-workbench-section";
 import { DuplicateClusterReviewSection } from "@/components/signals/duplicate-cluster-review-section";
+import { ExperimentProposalSection } from "@/components/signals/experiment-proposal-section";
 import { WorkflowQueueSection } from "@/components/signals/workflow-queue-section";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
-import { appendAuditEventsSafe } from "@/lib/audit";
+import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { buildBorderlineReviewModel, getAutoRepairLabel, getLatestAutoRepairEntry } from "@/lib/auto-repair";
@@ -15,6 +16,7 @@ import { buildCampaignCadenceSummary, getCampaignStrategy, getSignalContentConte
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { buildEvergreenSummary } from "@/lib/evergreen";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import { buildAutonomousExperimentProposals, listExperimentProposals } from "@/lib/experiment-proposals";
 import { listFeedbackEntries } from "@/lib/feedback";
 import {
   buildDuplicateClusterDifferenceNotes,
@@ -23,6 +25,7 @@ import {
   indexConfirmedClusterByCanonicalSignalId,
   listDuplicateClusters,
 } from "@/lib/duplicate-clusters";
+import { getExperimentStatusLabel, listExperiments, listExperimentsForSignal } from "@/lib/experiments";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { listPatterns } from "@/lib/patterns";
@@ -50,6 +53,8 @@ export default async function ReviewPage() {
   const postingOutcomes = await listPostingOutcomes();
   const strategicOutcomes = await listStrategicOutcomes();
   const duplicateClusters = await listDuplicateClusters();
+  const experiments = await listExperiments();
+  const storedExperimentProposals = await listExperimentProposals();
   const strategy = await getCampaignStrategy();
   const tuning = await getOperatorTuning();
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
@@ -122,12 +127,22 @@ export default async function ReviewPage() {
       weeklyPlan,
       weeklyPlanState,
       confirmedClustersByCanonicalSignalId,
+      allSignals: signals,
       postingEntries,
+      postingOutcomes,
+      strategicOutcomes,
+      experiments,
     },
   );
+  const experimentProposals = buildAutonomousExperimentProposals({
+    candidates: approvalReadyCandidates,
+    experiments,
+    storedProposals: storedExperimentProposals,
+    maxProposals: 5,
+  }).filter((proposal) => proposal.status === "open");
   await appendAuditEventsSafe(
     approvalReadyCandidates.flatMap((candidate) => {
-      const events = [
+      const events: AuditEventInput[] = [
         {
           signalId: candidate.signal.recordId,
           eventType: "HYPOTHESIS_GENERATED" as const,
@@ -139,10 +154,76 @@ export default async function ReviewPage() {
             riskNote: candidate.hypothesis.riskNote,
           },
         },
+        {
+          signalId: candidate.signal.recordId,
+          eventType: "EXPECTED_OUTCOME_RANKING_COMPUTED" as const,
+          actor: "system" as const,
+          summary: `Assigned ${candidate.expectedOutcome.expectedOutcomeTier} expected outcome tier for approval ranking.`,
+          metadata: {
+            tier: candidate.expectedOutcome.expectedOutcomeTier,
+            score: candidate.expectedOutcome.expectedOutcomeScore,
+            topPositive: candidate.expectedOutcome.positiveSignals[0] ?? null,
+            topRisk: candidate.expectedOutcome.riskSignals[0] ?? null,
+          },
+        },
       ];
+      const autofillEvents: AuditEventInput[] = candidate.packageAutofill.notes.length
+        ? [
+            {
+              signalId: candidate.signal.recordId,
+              eventType: "PACKAGE_AUTOFILL_APPLIED",
+              actor: "system",
+              summary: `Approval autopilot filled ${candidate.packageAutofill.notes.slice(0, 2).map((note) => note.field.replaceAll("_", " ")).join(" and ")} for ${candidate.signal.sourceTitle}.`,
+              metadata: {
+                fields: candidate.packageAutofill.appliedFields.join(","),
+                completenessBefore: candidate.packageAutofill.completenessBefore.completenessState,
+                completenessAfter: candidate.packageAutofill.completenessAfter.completenessState,
+              },
+            },
+            ...candidate.packageAutofill.notes.flatMap((note): AuditEventInput[] =>
+              note.field === "cta"
+                ? [
+                    {
+                      signalId: candidate.signal.recordId,
+                      eventType: "CTA_AUTOFILLED",
+                      actor: "system",
+                      summary: `Auto-filled CTA for ${candidate.signal.sourceTitle}.`,
+                      metadata: {
+                        value: note.value,
+                      },
+                    },
+                  ]
+                : note.field === "destination"
+                  ? [
+                      {
+                        signalId: candidate.signal.recordId,
+                        eventType: "DESTINATION_AUTOFILLED",
+                        actor: "system",
+                        summary: `Auto-selected destination for ${candidate.signal.sourceTitle}.`,
+                        metadata: {
+                          value: note.value,
+                        },
+                      },
+                    ]
+                  : note.field === "asset_direction" || note.field === "asset_selection"
+                    ? [
+                        {
+                          signalId: candidate.signal.recordId,
+                          eventType: "ASSET_DIRECTION_AUTOFILLED",
+                          actor: "system",
+                          summary: `Auto-selected asset direction for ${candidate.signal.sourceTitle}.`,
+                          metadata: {
+                            value: note.value,
+                          },
+                        },
+                      ]
+                    : [],
+            ),
+          ]
+        : [];
 
       if (!candidate.fatigue.warnings[0]) {
-        return events;
+        return [...events, ...autofillEvents];
       }
 
       return [
@@ -158,10 +239,46 @@ export default async function ReviewPage() {
             severity: candidate.fatigue.warnings[0].severity,
           },
         },
+        ...autofillEvents,
       ];
     }),
   );
+  await appendAuditEventsSafe(
+    experimentProposals.slice(0, 4).map((proposal) => ({
+      signalId: proposal.signalId,
+      eventType: "EXPERIMENT_PROPOSED" as const,
+      actor: "system" as const,
+      summary: `Proposed ${proposal.experimentType.replaceAll("_", " ")} for ${proposal.sourceTitle}.`,
+      metadata: {
+        proposalId: proposal.proposalId,
+        experimentType: proposal.experimentType,
+        comparisonTarget: proposal.comparisonTarget,
+      },
+    })),
+  );
   const heldCases = autonomousAssessments.filter((item) => item.assessment.decision === "hold");
+  const experimentContextsBySignalId = Object.fromEntries(
+    approvalReadyCandidates.map((candidate) => {
+      const signalExperiments = listExperimentsForSignal(experiments, candidate.signal.recordId, postingEntries)
+        .map((experiment) => {
+          const matchingVariants = experiment.variants.filter((variant) => variant.linkedSignalIds.includes(candidate.signal.recordId));
+          if (matchingVariants.length === 0) {
+            return null;
+          }
+
+          return {
+            name: experiment.name,
+            statusLabel: getExperimentStatusLabel(experiment.status),
+            learningGoal: experiment.learningGoal,
+            comparisonTarget: experiment.comparisonTarget,
+            variantLabels: matchingVariants.map((variant) => variant.variantLabel),
+          };
+        })
+        .filter((experiment): experiment is NonNullable<typeof experiment> => Boolean(experiment));
+
+      return [candidate.signal.recordId, signalExperiments];
+    }),
+  );
   const postingEntriesBySignalId = indexPostingEntriesBySignalId(postingEntries);
   const postingSummaryBySignalId = Object.fromEntries(
     visibleSignals.map((signal) => [
@@ -263,6 +380,7 @@ export default async function ReviewPage() {
 
   const queueSummary = [
     { label: "Approval-ready", count: approvalReadyCandidates.length, href: "#approval-ready" },
+    { label: "Experiment proposals", count: experimentProposals.length, href: "#experiment-proposals" },
     { label: "Duplicate clusters", count: duplicateClusterRows.length + suggestedDuplicateClusterRows.length, href: "#duplicate-clusters" },
     { label: "Evergreen", count: evergreenSummary.surfacedCount, href: "#evergreen-resurfacing" },
     { label: "Borderline", count: borderlineRows.length, href: "#borderline-workbench" },
@@ -383,12 +501,15 @@ export default async function ReviewPage() {
         confirmedClusters={duplicateClusterRows}
       />
 
+      <ExperimentProposalSection proposals={experimentProposals} />
+
       <ApprovalQueueSection
         candidates={approvalReadyCandidates}
         strategy={strategy}
         cadence={cadence}
         weeklyPlan={weeklyPlan}
         weeklyPlanState={weeklyPlanState}
+        experimentContextsBySignalId={experimentContextsBySignalId}
       />
 
       <EvergreenResurfacingSection candidates={evergreenSummary.candidates} />

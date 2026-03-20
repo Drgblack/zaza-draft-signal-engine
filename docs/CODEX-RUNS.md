@@ -1,51 +1,39 @@
 # Codex Runs
 
 ## Current Run
-Run 51 adds Weekly Plan Auto-Draft:
-- new centralized proposal helper in `lib/weekly-plan-autodraft.ts`
-- `/plan` can now generate a bounded draft for next week using explicit structured state such as:
-  - active campaigns
-  - recent platform, funnel, and mode mix
-  - approval-ready queue supply and freshness
-  - strategic outcomes
-  - reusable winners and planning gaps
-- drafted plans stay structured and compact:
-  - proposed theme
-  - proposed goals
-  - proposed campaigns
-  - proposed target platforms
-  - proposed funnel mix
-  - proposed mode mix
-  - proposed fresh / evergreen / reused mix
-  - short proposal reasons
-  - identified gaps
-  - lightweight planning confidence
-- the operator can now:
-  - accept the draft as-is
-  - load the draft into the editor and save with edits
-  - dismiss the draft
-- saved plans now preserve bounded auto-draft metadata such as:
-  - manual vs auto-draft source
-  - proposal reasons
-  - identified gaps
-  - generated / accepted timestamps
-  - whether acceptance happened with edits
-- `/insights` now shows lightweight auto-draft visibility:
-  - whether the current plan is manual or auto-drafted
-  - auto-drafted week count
-  - accepted draft count
-  - edited-after-draft count
-  - common adjustment triggers
+Run 67 adds Approval Autopilot Package Filler:
+- new centralized helper in `lib/package-filler.ts`
+- near-complete approval-ready candidates can now receive bounded package autofill for:
+  - hook choice
+  - CTA choice
+  - destination link
+  - timing suggestion
+  - asset direction and primary asset selection
+  - attached revision guidance note
+  - attached learned edit-pattern note
+- autofill only runs when:
+  - the candidate already has generated drafts
+  - confidence is not low
+  - draft quality is not weak
+  - the package is near-complete rather than heavily incomplete
+  - no active experiment conflicts exist for the field being filled
+- explicit operator choices are preserved:
+  - existing hook, CTA, destination, timing, and asset selections are not overwritten
+  - experiment-linked CTA, destination, or hook fields are left untouched
+- approval ranking now uses the autofilled package view so completeness and queue priority improve before surfacing
+- `/review` now shows compact approval-autopilot notes on approval-ready cards
+- `/signals/[id]/review` now opens with the autofilled package state already visible and editable
+- `/insights` now shows lightweight approval-autopilot usage and field-frequency summaries
 - audit logging now supports:
-  - `WEEKLY_PLAN_AUTO_DRAFTED`
-  - `WEEKLY_PLAN_DRAFT_ACCEPTED`
-  - `WEEKLY_PLAN_DRAFT_EDITED`
-  - `WEEKLY_PLAN_DRAFT_DISMISSED`
+  - `PACKAGE_AUTOFILL_APPLIED`
+  - `CTA_AUTOFILLED`
+  - `DESTINATION_AUTOFILLED`
+  - `ASSET_DIRECTION_AUTOFILLED`
 - this run remains bounded:
-  - no autonomous acceptance
-  - no scheduling engine
-  - no forecasting model
-  - no drag-and-drop calendar
+  - no auto-posting
+  - no hidden locking
+  - no autonomous review completion
+  - no unbounded rewriting
 
 ## Previous Runs
 - Run 50 adds Site Link Registry + Real UTM Packaging:
@@ -1531,3 +1519,50 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
   - no drag-and-drop calendar
   - no hard blocking
   - advisory planning only
+
+## Run 65
+- added bounded expected-outcome ranking in `lib/expected-outcome-ranking.ts`
+- expected strategic value now combines explicit structured signals such as:
+  - package completeness
+  - confidence
+  - hypothesis quality
+  - similar strategic outcome history
+  - destination performance
+  - source quality
+  - fatigue
+  - campaign and funnel fit
+  - active experiment context
+  - reuse and revision guidance
+- approval queue ordering now blends readiness with expected commercial value instead of ranking mostly by finishing state
+- approval-ready cards now surface compact expected-value reasons and visible support or risk factors
+- `/insights` now includes a compact expected-outcome summary for the current approval-ready queue
+- added low-noise audit coverage for:
+  - `EXPECTED_OUTCOME_RANKING_COMPUTED`
+- kept the layer intentionally bounded:
+  - heuristic only
+  - no predictive ML
+  - no attribution modelling
+  - no auto-posting
+
+## Run 66
+- added autonomous experiment proposal logic in `lib/experiment-proposals.ts`
+- the system can now propose bounded experiments when meaningful uncertainty or tradeoffs exist, including:
+  - hook variant tests
+  - CTA variant tests
+  - destination tests
+  - editorial-mode tests
+  - platform-expression tests
+  - pattern-vs-no-pattern tests
+- proposals are surfaced in the review queue with compact confirm, dismiss, and postpone actions
+- confirming a proposal now creates a real experiment record with bounded variants attached and marked as system-proposed
+- approval-ready candidates and final review now show attached experiment context with variant labels, learning goal, and comparison target
+- `/insights` now lightly reflects open proposals, tracked experiment types, and system-proposed experiment activity
+- added audit coverage for:
+  - `EXPERIMENT_PROPOSED`
+  - `EXPERIMENT_PROPOSAL_CONFIRMED`
+  - `EXPERIMENT_PROPOSAL_DISMISSED`
+- kept the layer intentionally bounded:
+  - operator-confirmed only
+  - no automatic A/B engine
+  - no auto-posting or auto-scheduling
+  - no automatic winner selection
