@@ -332,7 +332,7 @@ export function PostingHistoryPanel({
               const strategicForm = strategicForms[entry.id] ?? createStrategicFormState(strategicOutcome);
 
               return (
-                <div key={entry.id} className="rounded-2xl bg-white/75 px-4 py-4">
+                <div id={`posting-log-${entry.id}`} key={entry.id} className="rounded-2xl bg-white/75 px-4 py-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge className="bg-emerald-50 text-emerald-700 ring-emerald-200">

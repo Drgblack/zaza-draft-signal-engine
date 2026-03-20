@@ -6,6 +6,8 @@ import { listSignalsWithFallback } from "@/lib/airtable";
 import { appendAuditEventsSafe, listAuditEvents } from "@/lib/audit";
 import { BUNDLE_COVERAGE_STRENGTH_LABELS, type BundleCoverageStrength } from "@/lib/bundle-coverage";
 import { buildCampaignCadenceSummary, buildCampaignDistributionInsights, getCampaignStrategy } from "@/lib/campaigns";
+import { buildExperimentInsights, listExperiments } from "@/lib/experiments";
+import { buildFatigueModel } from "@/lib/fatigue";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { listPlaybookCards } from "@/lib/playbook-cards";
@@ -146,6 +148,7 @@ export default async function InsightsPage({
   const postingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
   const strategicOutcomes = await listStrategicOutcomes();
+  const experiments = await listExperiments();
   const patterns = await listPatterns();
   const allPatterns = await listPatterns({ includeRetired: true });
   const bundles = await listPatternBundles();
@@ -193,6 +196,27 @@ export default async function InsightsPage({
     postingEntries,
     strategicOutcomes,
   );
+  const experimentInsights = buildExperimentInsights({
+    experiments,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+  });
+  const recentSignals = [...signals]
+    .sort(
+      (left, right) =>
+        new Date(right.createdDate).getTime() - new Date(left.createdDate).getTime() ||
+        left.sourceTitle.localeCompare(right.sourceTitle),
+    )
+    .slice(0, 16);
+  const fatigueModel = buildFatigueModel({
+    subjects: recentSignals.map((signal) => ({
+      id: signal.recordId,
+      signal,
+    })),
+    signals,
+    postingEntries,
+  });
   await appendAuditEventsSafe(
     insights.playbook.topCoverageGaps.map((gap) => ({
       signalId: `playbook-gap:${gap.key}`,
@@ -211,6 +235,41 @@ export default async function InsightsPage({
       },
     })),
   );
+  await appendAuditEventsSafe(
+    fatigueModel.topWarnings.map((warning) => ({
+      signalId: `fatigue:${warning.dimension}:${warning.key}`,
+      eventType: "FATIGUE_WARNING_SHOWN",
+      actor: "system",
+      summary: warning.summary,
+      metadata: {
+        dimension: warning.dimension,
+        label: warning.label,
+        severity: warning.severity,
+        count: warning.count,
+        total: warning.total,
+      },
+    })),
+  );
+  const topDestinationInsight = insights.publishPrep.strongestDestinationRows[0];
+  if (topDestinationInsight && (topDestinationInsight.highValueCount >= 2 || topDestinationInsight.leadTotal > 0)) {
+    await appendAuditEventsSafe([
+      {
+        signalId: `destination-insight:${topDestinationInsight.key}`,
+        eventType: "DESTINATION_INSIGHT_COMPUTED",
+        actor: "system",
+        summary: `${topDestinationInsight.label} is currently the strongest destination for manual strategic value.`,
+        metadata: {
+          destinationKey: topDestinationInsight.key,
+          label: topDestinationInsight.label,
+          highValueCount: topDestinationInsight.highValueCount,
+          leadTotal: topDestinationInsight.leadTotal,
+          clickTotal: topDestinationInsight.clickTotal,
+          topPlatformLabel: topDestinationInsight.topPlatformLabel,
+          topFunnelLabel: topDestinationInsight.topFunnelLabel,
+        },
+      },
+    ]);
+  }
   const scoredStage = insights.pipeline.stages.find((stage) => stage.key === "scored");
   const interpretedStage = insights.pipeline.stages.find((stage) => stage.key === "interpreted");
   const generatedStage = insights.pipeline.stages.find((stage) => stage.key === "generated");
@@ -268,6 +327,35 @@ export default async function InsightsPage({
               </div>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Content Fatigue</CardTitle>
+          <CardDescription>
+            Repetition warnings across recent records and posting history. This layer is advisory only and never auto-suppresses content.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {fatigueModel.topWarnings.length === 0 ? (
+            <EmptyState copy="No strong fatigue signal is dominating the recent mix." />
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {fatigueModel.topWarnings.map((warning) => (
+                <div key={`${warning.dimension}:${warning.key}`} className="rounded-2xl bg-white/80 px-4 py-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className={warning.severity === "moderate" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                      {warning.severity === "moderate" ? "Moderate fatigue" : "Light fatigue"}
+                    </Badge>
+                    <Badge className="bg-sky-50 text-sky-700 ring-sky-200">{warning.count} / {warning.total}</Badge>
+                  </div>
+                  <p className="mt-3 font-medium text-slate-950">{warning.summary}</p>
+                  <p className="mt-2 text-sm text-slate-600">{warning.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -361,6 +449,100 @@ export default async function InsightsPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Manual Experiments</CardTitle>
+          <CardDescription>
+            Bounded operator-run comparisons such as hook A vs B, CTA style A vs B, editorial mode shifts, or destination tests.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Active"
+              value={String(experimentInsights.activeCount)}
+              detail="Experiments still gathering evidence."
+            />
+            <MetricCard
+              label="Completed"
+              value={String(experimentInsights.completedCount)}
+              detail="Experiments the operator has explicitly closed."
+            />
+            <MetricCard
+              label="Top active"
+              value={experimentInsights.activeExperiments[0]?.name ?? "None yet"}
+              detail={experimentInsights.activeExperiments[0]?.comparisonSummary ?? "No active comparison is stable enough yet."}
+            />
+            <MetricCard
+              label="Top completed"
+              value={experimentInsights.completedExperiments[0]?.name ?? "None yet"}
+              detail={experimentInsights.completedExperiments[0]?.comparisonSummary ?? "No completed comparison is stable enough yet."}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Active experiments</p>
+              <div className="mt-3 space-y-3">
+                {experimentInsights.activeExperiments.length === 0 ? (
+                  <EmptyState copy="No active experiments are being tracked right now." />
+                ) : (
+                  experimentInsights.activeExperiments.map((experiment) => (
+                    <div key={experiment.experimentId} className="rounded-2xl bg-white/80 px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-medium text-slate-950">{experiment.name}</p>
+                        <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{experiment.variantCount} variants</Badge>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">{experiment.comparisonSummary ?? experiment.hypothesis}</p>
+                      <p className="mt-2 text-sm text-slate-500">
+                        {experiment.highValueCount} high-value · {experiment.leadTotal} leads · {experiment.clickTotal} clicks
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Completed experiments</p>
+              <div className="mt-3 space-y-3">
+                {experimentInsights.completedExperiments.length === 0 ? (
+                  <EmptyState copy="No completed experiments have enough linked evidence yet." />
+                ) : (
+                  experimentInsights.completedExperiments.map((experiment) => (
+                    <div key={experiment.experimentId} className="rounded-2xl bg-white/80 px-4 py-4">
+                      <p className="font-medium text-slate-950">{experiment.name}</p>
+                      <p className="mt-2 text-sm text-slate-600">{experiment.comparisonSummary ?? experiment.hypothesis}</p>
+                      <p className="mt-2 text-sm text-slate-500">
+                        {experiment.highValueCount} high-value · {experiment.leadTotal} leads
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Comparison summaries</p>
+              <div className="mt-3 space-y-3">
+                {experimentInsights.summaries.length === 0 ? (
+                  <EmptyState copy="No experiment has enough outcome evidence to summarize cleanly yet." />
+                ) : (
+                  experimentInsights.summaries.map((summary) => (
+                    <div key={summary} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                      {summary}
+                    </div>
+                  ))
+                )}
+                <Link href="/experiments" className="inline-block text-sm text-[color:var(--accent)] underline underline-offset-4">
+                  Open experiments
+                </Link>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <Card>
@@ -1792,14 +1974,16 @@ export default async function InsightsPage({
                 label="Top destination"
                 value={insights.publishPrep.topDestinationLabel ?? "None yet"}
                 detail={
-                  insights.publishPrep.topHighValueDestinationLabel
-                    ? `${insights.publishPrep.topHighValueDestinationLabel} currently has the strongest high-value outcome linkage.`
+                  insights.publishPrep.topDestinationGuidance
+                    ? insights.publishPrep.topDestinationGuidance
+                    : insights.publishPrep.topHighValueDestinationLabel
+                      ? `${insights.publishPrep.topHighValueDestinationLabel} currently has the strongest high-value outcome linkage.`
                     : "No destination-outcome pattern is stable enough yet."
                 }
               />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-400">By platform</p>
                 <div className="mt-3 space-y-3">
@@ -1816,7 +2000,7 @@ export default async function InsightsPage({
                 </div>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Site destinations</p>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top destinations used</p>
                 <div className="mt-3 space-y-3">
                   {insights.publishPrep.destinationRows.length === 0 ? (
                     <EmptyState copy="No site-link destination usage is stable enough to summarize yet." />
@@ -1827,19 +2011,69 @@ export default async function InsightsPage({
                           <span className="text-sm text-slate-600">{row.label}</span>
                           <span className="text-lg font-semibold text-slate-950">{row.count}</span>
                         </div>
-                        <p className="mt-2 text-sm text-slate-500">{row.highValueCount} high-value strategic outcomes linked.</p>
+                        <p className="mt-2 text-sm text-slate-500">
+                          {row.highValueCount} high · {row.mediumValueCount} medium · {row.lowValueCount} low
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {row.clickTotal} clicks · {row.leadTotal} leads
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          CTA alignment: {row.alignedCtaCount} aligned{row.misalignedCtaCount > 0 ? ` · ${row.misalignedCtaCount} misaligned` : ""}
+                        </p>
+                        {row.guidanceNote ? <p className="mt-2 text-xs text-slate-600">{row.guidanceNote}</p> : null}
                       </div>
                     ))
                   )}
                 </div>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Hook styles</p>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Strongest destinations</p>
                 <div className="mt-3 space-y-3">
-                  {insights.publishPrep.hookStyleRows.length === 0 ? (
-                    <EmptyState copy="No selected publish hooks are stable enough to summarize yet." />
+                  {insights.publishPrep.strongestDestinationRows.length === 0 ? (
+                    <EmptyState copy="No destination has enough manual strategic outcome data to stand out yet." />
                   ) : (
-                    insights.publishPrep.hookStyleRows.map((row) => (
+                    insights.publishPrep.strongestDestinationRows.map((row) => (
+                      <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm text-slate-600">{row.label}</span>
+                          <span className="text-lg font-semibold text-slate-950">{row.highValueCount}</span>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-500">
+                          {row.topPlatformLabel ?? "Posted"}{row.topFunnelLabel ? ` · ${row.topFunnelLabel}` : ""} · {row.leadTotal} leads
+                        </p>
+                        {row.guidanceNote ? <p className="mt-2 text-xs text-slate-600">{row.guidanceNote}</p> : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Underperforming destinations</p>
+                <div className="mt-3 space-y-3">
+                  {insights.publishPrep.underperformingDestinationRows.length === 0 ? (
+                    <EmptyState copy="No destination is clearly underperforming yet." />
+                  ) : (
+                    insights.publishPrep.underperformingDestinationRows.map((row) => (
+                      <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm text-slate-600">{row.label}</span>
+                          <span className="text-lg font-semibold text-slate-950">{row.lowValueCount}</span>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-500">
+                          {row.highValueCount} high · {row.mediumValueCount} medium · {row.lowValueCount} low
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">CTA goal to destination</p>
+                <div className="mt-3 space-y-3">
+                  {insights.publishPrep.ctaGoalDestinationRows.length === 0 ? (
+                    <EmptyState copy="No CTA-to-destination pairing is stable enough to summarize yet." />
+                  ) : (
+                    insights.publishPrep.ctaGoalDestinationRows.slice(0, 5).map((row) => (
                       <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
                         <span className="text-sm text-slate-600">{row.label}</span>
                         <span className="text-lg font-semibold text-slate-950">{row.count}</span>
@@ -1855,21 +2089,6 @@ export default async function InsightsPage({
                     <EmptyState copy="No selected CTA patterns are visible yet." />
                   ) : (
                     insights.publishPrep.ctaStyleRows.map((row) => (
-                      <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
-                        <span className="text-sm text-slate-600">{row.label}</span>
-                        <span className="text-lg font-semibold text-slate-950">{row.count}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">CTA goal to destination</p>
-                <div className="mt-3 space-y-3">
-                  {insights.publishPrep.ctaGoalDestinationRows.length === 0 ? (
-                    <EmptyState copy="No CTA-to-destination pairing is stable enough to summarize yet." />
-                  ) : (
-                    insights.publishPrep.ctaGoalDestinationRows.slice(0, 5).map((row) => (
                       <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
                         <span className="text-sm text-slate-600">{row.label}</span>
                         <span className="text-lg font-semibold text-slate-950">{row.count}</span>

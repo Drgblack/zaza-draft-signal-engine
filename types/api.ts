@@ -54,6 +54,10 @@ import type { AudienceSegment, Campaign, CampaignStrategy, ContentPillar } from 
 import type { DuplicateCluster } from "@/lib/duplicate-clusters";
 import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
+import type {
+  ExperimentInsights,
+  ManualExperiment,
+} from "@/lib/experiments";
 import {
   TUNING_PRESETS,
   operatorTuningSettingsSchema,
@@ -301,6 +305,17 @@ export const finalReviewUpdateRequestSchema = z.object({
   selectedVideoConceptId: optionalNullableString,
   generatedImageUrl: optionalNullableString,
   evergreenCandidateId: optionalNullableString,
+  appliedEditSuggestions: z
+    .array(
+      z.object({
+        key: z.string().trim().min(1),
+        platform: z.enum(["x", "linkedin", "reddit"]),
+        patternType: z.enum(["shortened_hook", "softened_tone", "removed_claim", "changed_cta"]),
+        label: z.string().trim().min(1),
+      }),
+    )
+    .max(12)
+    .optional(),
 });
 
 export const ingestRequestSchema = z.object({
@@ -391,6 +406,24 @@ export const duplicateClusterActionRequestSchema = z.object({
   cluster: duplicateClusterInputSchema,
   targetSignalId: optionalNullableString,
 });
+export const borderlineReviewActionSchema = z.enum([
+  "open_workbench",
+  "approve_anyway",
+  "reject",
+  "apply_repair",
+  "request_more_context",
+]);
+export const borderlineReviewRequestSchema = z.object({
+  action: borderlineReviewActionSchema,
+  note: optionalNullableString,
+});
+export {
+  experimentActionRequestSchema,
+  experimentAssignVariantRequestSchema,
+  experimentCloseRequestSchema,
+  experimentCreateRequestSchema,
+  experimentStatusSchema,
+} from "@/lib/experiments";
 
 export const campaignStatusSchema = z.enum(["active", "inactive"]);
 
@@ -781,6 +814,25 @@ export interface DuplicateClusterActionResponse {
   error?: string;
 }
 
+export interface BorderlineReviewResponse {
+  success: boolean;
+  persisted: boolean;
+  source: SignalDataSource;
+  signal: SignalRecord | null;
+  message: string;
+  error?: string;
+}
+
+export interface ExperimentResponse {
+  success: boolean;
+  persisted: boolean;
+  experiment: ManualExperiment | null;
+  experiments: ManualExperiment[];
+  insights: ExperimentInsights;
+  message: string;
+  error?: string;
+}
+
 export function normalizeSeverityScore(value: unknown): SeverityScore | null {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -992,6 +1044,12 @@ export function toFinalReviewSavePayload(
     selectedVideoConceptId: normalizeOptionalString(value.selectedVideoConceptId),
     generatedImageUrl: normalizeOptionalString(value.generatedImageUrl),
     evergreenCandidateId: normalizeOptionalString(value.evergreenCandidateId),
+    appliedEditSuggestions: value.appliedEditSuggestions?.map((suggestion) => ({
+      key: suggestion.key,
+      platform: suggestion.platform,
+      patternType: suggestion.patternType,
+      label: suggestion.label.trim(),
+    })),
   };
 }
 

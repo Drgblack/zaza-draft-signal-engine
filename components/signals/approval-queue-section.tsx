@@ -32,6 +32,26 @@ function confidenceClasses(level: UnifiedGuidance["confidence"]["confidenceLevel
   return "bg-slate-100 text-slate-700 ring-slate-200";
 }
 
+function completenessClasses(state: ApprovalQueueCandidate["completeness"]["completenessState"]) {
+  switch (state) {
+    case "complete":
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+    case "mostly_complete":
+      return "bg-sky-50 text-sky-700 ring-sky-200";
+    case "incomplete":
+    default:
+      return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+}
+
+function fatigueClasses(severity: "low" | "moderate") {
+  if (severity === "moderate") {
+    return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+
+  return "bg-slate-100 text-slate-700 ring-slate-200";
+}
+
 function stageLabel(stage: AutoAdvanceAssessment["stage"]): string {
   switch (stage) {
     case "auto_interpret":
@@ -170,6 +190,14 @@ export function ApprovalQueueSection({
                       <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${confidenceClasses(candidate.guidance.confidence.confidenceLevel)}`}>
                         {getEditorialConfidenceLabel(candidate.guidance.confidence.confidenceLevel)} confidence
                       </span>
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${completenessClasses(candidate.completeness.completenessState)}`}>
+                        {candidate.completeness.completenessState.replaceAll("_", " ")}
+                      </span>
+                      {candidate.fatigue.warnings[0] ? (
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${fatigueClasses(candidate.fatigue.warnings[0].severity)}`}>
+                          Fatigue warning
+                        </span>
+                      ) : null}
                       {candidate.assessment.draftQuality ? (
                         <span className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 ring-1 ring-inset ring-sky-200">
                           Draft quality {candidate.assessment.draftQuality.label}
@@ -219,8 +247,36 @@ export function ApprovalQueueSection({
                   </div>
                   <div className="min-w-72 space-y-3 rounded-2xl bg-slate-50/80 p-4 text-sm text-slate-600">
                     <div>
+                      <p className="font-medium text-slate-900">Post hypothesis</p>
+                      <p className="mt-2">
+                        <span className="font-medium text-slate-900">Objective:</span> {candidate.hypothesis.objective}
+                      </p>
+                      <p className="mt-2">
+                        <span className="font-medium text-slate-900">Why it may work:</span> {candidate.hypothesis.whyItMayWork}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {candidate.hypothesis.keyLevers.map((lever) => (
+                          <span key={lever} className="inline-flex rounded-full bg-white/80 px-2.5 py-1 text-xs font-medium text-slate-700">
+                            {lever}
+                          </span>
+                        ))}
+                      </div>
+                      {candidate.hypothesis.riskNote ? <p className="mt-3 text-slate-500">Watch: {candidate.hypothesis.riskNote}</p> : null}
+                    </div>
+                    <div>
                       <p className="font-medium text-slate-900">Why it ranked high</p>
                       <p className="mt-2">{candidate.rankReasons.join(" · ") || "Strong support surfaced."}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-900">Package completeness</p>
+                      <p className="mt-2">
+                        Score {candidate.completeness.completenessScore} · {candidate.completeness.completenessState.replaceAll("_", " ")}
+                      </p>
+                      {candidate.completeness.missingElements.length > 0 ? (
+                        <p className="mt-2 text-slate-500">Missing: {candidate.completeness.missingElements.join(" · ")}</p>
+                      ) : (
+                        <p className="mt-2 text-slate-500">No major package gaps detected.</p>
+                      )}
                     </div>
                     <div>
                       <p className="font-medium text-slate-900">Strategy balance</p>
@@ -234,6 +290,26 @@ export function ApprovalQueueSection({
                             : "This item fits the current strategy mix without creating a strong repetition signal."}
                       </p>
                       {planAlignment.cautions[0] ? <p className="mt-2 text-slate-500">Caution: {planAlignment.cautions[0]}</p> : null}
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-900">Fatigue check</p>
+                      {candidate.fatigue.warnings.length > 0 ? (
+                        <div className="mt-2 space-y-2">
+                          {candidate.fatigue.warnings.map((warning) => (
+                            <div key={`${warning.dimension}:${warning.key}`} className="rounded-2xl bg-white/70 px-3 py-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${fatigueClasses(warning.severity)}`}>
+                                  {warning.severity === "moderate" ? "Moderate fatigue" : "Light fatigue"}
+                                </span>
+                                <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{warning.label}</span>
+                              </div>
+                              <p className="mt-2">{warning.summary}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2">No strong repetition signal surfaced for this candidate.</p>
+                      )}
                     </div>
                     <div>
                       <p className="font-medium text-slate-900">Playbook / pattern support</p>

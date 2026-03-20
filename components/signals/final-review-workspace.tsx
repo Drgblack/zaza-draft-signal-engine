@@ -45,6 +45,8 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import type { CandidateHypothesis } from "@/lib/hypotheses";
+import { evaluateApprovalPackageCompleteness } from "@/lib/completeness";
 import { buildFinalReviewSummary } from "@/lib/final-review";
 import {
   buildSignalPostingSummary,
@@ -82,6 +84,143 @@ type PostingFormState = {
   postUrl: string;
   note: string;
 };
+
+type EditSuggestionOption = {
+  key: string;
+  label: string;
+  summary: string;
+  reason: string;
+  platform: "x" | "linkedin" | "reddit";
+  patternType: "shortened_hook" | "softened_tone" | "removed_claim" | "changed_cta";
+  frequency: number | null;
+};
+
+type RevisionGuidanceInsight = {
+  platform: "x" | "linkedin" | "reddit";
+  headline: string;
+  positive: string | null;
+  caution: string | null;
+  evidenceCount: number;
+};
+
+function replaceFirstNonEmptyLine(text: string, updater: (line: string) => string): string {
+  const lines = text.split(/\r?\n/);
+  const index = lines.findIndex((line) => line.trim().length > 0);
+  if (index < 0) {
+    return text;
+  }
+
+  const nextLine = updater(lines[index].trim());
+  if (!nextLine || nextLine === lines[index].trim()) {
+    return text;
+  }
+
+  lines[index] = nextLine;
+  return lines.join("\n");
+}
+
+function replaceLastNonEmptyLine(text: string, updater: (line: string) => string): string {
+  const lines = text.split(/\r?\n/);
+  const index = [...lines].reverse().findIndex((line) => line.trim().length > 0);
+  if (index < 0) {
+    return text;
+  }
+
+  const targetIndex = lines.length - index - 1;
+  const nextLine = updater(lines[targetIndex].trim());
+  if (!nextLine || nextLine === lines[targetIndex].trim()) {
+    return text;
+  }
+
+  lines[targetIndex] = nextLine;
+  return lines.join("\n");
+}
+
+function tightenHookDraft(text: string): string {
+  return replaceFirstNonEmptyLine(text, (line) => {
+    const sentence = line.split(/(?<=[.!?])\s+/)[0]?.trim() ?? line;
+    const clause = sentence.split(/[;,:]/)[0]?.trim() ?? sentence;
+    const words = clause.split(/\s+/).filter(Boolean);
+    if (words.length < 13) {
+      return line;
+    }
+
+    const nextLead = `${words.slice(0, 12).join(" ").replace(/[.?!]+$/g, "")}.`;
+    return line === sentence ? nextLead : line.replace(sentence, nextLead);
+  });
+}
+
+function softenToneDraft(text: string): string {
+  const replacements: Array<[RegExp, string]> = [
+    [/\balways\b/gi, "often"],
+    [/\bnever\b/gi, "rarely"],
+    [/\bclearly\b/gi, ""],
+    [/\bobviously\b/gi, ""],
+    [/\bdefinitely\b/gi, ""],
+    [/\bguarantee\b/gi, "can support"],
+    [/\beveryone\b/gi, "many teachers"],
+    [/\bnobody\b/gi, "very few people"],
+    [/\bmust\b/gi, "may need to"],
+    [/\burgent\b/gi, "important"],
+    [/\bimmediately\b/gi, "soon"],
+  ];
+
+  let nextText = text;
+  for (const [pattern, replacement] of replacements) {
+    nextText = nextText.replace(pattern, replacement);
+  }
+
+  nextText = nextText.replace(/!/g, ".").replace(/[ \t]{2,}/g, " ").replace(/\s+\./g, ".").trim();
+  return nextText || text;
+}
+
+function softenCtaDraft(text: string): string {
+  return replaceLastNonEmptyLine(text, (line) => {
+    let nextLine = line;
+    const targetedReplacements: Array<[RegExp, string]> = [
+      [/\bDM me\b/i, "If helpful, DM me"],
+      [/\bMessage me\b/i, "If helpful, message me"],
+      [/\bComment below\b/i, "If useful, comment below"],
+      [/\bComment\b/i, "If useful, comment"],
+      [/\bReply\b/i, "If useful, reply"],
+      [/\bShare this\b/i, "If relevant, share this"],
+      [/\bSave this\b/i, "If you want it later, save this"],
+      [/\bTry Zaza Draft\b/i, "If you want help with the wording, try Zaza Draft"],
+      [/\bTry it\b/i, "If helpful, try it"],
+      [/\bVisit\b/i, "If useful, visit"],
+    ];
+
+    for (const [pattern, replacement] of targetedReplacements) {
+      if (pattern.test(nextLine)) {
+        nextLine = nextLine.replace(pattern, replacement);
+      }
+    }
+
+    if (nextLine === line && /^(comment|reply|share|save|join|follow|visit|click|read|watch|try)\b/i.test(line)) {
+      nextLine = `If helpful, ${line.charAt(0).toLowerCase()}${line.slice(1)}`;
+    }
+
+    nextLine = nextLine.replace(/!/g, ".").replace(/\s{2,}/g, " ").trim();
+    return nextLine || line;
+  });
+}
+
+function applyEditSuggestionTransform(
+  text: string,
+  patternType: EditSuggestionOption["patternType"],
+): string {
+  switch (patternType) {
+    case "shortened_hook":
+      return tightenHookDraft(text);
+    case "softened_tone":
+      return softenToneDraft(text);
+    case "removed_claim":
+      return softenToneDraft(text);
+    case "changed_cta":
+    default:
+      return softenCtaDraft(text);
+  }
+}
 
 function toneClasses(tone: "success" | "warning" | "error") {
   switch (tone) {
@@ -217,6 +356,10 @@ export function FinalReviewWorkspace({
   signal,
   source,
   appliedPatternName,
+  editSuggestions,
+  revisionGuidance,
+  guidanceConfidenceLevel,
+  hypothesis,
   initialPostingEntries,
   weeklyPlanContext,
   evergreenContext,
@@ -224,6 +367,10 @@ export function FinalReviewWorkspace({
   signal: SignalRecord;
   source: SignalDataSource;
   appliedPatternName: string | null;
+  editSuggestions: Record<"x" | "linkedin" | "reddit", EditSuggestionOption[]>;
+  revisionGuidance: Record<"x" | "linkedin" | "reddit", RevisionGuidanceInsight>;
+  guidanceConfidenceLevel: "high" | "moderate" | "low";
+  hypothesis: CandidateHypothesis;
   initialPostingEntries: PostingLogEntry[];
   weeklyPlanContext?: {
     weekLabel: string;
@@ -246,6 +393,9 @@ export function FinalReviewWorkspace({
   }));
   const [isSaving, setIsSaving] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
+  const [appliedEditSuggestions, setAppliedEditSuggestions] = useState<
+    Array<Pick<EditSuggestionOption, "key" | "platform" | "patternType" | "label">>
+  >([]);
   const [feedback, setFeedback] = useState<{
     tone: "success" | "warning" | "error";
     title: string;
@@ -259,9 +409,9 @@ export function FinalReviewWorkspace({
     () => JSON.stringify(formState) !== JSON.stringify(savedState),
     [formState, savedState],
   );
-  const reviewSummary = useMemo(
-    () =>
-      buildFinalReviewSummary({
+  const reviewState = useMemo(
+    () => {
+      const previewSignal = {
         ...currentSignal,
         finalXDraft:
           formState.finalXDraft !== savedState.finalXDraft ? formState.finalXDraft.trim() || null : currentSignal.finalXDraft,
@@ -316,8 +466,17 @@ export function FinalReviewWorkspace({
           formState.selectedRepurposedOutputIdsJson !== savedState.selectedRepurposedOutputIdsJson
             ? formState.selectedRepurposedOutputIdsJson.trim() || null
             : currentSignal.selectedRepurposedOutputIdsJson,
-      }),
-    [currentSignal, formState, savedState],
+      };
+
+      return {
+        reviewSummary: buildFinalReviewSummary(previewSignal),
+        completeness: evaluateApprovalPackageCompleteness({
+          signal: previewSignal,
+          guidanceConfidenceLevel,
+        }),
+      };
+    },
+    [currentSignal, formState, guidanceConfidenceLevel, savedState],
   );
   const postingSummary = useMemo(
     () => buildSignalPostingSummary(currentSignal, postingEntries),
@@ -356,6 +515,58 @@ export function FinalReviewWorkspace({
 
   function updateField<K extends keyof ReviewFormState>(key: K, value: ReviewFormState[K]) {
     setFormState((current) => ({ ...current, [key]: value }));
+  }
+
+  function getDraftValue(platform: EditSuggestionOption["platform"]): string {
+    switch (platform) {
+      case "x":
+        return formState.finalXDraft;
+      case "linkedin":
+        return formState.finalLinkedInDraft;
+      case "reddit":
+      default:
+        return formState.finalRedditDraft;
+    }
+  }
+
+  function setDraftValue(platform: EditSuggestionOption["platform"], value: string) {
+    if (platform === "x") {
+      updateField("finalXDraft", value);
+    } else if (platform === "linkedin") {
+      updateField("finalLinkedInDraft", value);
+    } else {
+      updateField("finalRedditDraft", value);
+    }
+  }
+
+  function applyEditSuggestion(suggestion: EditSuggestionOption) {
+    const currentValue = getDraftValue(suggestion.platform);
+    const nextValue = applyEditSuggestionTransform(currentValue, suggestion.patternType);
+    if (nextValue === currentValue) {
+      setFeedback({
+        tone: "warning",
+        title: "Suggestion left draft unchanged",
+        body: "This suggestion did not find a safe, explainable edit to apply to the current draft.",
+      });
+      return;
+    }
+
+    setDraftValue(suggestion.platform, nextValue);
+    setAppliedEditSuggestions((current) => {
+      const next = current.filter((entry) => entry.key !== suggestion.key);
+      next.push({
+        key: suggestion.key,
+        platform: suggestion.platform,
+        patternType: suggestion.patternType,
+        label: suggestion.label,
+      });
+      return next;
+    });
+    setFeedback({
+      tone: "success",
+      title: "Suggestion applied",
+      body: `${suggestion.label} updated the ${getPostingPlatformLabel(suggestion.platform)} draft. Review the edit before saving.`,
+    });
   }
 
   function updateAssetBundle(mutator: (bundle: AssetBundle) => AssetBundle) {
@@ -598,6 +809,7 @@ export function FinalReviewWorkspace({
           publishPrepBundleJson: formState.publishPrepBundleJson || null,
           selectedRepurposedOutputIdsJson: formState.selectedRepurposedOutputIdsJson || null,
           evergreenCandidateId: evergreenContext?.id ?? null,
+          appliedEditSuggestions,
         }),
       });
 
@@ -617,6 +829,7 @@ export function FinalReviewWorkspace({
       setCurrentSignal(data.signal);
       setFormState(nextState);
       setSavedState(nextState);
+      setAppliedEditSuggestions([]);
       setFeedback({
         tone: data.source === "airtable" ? "success" : "warning",
         title: data.source === "airtable" ? "Saved to Airtable" : "Saved in mock mode",
@@ -700,20 +913,66 @@ export function FinalReviewWorkspace({
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl bg-white/80 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Review readiness</p>
-              <p className="mt-2 text-sm font-medium text-slate-950">{reviewSummary.summary}</p>
+              <p className="mt-2 text-sm font-medium text-slate-950">{reviewState.reviewSummary.summary}</p>
             </div>
             <div className="rounded-2xl bg-white/80 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Ready now</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{reviewSummary.readyCount}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{reviewState.reviewSummary.readyCount}</p>
             </div>
             <div className="rounded-2xl bg-white/80 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Needs edit</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{reviewSummary.needsEditCount}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{reviewState.reviewSummary.needsEditCount}</p>
             </div>
             <div className="rounded-2xl bg-white/80 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Skipped</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{reviewSummary.skipCount}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{reviewState.reviewSummary.skipCount}</p>
             </div>
+          </div>
+
+          <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-medium text-slate-900">Approval package checklist</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {reviewState.completeness.completenessState.replaceAll("_", " ")} · score {reviewState.completeness.completenessScore}
+                </p>
+              </div>
+              {reviewState.completeness.missingElements.length > 0 ? (
+                <p className="text-xs text-slate-500">Missing: {reviewState.completeness.missingElements.join(" · ")}</p>
+              ) : (
+                <p className="text-xs text-emerald-700">No major package gaps detected.</p>
+              )}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {reviewState.completeness.checklist.map((item) => (
+                <span
+                  key={item.key}
+                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                    item.ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                  }`}
+                >
+                  {item.label}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+            <p className="font-medium text-slate-900">Post hypothesis</p>
+            <p className="mt-2">
+              <span className="font-medium text-slate-900">Objective:</span> {hypothesis.objective}
+            </p>
+            <p className="mt-2">
+              <span className="font-medium text-slate-900">Why it may work:</span> {hypothesis.whyItMayWork}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {hypothesis.keyLevers.map((lever) => (
+                <span key={lever} className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                  {lever}
+                </span>
+              ))}
+            </div>
+            {hypothesis.riskNote ? <p className="mt-3 text-xs text-slate-500">Watch: {hypothesis.riskNote}</p> : null}
           </div>
 
           <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
@@ -834,7 +1093,7 @@ export function FinalReviewWorkspace({
             <div className="rounded-2xl bg-white/80 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Review state</p>
               <p className="mt-2 text-sm leading-6 text-slate-700">
-                {reviewSummary.started ? "Final review started" : "Final review not started"}
+                {reviewState.reviewSummary.started ? "Final review started" : "Final review not started"}
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 {source === "airtable" ? "Live Airtable review state" : "Mock review state"} · {isDirty ? "Unsaved changes" : "All review fields saved"}
@@ -896,6 +1155,55 @@ export function FinalReviewWorkspace({
                 <p className="font-medium text-slate-900">Generated draft</p>
                 <p className="mt-2 whitespace-pre-wrap">{panel.generatedValue || "No generated draft saved."}</p>
               </div>
+              {revisionGuidance[panel.key].positive || revisionGuidance[panel.key].caution ? (
+                <div className="rounded-2xl bg-sky-50/80 px-4 py-4 text-sm text-sky-950">
+                  <p className="font-medium">{revisionGuidance[panel.key].headline}</p>
+                  {revisionGuidance[panel.key].positive ? (
+                    <p className="mt-2">
+                      <span className="font-medium">Posts like this performed better when...</span>{" "}
+                      {revisionGuidance[panel.key].positive}
+                    </p>
+                  ) : null}
+                  {revisionGuidance[panel.key].caution ? (
+                    <p className="mt-2">
+                      <span className="font-medium">This pattern underperforms when...</span>{" "}
+                      {revisionGuidance[panel.key].caution}
+                    </p>
+                  ) : null}
+                  <p className="mt-2 text-xs text-sky-800">
+                    Advisory only. Grounded in {revisionGuidance[panel.key].evidenceCount} comparable posted draft
+                    {revisionGuidance[panel.key].evidenceCount === 1 ? "" : "s"} with outcome data.
+                  </p>
+                </div>
+              ) : null}
+              {(editSuggestions[panel.key] ?? []).length > 0 ? (
+                <div className="rounded-2xl bg-emerald-50/80 px-4 py-4 text-sm text-emerald-900">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium">Edit learning</p>
+                      <p className="mt-1 text-xs text-emerald-800">
+                        Suggestions only. Nothing applies unless you click it.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-3">
+                    {editSuggestions[panel.key].map((suggestion) => (
+                      <div key={suggestion.key} className="rounded-2xl bg-white/80 px-3 py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-slate-900">{suggestion.label}</p>
+                            <p className="mt-1 text-sm text-slate-700">{suggestion.summary}</p>
+                            <p className="mt-1 text-xs text-slate-500">{suggestion.reason}</p>
+                          </div>
+                          <Button type="button" variant="secondary" size="sm" onClick={() => applyEditSuggestion(suggestion)}>
+                            Apply
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="grid gap-2">
                 <Label htmlFor={`${panel.key}-final`}>Final editable draft</Label>
                 <Textarea

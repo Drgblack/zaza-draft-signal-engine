@@ -8,11 +8,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
 import { getAuditEvents } from "@/lib/audit";
 import { getCampaignStrategy } from "@/lib/campaigns";
+import { buildEditPatternSuggestions, listLearnedEditPatterns } from "@/lib/edit-patterns";
 import { buildEvergreenSummary, getEvergreenCandidateById } from "@/lib/evergreen";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { buildFinalReviewSummary } from "@/lib/final-review";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
+import { appendAuditEventsSafe } from "@/lib/audit";
+import { buildCandidateHypothesis } from "@/lib/hypotheses";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
@@ -21,6 +24,8 @@ import { listPatterns } from "@/lib/patterns";
 import { getPostingLogEntries, listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { getOperatorTuning } from "@/lib/tuning";
+import { buildRevisionGuidance } from "@/lib/revision-guidance";
+import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanAlignment } from "@/lib/weekly-plan";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +66,7 @@ export default async function FinalReviewPage({
   const postingEntries = await getPostingLogEntries(signal.recordId);
   const allPostingEntries = await listPostingLogEntries();
   const postingOutcomes = await listPostingOutcomes();
+  const strategicOutcomes = await listStrategicOutcomes();
   const patterns = await listPatterns();
   const playbookCards = await listPlaybookCards();
   const bundles = await listPatternBundles();
@@ -82,6 +88,18 @@ export default async function FinalReviewPage({
   });
   const reviewSummary = buildFinalReviewSummary(signal);
   const appliedPatternName = getLastAppliedPatternName(auditEvents);
+  const learnedEditPatterns = await listLearnedEditPatterns({
+    signals: allSignals,
+    excludeSignalId: signal.recordId,
+  });
+  const editSuggestions = buildEditPatternSuggestions(signal, learnedEditPatterns);
+  const revisionGuidance = buildRevisionGuidance({
+    signal,
+    allSignals,
+    postingEntries: allPostingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+  });
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
   const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, allSignals, allPostingEntries);
   const weeklyPlanAlignment = getWeeklyPlanAlignment(signal, weeklyPlan, strategy, weeklyPlanState);
@@ -109,6 +127,26 @@ export default async function FinalReviewPage({
     playbookCoverageSummary,
     tuning: tuning.settings,
   });
+  const hypothesis = buildCandidateHypothesis({
+    signal,
+    guidance,
+    strategy,
+    weeklyBoosts: weeklyPlanAlignment.boosts,
+    weeklyCautions: weeklyPlanAlignment.cautions,
+  });
+  await appendAuditEventsSafe([
+    {
+      signalId: signal.recordId,
+      eventType: "HYPOTHESIS_GENERATED",
+      actor: "system",
+      summary: `Generated candidate hypothesis for ${hypothesis.objective}.`,
+      metadata: {
+        objective: hypothesis.objective,
+        topLever: hypothesis.keyLevers[0] ?? null,
+        riskNote: hypothesis.riskNote,
+      },
+    },
+  ]);
 
   if (!signal.xDraft || !signal.linkedInDraft || !signal.redditDraft) {
     return (
@@ -181,6 +219,10 @@ export default async function FinalReviewPage({
         signal={signal}
         source={result.source}
         appliedPatternName={appliedPatternName}
+        editSuggestions={editSuggestions}
+        revisionGuidance={revisionGuidance.insightsByPlatform}
+        guidanceConfidenceLevel={guidance.confidence.confidenceLevel}
+        hypothesis={hypothesis}
         initialPostingEntries={postingEntries}
         evergreenContext={evergreenContext?.signalId === signal.recordId ? evergreenContext : null}
         weeklyPlanContext={{

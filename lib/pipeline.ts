@@ -1583,6 +1583,7 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
       weeklyPlan,
       weeklyPlanState,
       confirmedClustersByCanonicalSignalId,
+      postingEntries,
     },
   );
   const approvalReadyRecords = rankedApprovalCandidates.map((candidate) =>

@@ -280,6 +280,12 @@ export interface SignalFinalReviewSavePayload {
   selectedVideoConceptId?: string | null;
   generatedImageUrl?: string | null;
   evergreenCandidateId?: string | null;
+  appliedEditSuggestions?: Array<{
+    key: string;
+    platform: "x" | "linkedin" | "reddit";
+    patternType: "shortened_hook" | "softened_tone" | "removed_claim" | "changed_cta";
+    label: string;
+  }>;
   finalReviewStartedAt?: string | null;
   finalReviewedAt?: string | null;
 }

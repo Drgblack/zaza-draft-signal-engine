@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { appendAuditEventsSafe, buildRecommendationEvent, type AuditEventInput } from "@/lib/audit";
 import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
 import { getCampaignStrategy } from "@/lib/campaigns";
+import { evaluateApprovalPackageCompleteness } from "@/lib/completeness";
+import { recordLearnedEditPatterns } from "@/lib/edit-patterns";
 import { buildEvergreenSummary, getEvergreenCandidateById } from "@/lib/evergreen";
 import { buildFinalReviewSummary } from "@/lib/final-review";
 import { listFeedbackEntries } from "@/lib/feedback";
@@ -179,8 +181,17 @@ export async function PATCH(
   const nextSignal = result.signal;
   const previousSummary = buildFinalReviewSummary(previousSignal);
   const completedSummary = buildFinalReviewSummary(nextSignal);
+  const previousCompleteness = evaluateApprovalPackageCompleteness({
+    signal: previousSignal,
+    guidanceConfidenceLevel: null,
+  });
+  const nextCompleteness = evaluateApprovalPackageCompleteness({
+    signal: nextSignal,
+    guidanceConfidenceLevel: null,
+  });
   const auditEvents: AuditEventInput[] = [];
   let evergreenCandidate = null;
+  const appliedEditSuggestions = review.appliedEditSuggestions ?? [];
 
   if (!previousSummary.started && completedSummary.started) {
     auditEvents.push({
@@ -314,6 +325,45 @@ export async function PATCH(
         },
       });
     }
+  }
+
+  const learnedPatterns =
+    review.appliedEditSuggestions?.length ||
+    previousSignal.finalXDraft !== nextSignal.finalXDraft ||
+    previousSignal.finalLinkedInDraft !== nextSignal.finalLinkedInDraft ||
+    previousSignal.finalRedditDraft !== nextSignal.finalRedditDraft ||
+    previousSignal.xReviewStatus !== nextSignal.xReviewStatus ||
+    previousSignal.linkedInReviewStatus !== nextSignal.linkedInReviewStatus ||
+    previousSignal.redditReviewStatus !== nextSignal.redditReviewStatus
+      ? await recordLearnedEditPatterns(nextSignal)
+      : [];
+
+  if (learnedPatterns.length > 0) {
+    const uniquePatternTypes = Array.from(new Set(learnedPatterns.map((pattern) => pattern.patternType)));
+    auditEvents.push({
+      signalId: id,
+      eventType: "EDIT_PATTERN_LEARNED",
+      actor: "system",
+      summary: `Learned ${learnedPatterns.length} edit pattern${learnedPatterns.length === 1 ? "" : "s"} from approved final-review changes.`,
+      metadata: {
+        patternTypes: uniquePatternTypes.join(", "),
+        learnedCount: learnedPatterns.length,
+      },
+    });
+  }
+
+  for (const suggestion of appliedEditSuggestions) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "EDIT_SUGGESTION_APPLIED",
+      actor: "operator",
+      summary: `Applied edit suggestion: ${suggestion.label}.`,
+      metadata: {
+        platform: suggestion.platform,
+        patternType: suggestion.patternType,
+        suggestionKey: suggestion.key,
+      },
+    });
   }
 
   if (review.evergreenCandidateId && evergreenCandidate && evergreenCandidate.signalId === id) {
@@ -478,6 +528,33 @@ export async function PATCH(
       metadata: {
         readyCount: completedSummary.readyCount,
         skipCount: completedSummary.skipCount,
+      },
+    });
+  }
+
+  auditEvents.push({
+    signalId: id,
+    eventType: "APPROVAL_PACKAGE_EVALUATED",
+    actor: "system",
+    summary: `Approval package evaluated as ${nextCompleteness.completenessState.replaceAll("_", " ")}.`,
+    metadata: {
+      completenessScore: nextCompleteness.completenessScore,
+      completenessState: nextCompleteness.completenessState,
+      missingElements: nextCompleteness.missingElements.join(", "),
+    },
+  });
+
+  if (
+    previousCompleteness.completenessState !== "complete" &&
+    nextCompleteness.completenessState === "complete"
+  ) {
+    auditEvents.push({
+      signalId: id,
+      eventType: "APPROVAL_PACKAGE_COMPLETED",
+      actor: "operator",
+      summary: "Approval package reached a complete state.",
+      metadata: {
+        completenessScore: nextCompleteness.completenessScore,
       },
     });
   }

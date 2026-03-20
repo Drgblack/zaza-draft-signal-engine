@@ -35,8 +35,21 @@ export const autoRepairHistoryEntrySchema = z.object({
 });
 
 export const autoRepairHistorySchema = z.array(autoRepairHistoryEntrySchema).max(20);
+export const borderlineSuggestedRepairActionSchema = z.object({
+  key: z.enum([
+    "scenario_angle_reframe",
+    "editorial_mode_shift",
+    "pattern_fallback",
+    "playbook_supported_reframe",
+    "generation_retry",
+    "request_more_context",
+  ]),
+  label: z.string().trim().min(1),
+  summary: z.string().trim().min(1),
+});
 
 export type AutoRepairHistoryEntry = z.infer<typeof autoRepairHistoryEntrySchema>;
+export type BorderlineSuggestedRepairAction = z.infer<typeof borderlineSuggestedRepairActionSchema>;
 
 export interface AutoRepairPlan {
   eligibility: "repairable" | "not_repairable";
@@ -47,6 +60,14 @@ export interface AutoRepairPlan {
   notes: string[];
   rerunInterpretation: boolean;
   rerunGeneration: boolean;
+}
+
+export interface BorderlineReviewModel {
+  borderlineReason: string;
+  bestCaseKeep: string;
+  bestCaseReject: string;
+  missingEvidence: string;
+  suggestedRepairActions: BorderlineSuggestedRepairAction[];
 }
 
 function trimSentence(value: string | null | undefined): string {
@@ -221,6 +242,146 @@ export function getAutoRepairLabel(entry: AutoRepairHistoryEntry): string {
   }
 
   return `Not repairable: ${entry.summary}`;
+}
+
+function summarizeKeepCase(signal: SignalRecord, guidance: UnifiedGuidance, assessment: AutoAdvanceAssessment): string {
+  const reasons: string[] = [];
+
+  if (signal.reviewPriority === "Urgent" || signal.reviewPriority === "High") {
+    reasons.push(`${signal.reviewPriority} review priority`);
+  }
+
+  if (guidance.confidence.confidenceReasons[0]) {
+    reasons.push(guidance.confidence.confidenceReasons[0]);
+  }
+
+  if (guidance.relatedPlaybookCards[0]) {
+    reasons.push(`playbook support exists via ${guidance.relatedPlaybookCards[0].title}`);
+  } else if (guidance.relatedPatterns[0]) {
+    reasons.push(`pattern support exists via ${guidance.relatedPatterns[0].title}`);
+  }
+
+  if (assessment.draftQuality?.label === "Needs Review") {
+    reasons.push("drafts look salvageable rather than broken");
+  }
+
+  return reasons[0]
+    ? `Keep case: ${reasons.slice(0, 2).join(" and ")}.`
+    : "Keep case: there is still enough signal here to justify operator judgement.";
+}
+
+function summarizeRejectCase(signal: SignalRecord, guidance: UnifiedGuidance, assessment: AutoAdvanceAssessment): string {
+  const reasons: string[] = [];
+
+  if (assessment.strongestCaution) {
+    reasons.push(assessment.strongestCaution);
+  }
+
+  if (guidance.confidence.confidenceLevel === "low") {
+    reasons.push("overall confidence is low");
+  }
+
+  if (assessment.draftQuality?.label === "Weak") {
+    reasons.push("draft quality is weak");
+  }
+
+  if ((signal.sourceTrustScore ?? 100) <= 35) {
+    reasons.push("source trust is thin");
+  }
+
+  return reasons[0]
+    ? `Reject case: ${reasons.slice(0, 2).join(" and ")}.`
+    : "Reject case: the current support is still too thin to move this forward safely.";
+}
+
+function summarizeMissingEvidence(signal: SignalRecord, guidance: UnifiedGuidance, assessment: AutoAdvanceAssessment): string {
+  const missing: string[] = [];
+
+  if (!signal.scenarioAngle) {
+    missing.push("a clearer Scenario Angle");
+  }
+
+  if (guidance.relatedPlaybookCards.length === 0) {
+    missing.push("stronger playbook support");
+  }
+
+  if (guidance.relatedPatterns.length === 0) {
+    missing.push("a reliable pattern match");
+  }
+
+  if ((signal.sourceTrustScore ?? 100) <= 35) {
+    missing.push("stronger source context");
+  }
+
+  if (assessment.draftQuality?.label === "Weak") {
+    missing.push("a cleaner draft package");
+  }
+
+  return missing[0]
+    ? `Missing evidence: ${missing.slice(0, 3).join(", ")}.`
+    : "Missing evidence: the operator still needs a stronger case either to trust or to discard this record.";
+}
+
+function buildSuggestedRepairActions(signal: SignalRecord, guidance: UnifiedGuidance, assessment: AutoAdvanceAssessment): BorderlineSuggestedRepairAction[] {
+  const actions: BorderlineSuggestedRepairAction[] = [];
+  const plan = assessAutoRepairPlan(signal, guidance, assessment);
+
+  if (plan.eligibility === "repairable" && plan.repairType) {
+    actions.push(
+      borderlineSuggestedRepairActionSchema.parse({
+        key: plan.repairType,
+        label:
+          plan.repairType === "scenario_angle_reframe"
+            ? "Apply framing repair"
+            : plan.repairType === "editorial_mode_shift"
+              ? "Shift editorial mode"
+              : plan.repairType === "pattern_fallback"
+                ? "Apply pattern-supported repair"
+                : plan.repairType === "playbook_supported_reframe"
+                  ? "Apply playbook-supported repair"
+                  : "Retry draft package",
+        summary: plan.notes[0] ?? plan.whyAttempted,
+      }),
+    );
+  }
+
+  if (!signal.rawExcerpt && !signal.manualSummary) {
+    actions.push(
+      borderlineSuggestedRepairActionSchema.parse({
+        key: "request_more_context",
+        label: "Request more context",
+        summary: "The source context is thin enough that a little more detail could change the decision.",
+      }),
+    );
+  } else if (actions.length === 0) {
+    actions.push(
+      borderlineSuggestedRepairActionSchema.parse({
+        key: "request_more_context",
+        label: "Request more context",
+        summary: "If the current evidence still feels thin, ask for one more concrete source detail before deciding.",
+      }),
+    );
+  }
+
+  return actions.slice(0, 3);
+}
+
+export function buildBorderlineReviewModel(
+  signal: SignalRecord,
+  guidance: UnifiedGuidance,
+  assessment: AutoAdvanceAssessment,
+): BorderlineReviewModel | null {
+  if (assessment.decision !== "hold") {
+    return null;
+  }
+
+  return {
+    borderlineReason: assessment.summary,
+    bestCaseKeep: summarizeKeepCase(signal, guidance, assessment),
+    bestCaseReject: summarizeRejectCase(signal, guidance, assessment),
+    missingEvidence: summarizeMissingEvidence(signal, guidance, assessment),
+    suggestedRepairActions: buildSuggestedRepairActions(signal, guidance, assessment),
+  };
 }
 
 export function assessAutoRepairPlan(

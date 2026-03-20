@@ -32,6 +32,13 @@ export interface SiteLinkSelection {
   usedFallback: boolean;
 }
 
+export interface SiteLinkReference {
+  siteLink: SiteLinkDefinition | null;
+  key: string;
+  label: string;
+  url: string | null;
+}
+
 export const SITE_LINK_REGISTRY: SiteLinkDefinition[] = [
   {
     id: "home",
@@ -169,6 +176,72 @@ export function getSiteLinkById(id: string | null | undefined): SiteLinkDefiniti
   }
 
   return SITE_LINK_REGISTRY.find((entry) => entry.id === id) ?? null;
+}
+
+export function getSiteLinkByLabel(label: string | null | undefined): SiteLinkDefinition | null {
+  if (!label) {
+    return null;
+  }
+
+  const normalized = label.trim().toLowerCase();
+  return SITE_LINK_REGISTRY.find((entry) => entry.label.trim().toLowerCase() === normalized) ?? null;
+}
+
+export function getSiteLinkByUrl(url: string | null | undefined): SiteLinkDefinition | null {
+  if (!url) {
+    return null;
+  }
+
+  let targetPath = url.trim().toLowerCase();
+  try {
+    targetPath = new URL(url).pathname.toLowerCase() || "/";
+  } catch {
+    targetPath = url.trim().toLowerCase();
+  }
+
+  const matches = SITE_LINK_REGISTRY.filter((entry) => {
+    try {
+      const entryPath = new URL(entry.url).pathname.toLowerCase() || "/";
+      return entryPath === targetPath;
+    } catch {
+      return entry.url.trim().toLowerCase() === targetPath;
+    }
+  });
+
+  if (matches.length === 1) {
+    return matches[0];
+  }
+
+  return matches.find((entry) => entry.routeStatus === "confirmed") ?? null;
+}
+
+export function resolveSiteLinkReference(input: {
+  siteLinkId?: string | null;
+  destinationUrl?: string | null;
+  destinationLabel?: string | null;
+}): SiteLinkReference {
+  const siteLink =
+    getSiteLinkById(input.siteLinkId) ??
+    getSiteLinkByLabel(input.destinationLabel) ??
+    getSiteLinkByUrl(input.destinationUrl);
+
+  return {
+    siteLink,
+    key: siteLink?.id ?? input.siteLinkId ?? input.destinationLabel ?? input.destinationUrl ?? "unknown_destination",
+    label: siteLink?.label ?? input.destinationLabel ?? input.siteLinkId ?? input.destinationUrl ?? "Unknown destination",
+    url: siteLink?.url ?? input.destinationUrl ?? null,
+  };
+}
+
+export function isSiteLinkAlignedToCtaGoal(
+  siteLink: SiteLinkDefinition | null | undefined,
+  ctaGoal: CtaGoal | null | undefined,
+): boolean | null {
+  if (!siteLink || !ctaGoal) {
+    return null;
+  }
+
+  return siteLink.intendedCtaGoals.includes(ctaGoal);
 }
 
 export function selectBestSiteLink(input: {

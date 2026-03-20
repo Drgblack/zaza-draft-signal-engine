@@ -98,6 +98,7 @@ export default async function DashboardPage() {
       weeklyPlan,
       weeklyPlanState,
       confirmedClustersByCanonicalSignalId,
+      postingEntries,
     },
   );
   const workflowBuckets = getWorkflowBuckets(visibleSignals);
@@ -140,6 +141,12 @@ export default async function DashboardPage() {
             </Link>
             <Link href="/plan" className={buttonVariants({ variant: "secondary" })}>
               Open weekly plan
+            </Link>
+            <Link href="/digest" className={buttonVariants({ variant: "secondary" })}>
+              Open digest
+            </Link>
+            <Link href="/experiments" className={buttonVariants({ variant: "secondary" })}>
+              Open experiments
             </Link>
             <Link href="/settings" className={buttonVariants({ variant: "secondary" })}>
               Adjust tuning

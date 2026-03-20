@@ -54,6 +54,11 @@ import {
   type RepurposingPlatform,
 } from "@/lib/repurposing";
 import { buildSignalPublishPrepBundle, parsePublishPrepBundle } from "@/lib/publish-prep";
+import {
+  isSiteLinkAlignedToCtaGoal,
+  resolveSiteLinkReference,
+  type SiteLinkRouteStatus,
+} from "@/lib/site-links";
 import type { PostingLogEntry } from "@/lib/posting-memory";
 import { indexBundleSummariesByPatternId, type PatternBundle } from "@/lib/pattern-bundles";
 import type { PatternType, SignalPattern } from "@/lib/pattern-definitions";
@@ -277,8 +282,19 @@ export interface PublishPrepStyleInsightRow {
 export interface PublishPrepDestinationInsightRow {
   key: string;
   label: string;
+  url: string | null;
+  routeStatus: SiteLinkRouteStatus | "unregistered";
   count: number;
   highValueCount: number;
+  mediumValueCount: number;
+  lowValueCount: number;
+  clickTotal: number;
+  leadTotal: number;
+  alignedCtaCount: number;
+  misalignedCtaCount: number;
+  topPlatformLabel: string | null;
+  topFunnelLabel: string | null;
+  guidanceNote: string | null;
 }
 
 export interface StrategicValueInsightRow {
@@ -471,11 +487,14 @@ export interface SignalInsights {
     ctaStyleRows: PublishPrepStyleInsightRow[];
     destinationRows: PublishPrepDestinationInsightRow[];
     ctaGoalDestinationRows: PublishPrepStyleInsightRow[];
+    strongestDestinationRows: PublishPrepDestinationInsightRow[];
+    underperformingDestinationRows: PublishPrepDestinationInsightRow[];
     topPlatformLabel: string | null;
     topHookStyleLabel: string | null;
     topCtaStyleLabel: string | null;
     topDestinationLabel: string | null;
     topHighValueDestinationLabel: string | null;
+    topDestinationGuidance: string | null;
   };
   strategicOutcomes: {
     recordedCount: number;
@@ -1320,7 +1339,10 @@ function buildPublishPrepInsights(
   const ctaStyleMap = new Map<string, PublishPrepStyleInsightRow>();
   const destinationMap = new Map<string, PublishPrepDestinationInsightRow>();
   const ctaGoalDestinationMap = new Map<string, PublishPrepStyleInsightRow>();
-  const postingEntryById = new Map(postingEntries.map((entry) => [entry.id, entry]));
+  const signalById = new Map(signals.map((signal) => [signal.recordId, signal]));
+  const strategicOutcomeByPostingLogId = new Map(strategicOutcomes.map((outcome) => [outcome.postingLogId, outcome]));
+  const destinationPlatformCounts = new Map<string, Map<string, number>>();
+  const destinationFunnelCounts = new Map<string, Map<string, number>>();
   let totalPackages = 0;
 
   const getPlatformLabel = (platform: string) => {
@@ -1384,50 +1406,105 @@ function buildPublishPrepInsights(
         ctaRow.count += 1;
         ctaStyleMap.set(selectedCta.goalLabel, ctaRow);
       }
-
-      if (pkg.siteLinkId || pkg.siteLinkLabel) {
-        const key = pkg.siteLinkId ?? pkg.siteLinkLabel ?? "site_link";
-        const destinationRow = destinationMap.get(key) ?? {
-          key,
-          label: pkg.siteLinkLabel ?? pkg.siteLinkId ?? "Site link",
-          count: 0,
-          highValueCount: 0,
-        };
-        destinationRow.count += 1;
-        destinationMap.set(key, destinationRow);
-
-        if (signal.ctaGoal) {
-          const ctaGoalKey = `${signal.ctaGoal} -> ${destinationRow.label}`;
-          const ctaGoalRow = ctaGoalDestinationMap.get(ctaGoalKey) ?? {
-            label: ctaGoalKey,
-            count: 0,
-          };
-          ctaGoalRow.count += 1;
-          ctaGoalDestinationMap.set(ctaGoalKey, ctaGoalRow);
-        }
-      }
     }
   }
 
-  for (const outcome of strategicOutcomes) {
-    if (outcome.strategicValue !== "high") {
+  for (const entry of postingEntries) {
+    const signal = signalById.get(entry.signalId);
+    const destination = resolveSiteLinkReference({
+      siteLinkId: entry.selectedSiteLinkId,
+      destinationUrl: entry.destinationUrl,
+      destinationLabel: entry.destinationLabel,
+    });
+    const outcome = strategicOutcomeByPostingLogId.get(entry.id);
+
+    if (!destination.siteLink && !entry.selectedSiteLinkId && !entry.destinationUrl && !entry.destinationLabel) {
       continue;
     }
 
-    const entry = postingEntryById.get(outcome.postingLogId);
-    const key = entry?.selectedSiteLinkId ?? entry?.destinationLabel;
-    if (!key) {
-      continue;
-    }
-
-    const destinationRow = destinationMap.get(key) ?? {
-      key,
-      label: entry?.destinationLabel ?? entry?.selectedSiteLinkId ?? "Site link",
+    const destinationRow = destinationMap.get(destination.key) ?? {
+      key: destination.key,
+      label: destination.label,
+      url: destination.url,
+      routeStatus: destination.siteLink?.routeStatus ?? "unregistered",
       count: 0,
       highValueCount: 0,
+      mediumValueCount: 0,
+      lowValueCount: 0,
+      clickTotal: 0,
+      leadTotal: 0,
+      alignedCtaCount: 0,
+      misalignedCtaCount: 0,
+      topPlatformLabel: null,
+      topFunnelLabel: null,
+      guidanceNote: null,
     };
-    destinationRow.highValueCount += 1;
-    destinationMap.set(key, destinationRow);
+
+    destinationRow.count += 1;
+    if (outcome) {
+      if (outcome.strategicValue === "high") {
+        destinationRow.highValueCount += 1;
+      } else if (outcome.strategicValue === "medium") {
+        destinationRow.mediumValueCount += 1;
+      } else if (outcome.strategicValue === "low") {
+        destinationRow.lowValueCount += 1;
+      }
+
+      destinationRow.clickTotal += outcome.clicks ?? 0;
+      destinationRow.leadTotal += (outcome.leadsOrSignups ?? 0) + (outcome.trialsOrConversions ?? 0);
+    }
+
+    const ctaAlignment = isSiteLinkAlignedToCtaGoal(destination.siteLink, signal?.ctaGoal);
+    if (ctaAlignment === true) {
+      destinationRow.alignedCtaCount += 1;
+    } else if (ctaAlignment === false) {
+      destinationRow.misalignedCtaCount += 1;
+    }
+
+    destinationMap.set(destination.key, destinationRow);
+
+    const platformCounts = destinationPlatformCounts.get(destination.key) ?? new Map<string, number>();
+    platformCounts.set(entry.platform, (platformCounts.get(entry.platform) ?? 0) + 1);
+    destinationPlatformCounts.set(destination.key, platformCounts);
+
+    if (signal?.funnelStage) {
+      const funnelCounts = destinationFunnelCounts.get(destination.key) ?? new Map<string, number>();
+      funnelCounts.set(signal.funnelStage, (funnelCounts.get(signal.funnelStage) ?? 0) + 1);
+      destinationFunnelCounts.set(destination.key, funnelCounts);
+    }
+
+    if (signal?.ctaGoal) {
+      const ctaGoalKey = `${signal.ctaGoal} -> ${destination.label}`;
+      const ctaGoalRow = ctaGoalDestinationMap.get(ctaGoalKey) ?? {
+        label: ctaGoalKey,
+        count: 0,
+      };
+      ctaGoalRow.count += 1;
+      ctaGoalDestinationMap.set(ctaGoalKey, ctaGoalRow);
+    }
+  }
+
+  for (const row of destinationMap.values()) {
+    const platformCounts = Array.from(destinationPlatformCounts.get(row.key)?.entries() ?? []).sort(
+      (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+    );
+    const funnelCounts = Array.from(destinationFunnelCounts.get(row.key)?.entries() ?? []).sort(
+      (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+    );
+    const topPlatform = platformCounts[0]?.[0] ?? null;
+    const topFunnel = funnelCounts[0]?.[0] ?? null;
+
+    row.topPlatformLabel =
+      topPlatform === "x" || topPlatform === "linkedin" || topPlatform === "reddit"
+        ? getPostingPlatformLabel(topPlatform)
+        : null;
+    row.topFunnelLabel = topFunnel;
+
+    if (row.highValueCount >= 2 || row.leadTotal > 0) {
+      row.guidanceNote = `This destination has historically performed well for ${row.topFunnelLabel ? `${row.topFunnelLabel}-stage ` : ""}${row.topPlatformLabel ?? "posted"} content.`;
+    } else if (row.lowValueCount >= 2 && row.lowValueCount > row.highValueCount + row.mediumValueCount) {
+      row.guidanceNote = `${row.label} is showing weaker strategic value than expected in the current window.`;
+    }
   }
 
   const platformRows = Array.from(platformMap.values()).sort(
@@ -1443,14 +1520,34 @@ function buildPublishPrepInsights(
     (left, right) =>
       right.count - left.count ||
       right.highValueCount - left.highValueCount ||
+      right.leadTotal - left.leadTotal ||
+      right.clickTotal - left.clickTotal ||
       left.label.localeCompare(right.label),
   );
   const ctaGoalDestinationRows = Array.from(ctaGoalDestinationMap.values()).sort(
     (left, right) => right.count - left.count || left.label.localeCompare(right.label),
   );
-  const topHighValueDestination = [...destinationRows]
-    .sort((left, right) => right.highValueCount - left.highValueCount || right.count - left.count || left.label.localeCompare(right.label))
-    .find((row) => row.highValueCount > 0) ?? null;
+  const strongestDestinationRows = [...destinationRows]
+    .sort(
+      (left, right) =>
+        right.highValueCount - left.highValueCount ||
+        right.leadTotal - left.leadTotal ||
+        right.clickTotal - left.clickTotal ||
+        right.count - left.count ||
+        left.label.localeCompare(right.label),
+    )
+    .filter((row) => row.highValueCount > 0 || row.leadTotal > 0 || row.clickTotal > 0)
+    .slice(0, 3);
+  const underperformingDestinationRows = [...destinationRows]
+    .filter((row) => row.count >= 2 && row.lowValueCount > row.highValueCount + row.mediumValueCount)
+    .sort(
+      (left, right) =>
+        right.lowValueCount - left.lowValueCount ||
+        right.count - left.count ||
+        left.label.localeCompare(right.label),
+    )
+    .slice(0, 3);
+  const topHighValueDestination = strongestDestinationRows[0] ?? null;
 
   return {
     totalPackages,
@@ -1459,11 +1556,14 @@ function buildPublishPrepInsights(
     ctaStyleRows,
     destinationRows,
     ctaGoalDestinationRows,
+    strongestDestinationRows,
+    underperformingDestinationRows,
     topPlatformLabel: platformRows[0]?.label ?? null,
     topHookStyleLabel: hookStyleRows[0]?.label ?? null,
     topCtaStyleLabel: ctaStyleRows[0]?.label ?? null,
     topDestinationLabel: destinationRows[0]?.label ?? null,
     topHighValueDestinationLabel: topHighValueDestination?.label ?? null,
+    topDestinationGuidance: topHighValueDestination?.guidanceNote ?? null,
   };
 }
 
@@ -2253,6 +2353,13 @@ function buildObservations(input: {
           ? "warning"
           : "neutral",
       text: `${input.patternCoverage.topGapTypes[0].label} is the clearest current pattern coverage gap in this window.`,
+    });
+  }
+
+  if (input.publishPrep.topDestinationGuidance) {
+    observations.push({
+      tone: "neutral",
+      text: input.publishPrep.topDestinationGuidance,
     });
   }
 

@@ -1,16 +1,20 @@
 import Link from "next/link";
 
-import { ApprovalQueueSection, AutoHeldSection, EvergreenResurfacingSection } from "@/components/signals/approval-queue-section";
+import { ApprovalQueueSection, EvergreenResurfacingSection } from "@/components/signals/approval-queue-section";
+import { BorderlineReviewWorkbenchSection } from "@/components/signals/borderline-review-workbench-section";
 import { DuplicateClusterReviewSection } from "@/components/signals/duplicate-cluster-review-section";
 import { WorkflowQueueSection } from "@/components/signals/workflow-queue-section";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { appendAuditEventsSafe } from "@/lib/audit";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
-import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
+import { buildBorderlineReviewModel, getAutoRepairLabel, getLatestAutoRepairEntry } from "@/lib/auto-repair";
+import { buildCampaignCadenceSummary, getCampaignStrategy, getSignalContentContextSummary } from "@/lib/campaigns";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { buildEvergreenSummary } from "@/lib/evergreen";
+import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { listFeedbackEntries } from "@/lib/feedback";
 import {
   buildDuplicateClusterDifferenceNotes,
@@ -118,7 +122,44 @@ export default async function ReviewPage() {
       weeklyPlan,
       weeklyPlanState,
       confirmedClustersByCanonicalSignalId,
+      postingEntries,
     },
+  );
+  await appendAuditEventsSafe(
+    approvalReadyCandidates.flatMap((candidate) => {
+      const events = [
+        {
+          signalId: candidate.signal.recordId,
+          eventType: "HYPOTHESIS_GENERATED" as const,
+          actor: "system" as const,
+          summary: `Generated candidate hypothesis for ${candidate.hypothesis.objective}.`,
+          metadata: {
+            objective: candidate.hypothesis.objective,
+            topLever: candidate.hypothesis.keyLevers[0] ?? null,
+            riskNote: candidate.hypothesis.riskNote,
+          },
+        },
+      ];
+
+      if (!candidate.fatigue.warnings[0]) {
+        return events;
+      }
+
+      return [
+        ...events,
+        {
+          signalId: candidate.signal.recordId,
+          eventType: "FATIGUE_WARNING_SHOWN" as const,
+          actor: "system" as const,
+          summary: candidate.fatigue.warnings[0].summary,
+          metadata: {
+            dimension: candidate.fatigue.warnings[0].dimension,
+            label: candidate.fatigue.warnings[0].label,
+            severity: candidate.fatigue.warnings[0].severity,
+          },
+        },
+      ];
+    }),
   );
   const heldCases = autonomousAssessments.filter((item) => item.assessment.decision === "hold");
   const postingEntriesBySignalId = indexPostingEntriesBySignalId(postingEntries);
@@ -176,12 +217,55 @@ export default async function ReviewPage() {
         createdDate: signal.createdDate,
       })),
   }));
+  const borderlineRows = heldCases
+    .map((item) => {
+      const workbench = buildBorderlineReviewModel(item.signal, item.guidance, item.assessment);
+      if (!workbench) {
+        return null;
+      }
+      const context = getSignalContentContextSummary(item.signal, strategy);
+      const latestRepair = getLatestAutoRepairEntry(item.signal);
+      return {
+        recordId: item.signal.recordId,
+        sourceTitle: item.signal.sourceTitle,
+        status: item.signal.status,
+        stageLabel:
+          item.assessment.stage === "auto_interpret"
+            ? "Held before interpretation"
+            : item.assessment.stage === "auto_generate"
+              ? "Held before generation"
+              : "Held before approval queue",
+        confidenceLabel: `${item.guidance.confidence.confidenceLevel} confidence`,
+        confidenceTone:
+          item.guidance.confidence.confidenceLevel === "high"
+            ? ("success" as const)
+            : item.guidance.confidence.confidenceLevel === "low"
+              ? ("warning" as const)
+              : ("neutral" as const),
+        assessmentSummary: item.assessment.summary,
+        reasons: item.assessment.reasons,
+        strongestCaution: item.assessment.strongestCaution,
+        platformPriority: item.signal.platformPriority,
+        editorialModeLabel: item.signal.editorialMode ? getEditorialModeDefinition(item.signal.editorialMode).label : null,
+        pillarLabel: context.pillarName,
+        funnelStage: context.funnelStage,
+        latestRepairLabel: latestRepair ? getAutoRepairLabel(latestRepair) : null,
+        nextStepHref:
+          item.assessment.stage === "auto_interpret"
+            ? `/signals/${item.signal.recordId}/interpret`
+            : item.assessment.stage === "auto_generate"
+              ? `/signals/${item.signal.recordId}/generate`
+              : `/signals/${item.signal.recordId}/review`,
+        workbench,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   const queueSummary = [
     { label: "Approval-ready", count: approvalReadyCandidates.length, href: "#approval-ready" },
     { label: "Duplicate clusters", count: duplicateClusterRows.length + suggestedDuplicateClusterRows.length, href: "#duplicate-clusters" },
     { label: "Evergreen", count: evergreenSummary.surfacedCount, href: "#evergreen-resurfacing" },
-    { label: "Auto-held", count: heldCases.length, href: "#auto-held" },
+    { label: "Borderline", count: borderlineRows.length, href: "#borderline-workbench" },
     { label: "Needs interpretation", count: buckets.needsInterpretation.length, href: "#needs-interpretation" },
     { label: "Ready for generation", count: buckets.readyForGeneration.length, href: "#ready-for-generation" },
     { label: "Ready for review", count: buckets.readyForReview.length, href: "#ready-for-review" },
@@ -309,7 +393,7 @@ export default async function ReviewPage() {
 
       <EvergreenResurfacingSection candidates={evergreenSummary.candidates} />
 
-      <AutoHeldSection items={heldCases} strategy={strategy} />
+      <BorderlineReviewWorkbenchSection items={borderlineRows} />
 
       <WorkflowQueueSection
         id="needs-interpretation"

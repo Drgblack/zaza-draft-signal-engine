@@ -118,15 +118,34 @@ export const ingestionSourcePerformanceSchema = z.object({
   keepSignals: z.number().int().nonnegative(),
   reviewSignals: z.number().int().nonnegative(),
   rejectedSignals: z.number().int().nonnegative(),
+  approvedSignals: z.number().int().nonnegative(),
+  usefulSignals: z.number().int().nonnegative(),
   interpretedSignals: z.number().int().nonnegative(),
   generatedSignals: z.number().int().nonnegative(),
+  postedSignals: z.number().int().nonnegative(),
+  strongOutcomeSignals: z.number().int().nonnegative(),
+  acceptableOutcomeSignals: z.number().int().nonnegative(),
+  weakOutcomeSignals: z.number().int().nonnegative(),
+  approvalRate: z.number().min(0).max(1),
+  rejectionRate: z.number().min(0).max(1),
+  usefulnessRate: z.number().min(0).max(1),
+  averageOutcomeScore: z.number().min(-3).max(3).nullable(),
 });
 
 export type IngestionSourcePerformance = z.infer<typeof ingestionSourcePerformanceSchema>;
 
+export const ingestionSourceRecommendationSchema = z.object({
+  action: z.enum(["reduce_source_weight", "pause_source", "refine_query"]),
+  summary: z.string().trim().min(1),
+  rationale: z.string().trim().min(1),
+});
+
+export type IngestionSourceRecommendation = z.infer<typeof ingestionSourceRecommendationSchema>;
+
 export const managedIngestionSourceSchema = ingestionSourceSchema.extend({
   ingestionLabel: z.string().trim().min(1),
   performance: ingestionSourcePerformanceSchema,
+  recommendations: z.array(ingestionSourceRecommendationSchema).max(3).default([]),
 });
 
 export type ManagedIngestionSource = z.infer<typeof managedIngestionSourceSchema>;

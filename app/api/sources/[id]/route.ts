@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import { listSignalsWithFallback } from "@/lib/airtable";
 import { buildManagedIngestionSources } from "@/lib/ingestion/source-performance";
 import { updateIngestionSource } from "@/lib/ingestion/sources";
+import { listPostingLogEntries } from "@/lib/posting-log";
+import { listPostingOutcomes } from "@/lib/outcomes";
+import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import {
   sourceRegistryUpdateRequestSchema,
   type UpdateSourceRegistryResponse,
@@ -30,12 +33,21 @@ export async function PATCH(
   }
 
   try {
-    const [updatedSource, signalResult] = await Promise.all([
+    const [updatedSource, signalResult, postingEntries, postingOutcomes, strategicOutcomes] = await Promise.all([
       updateIngestionSource(id, parsed.data),
       listSignalsWithFallback({ limit: 500 }),
+      listPostingLogEntries(),
+      listPostingOutcomes(),
+      listStrategicOutcomes(),
     ]);
 
-    const managedSource = buildManagedIngestionSources([updatedSource], signalResult.signals)[0];
+    const managedSource = buildManagedIngestionSources(
+      [updatedSource],
+      signalResult.signals,
+      postingEntries,
+      postingOutcomes,
+      strategicOutcomes,
+    )[0];
 
     return NextResponse.json<UpdateSourceRegistryResponse>({
       success: true,

@@ -49,17 +49,40 @@ function mergeSourceRecord(
 function sourcePerformanceSummary(source: ManagedIngestionSource) {
   const parts = [
     `${source.performance.totalSignals} seen`,
-    `${source.performance.keepSignals} keep`,
-    `${source.performance.reviewSignals} review`,
-    `${source.performance.interpretedSignals} interpreted`,
-    `${source.performance.generatedSignals} generated`,
+    `${Math.round(source.performance.approvalRate * 100)}% approval`,
+    `${Math.round(source.performance.rejectionRate * 100)}% rejection`,
+    `${Math.round(source.performance.usefulnessRate * 100)}% useful`,
   ];
 
-  if (source.performance.rejectedSignals > 0) {
-    parts.push(`${source.performance.rejectedSignals} rejected`);
+  if (source.performance.averageOutcomeScore !== null) {
+    parts.push(`outcome ${source.performance.averageOutcomeScore.toFixed(1)}`);
   }
 
   return parts.join(" · ");
+}
+
+function recommendationTone(action: ManagedIngestionSource["recommendations"][number]["action"]): ResultTone {
+  switch (action) {
+    case "pause_source":
+      return "error";
+    case "reduce_source_weight":
+      return "warning";
+    case "refine_query":
+    default:
+      return "success";
+  }
+}
+
+function recommendationBadgeLabel(action: ManagedIngestionSource["recommendations"][number]["action"]): string {
+  switch (action) {
+    case "pause_source":
+      return "Pause source";
+    case "reduce_source_weight":
+      return "Reduce weight";
+    case "refine_query":
+    default:
+      return "Refine query";
+  }
 }
 
 function buildFamilySummary(result: IngestionRunSummary) {
@@ -154,6 +177,22 @@ export function IngestionRunner({
         },
         { feed: 0, reddit: 0, query: 0 } satisfies Record<SourceFamily, number>,
       ),
+    [managedSources],
+  );
+  const sourceRecommendations = useMemo(
+    () =>
+      managedSources
+        .flatMap((source) =>
+          source.recommendations.map((recommendation) => ({
+            source,
+            recommendation,
+          })),
+        )
+        .sort(
+          (left, right) =>
+            right.source.performance.totalSignals - left.source.performance.totalSignals ||
+            left.source.name.localeCompare(right.source.name),
+        ),
     [managedSources],
   );
   const hasUnsavedSourceChanges = useMemo(
@@ -506,6 +545,45 @@ export function IngestionRunner({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Source Recommendations</CardTitle>
+          <CardDescription>
+            Advisory-only source autopilot suggestions based on approval rate, rejection rate, downstream usefulness, and posted outcome quality. Nothing changes unless the operator updates the source settings.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {sourceRecommendations.length === 0 ? (
+            <div className="rounded-2xl bg-slate-100 px-4 py-5 text-sm text-slate-600">
+              No source changes are being recommended right now.
+            </div>
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-2">
+              {sourceRecommendations.map(({ source, recommendation }) => (
+                <div key={`${source.id}-${recommendation.action}`} className="rounded-2xl bg-white/80 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-slate-950">{source.name}</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {source.publisher} · {source.topic}
+                      </p>
+                    </div>
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${toneClasses(recommendationTone(recommendation.action))}`}>
+                      {recommendationBadgeLabel(recommendation.action)}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm font-medium text-slate-900">{recommendation.summary}</p>
+                  <p className="mt-1 text-sm text-slate-600">{recommendation.rationale}</p>
+                  <p className="mt-3 text-xs text-slate-500">
+                    Evidence: {sourcePerformanceSummary(source)} · {source.performance.reviewSignals} review · {source.performance.strongOutcomeSignals} strong outcome · {source.performance.weakOutcomeSignals} weak outcome.
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <Card>
           <CardHeader>
@@ -546,7 +624,7 @@ export function IngestionRunner({
                         savedSource.priority !== source.priority);
 
                     return (
-                      <tr key={source.id} className="align-top">
+                      <tr id={`source-${source.id}`} key={source.id} className="align-top">
                         <td className="px-3 py-4">
                           <p className="font-medium text-slate-950">{source.name}</p>
                           <p className="mt-1 text-slate-600">

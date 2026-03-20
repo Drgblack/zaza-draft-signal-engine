@@ -18,16 +18,18 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { deriveDisplayEngagementScore, getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
-import { getAuditEvents, listAuditEvents } from "@/lib/audit";
+import { appendAuditEventsSafe, getAuditEvents, listAuditEvents } from "@/lib/audit";
 import { getLatestAutoRepairEntry, getAutoRepairLabel } from "@/lib/auto-repair";
 import { buildBundleCoverageSummary, getSignalBundleCoverageHint } from "@/lib/bundle-coverage";
 import { buildCampaignCadenceSummary, getCampaignStrategy, getSignalContentContextSummary } from "@/lib/campaigns";
 import { buildEvergreenSummary } from "@/lib/evergreen";
+import { getExperimentStatusLabel, listExperiments, listExperimentsForSignal } from "@/lib/experiments";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { buildFinalReviewSummary } from "@/lib/final-review";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
+import { buildCandidateHypothesis, compareHypothesisToStrategicOutcome } from "@/lib/hypotheses";
 import { indexOutcomesByPostingLogId, listPostingOutcomes } from "@/lib/outcomes";
 import { indexStrategicOutcomesByPostingLogId, listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
@@ -104,6 +106,7 @@ export default async function SignalDetailPage({
   const playbookCards = await listPlaybookCards();
   const allAuditEvents = await listAuditEvents();
   const allPatternFeedbackEntries = await listPatternFeedbackEntries();
+  const experiments = await listExperiments();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const patternEffectivenessById = indexPatternEffectivenessSummaries(
     buildPatternEffectivenessSummaries(patterns, allAuditEvents, allPatternFeedbackEntries, allFeedbackEntries),
@@ -136,6 +139,7 @@ export default async function SignalDetailPage({
   const generationReady = hasGeneration(signal);
   const finalReviewSummary = buildFinalReviewSummary(signal);
   const postingSummary = buildSignalPostingSummary(signal, postingEntries);
+  const postingEntryIds = new Set(postingEntries.map((entry) => entry.id));
   const cadence = buildCampaignCadenceSummary(allSignals, strategy, allPostingEntries);
   const strategicContext = getSignalContentContextSummary(signal, strategy);
   const postingOutcomesByPostingLogId = indexOutcomesByPostingLogId(postingOutcomes);
@@ -172,6 +176,7 @@ export default async function SignalDetailPage({
     maxCandidates: 10,
   });
   const evergreenContext = evergreenSummary.candidates.find((candidate) => candidate.signalId === signal.recordId) ?? null;
+  const signalExperiments = listExperimentsForSignal(experiments, signal.recordId, allPostingEntries);
   const guidance = assembleGuidanceForSignal({
     signal,
     context: "detail",
@@ -186,6 +191,14 @@ export default async function SignalDetailPage({
     tuning: tuning.settings,
   });
   const autonomousAssessment = assessAutonomousSignal(signal, guidance);
+  const hypothesis = buildCandidateHypothesis({
+    signal,
+    guidance,
+    assessment: autonomousAssessment,
+    strategy,
+  });
+  const latestStrategicOutcome = strategicOutcomes[0] ?? null;
+  const hypothesisOutcomeComparison = compareHypothesisToStrategicOutcome(hypothesis, latestStrategicOutcome);
   const latestAutoRepair = getLatestAutoRepairEntry(signal);
   const readinessTone =
     automationReadiness.tone === "success"
@@ -193,6 +206,19 @@ export default async function SignalDetailPage({
       : automationReadiness.tone === "warning"
         ? "bg-amber-50 text-amber-700"
         : "bg-slate-100 text-slate-700";
+  await appendAuditEventsSafe([
+    {
+      signalId: signal.recordId,
+      eventType: "HYPOTHESIS_GENERATED",
+      actor: "system",
+      summary: `Generated candidate hypothesis for ${hypothesis.objective}.`,
+      metadata: {
+        objective: hypothesis.objective,
+        topLever: hypothesis.keyLevers[0] ?? null,
+        riskNote: hypothesis.riskNote,
+      },
+    },
+  ]);
 
   return (
     <div className="space-y-6">
@@ -387,6 +413,88 @@ export default async function SignalDetailPage({
             title="Guidance"
             description="One compact view of the strongest next step, what has worked before, and whether support or coverage gaps already exist."
           />
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Post Hypothesis</CardTitle>
+              <CardDescription>
+                Why this post exists, what it is supposed to achieve, and the main levers the system thinks are worth testing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm text-slate-600">
+              <div className="rounded-2xl bg-white/75 px-4 py-4">
+                <p className="font-medium text-slate-900">Objective</p>
+                <p className="mt-2">{hypothesis.objective}</p>
+              </div>
+              <div className="rounded-2xl bg-white/75 px-4 py-4">
+                <p className="font-medium text-slate-900">Why it may work</p>
+                <p className="mt-2">{hypothesis.whyItMayWork}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {hypothesis.keyLevers.map((lever) => (
+                  <span key={lever} className="inline-flex rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-700">
+                    {lever}
+                  </span>
+                ))}
+              </div>
+              {hypothesis.riskNote ? (
+                <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
+                  <p className="font-medium text-slate-900">Risk note</p>
+                  <p className="mt-2">{hypothesis.riskNote}</p>
+                </div>
+              ) : null}
+              {hypothesisOutcomeComparison ? (
+                <div className="rounded-2xl bg-sky-50 px-4 py-4 text-sm text-sky-900">
+                  <p className="font-medium">Outcome check</p>
+                  <p className="mt-2">{hypothesisOutcomeComparison}</p>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          {signalExperiments.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Experiment Links</CardTitle>
+                <CardDescription>
+                  Manual comparisons this signal is already contributing to.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {signalExperiments.map((experiment) => {
+                  const matchingVariants = experiment.variants.filter(
+                    (variant) =>
+                      variant.linkedSignalIds.includes(signal.recordId) ||
+                      variant.linkedPostingIds.some((postingId) => postingEntryIds.has(postingId)),
+                  );
+
+                  return (
+                    <div key={experiment.experimentId} className="rounded-2xl bg-white/80 px-4 py-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium text-slate-950">{experiment.name}</p>
+                        <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                          {getExperimentStatusLabel(experiment.status)}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">{experiment.hypothesis}</p>
+                      {matchingVariants.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                          {matchingVariants.map((variant) => (
+                            <span key={variant.variantId} className="rounded-full bg-sky-50 px-3 py-1 text-sky-700">
+                              {variant.variantLabel}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                      <Link href="/experiments" className="mt-3 inline-block text-sm text-[color:var(--accent)] underline underline-offset-4">
+                        Open experiments
+                      </Link>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>

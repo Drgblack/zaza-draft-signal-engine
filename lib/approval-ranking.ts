@@ -1,7 +1,11 @@
 import type { AutoAdvanceAssessment } from "@/lib/auto-advance";
 import type { CampaignCadenceSummary, CampaignStrategy } from "@/lib/campaigns";
 import { getSignalContentContextSummary } from "@/lib/campaigns";
+import { evaluateApprovalPackageCompleteness, type ApprovalPackageCompleteness } from "@/lib/completeness";
+import { buildFatigueModel, type FatigueAssessment } from "@/lib/fatigue";
 import type { UnifiedGuidance } from "@/lib/guidance";
+import { buildCandidateHypothesis, type CandidateHypothesis } from "@/lib/hypotheses";
+import type { PostingLogEntry } from "@/lib/posting-memory";
 import { buildSignalRepurposingBundle } from "@/lib/repurposing";
 import type { WeeklyPlan, WeeklyPlanState } from "@/lib/weekly-plan";
 import { getWeeklyPlanAlignment } from "@/lib/weekly-plan";
@@ -12,6 +16,9 @@ export interface ApprovalQueueCandidate {
   signal: SignalRecord;
   guidance: UnifiedGuidance;
   assessment: AutoAdvanceAssessment;
+  completeness: ApprovalPackageCompleteness;
+  fatigue: FatigueAssessment;
+  hypothesis: CandidateHypothesis;
   rankScore: number;
   rankReasons: string[];
 }
@@ -50,8 +57,19 @@ export function rankApprovalCandidates(
     weeklyPlan?: WeeklyPlan | null;
     weeklyPlanState?: WeeklyPlanState | null;
     confirmedClustersByCanonicalSignalId?: Record<string, DuplicateCluster>;
+    postingEntries?: PostingLogEntry[];
   },
 ): ApprovalQueueCandidate[] {
+  const fatigueModel = buildFatigueModel({
+    subjects: candidates.map((candidate) => ({
+      id: candidate.signal.recordId,
+      signal: candidate.signal,
+      guidance: candidate.guidance,
+    })),
+    signals: candidates.map((candidate) => candidate.signal),
+    postingEntries: options?.postingEntries ?? [],
+  });
+
   return candidates
     .map((candidate) => {
       let rankScore = 0;
@@ -60,6 +78,32 @@ export function rankApprovalCandidates(
         options?.strategy ? getSignalContentContextSummary(candidate.signal, options.strategy) : null;
       const repurposingBundle = buildSignalRepurposingBundle(candidate.signal);
       const confirmedCluster = options?.confirmedClustersByCanonicalSignalId?.[candidate.signal.recordId] ?? null;
+      const planAlignment =
+        options?.strategy && options?.weeklyPlan
+          ? getWeeklyPlanAlignment(
+              candidate.signal,
+              options.weeklyPlan,
+              options.strategy,
+              options.weeklyPlanState,
+            )
+          : null;
+      const completeness = evaluateApprovalPackageCompleteness({
+        signal: candidate.signal,
+        guidanceConfidenceLevel: candidate.guidance.confidence.confidenceLevel,
+      });
+      const fatigue = fatigueModel.assessmentsById[candidate.signal.recordId] ?? {
+        warnings: [],
+        scorePenalty: 0,
+        summary: "No clear fatigue signal surfaced.",
+      };
+      const hypothesis = buildCandidateHypothesis({
+        signal: candidate.signal,
+        guidance: candidate.guidance,
+        assessment: candidate.assessment,
+        strategy: options?.strategy,
+        weeklyBoosts: planAlignment?.boosts,
+        weeklyCautions: planAlignment?.cautions,
+      });
 
       rankScore += scoreConfidence(candidate.guidance.confidence.confidenceLevel);
       if (candidate.guidance.confidence.confidenceLevel === "high") {
@@ -117,13 +161,23 @@ export function rankApprovalCandidates(
         uniquePush(rankReasons, `Represents ${confirmedCluster!.signalIds.length} similar signals`);
       }
 
-      if (options?.strategy && options?.weeklyPlan) {
-        const planAlignment = getWeeklyPlanAlignment(
-          candidate.signal,
-          options.weeklyPlan,
-          options.strategy,
-          options.weeklyPlanState,
-        );
+      if (completeness.completenessState === "complete") {
+        rankScore += 4;
+        uniquePush(rankReasons, "Approval package is complete");
+      } else if (completeness.completenessState === "mostly_complete") {
+        rankScore += 1;
+        uniquePush(rankReasons, "Approval package is mostly complete");
+      } else {
+        rankScore -= 3;
+        uniquePush(rankReasons, `Missing ${completeness.missingElements[0] ?? "package pieces"}`);
+      }
+
+      if (fatigue.scorePenalty > 0) {
+        rankScore -= fatigue.scorePenalty;
+        uniquePush(rankReasons, fatigue.summary);
+      }
+
+      if (planAlignment) {
         rankScore += planAlignment.scoreDelta;
         for (const reason of planAlignment.boosts) {
           uniquePush(rankReasons, reason);
@@ -182,6 +236,9 @@ export function rankApprovalCandidates(
 
       return {
         ...candidate,
+        completeness,
+        fatigue,
+        hypothesis,
         rankScore,
         rankReasons: rankReasons.slice(0, 3),
       };
