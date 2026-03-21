@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getCampaignLifecycleStageLabel } from "@/lib/campaign-lifecycle";
 import type { CampaignAllocationState } from "@/lib/campaign-allocation";
 
 function supportTone(level: CampaignAllocationState["recommendations"][number]["supportLevel"]) {
@@ -65,6 +66,11 @@ export function CampaignAllocationPanel({
                   {formatSupportLevel(recommendation.supportLevel)}
                 </Badge>
                 <Badge className={urgencyTone(recommendation.urgency)}>{recommendation.urgency}</Badge>
+                {recommendation.lifecycleStage ? (
+                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                    {getCampaignLifecycleStageLabel(recommendation.lifecycleStage)}
+                  </Badge>
+                ) : null}
               </div>
               <p className="mt-3 font-medium text-slate-950">{recommendation.campaignName}</p>
               <p className="mt-2 text-sm text-slate-600">{recommendation.suggestedWeeklyShare}</p>
@@ -103,10 +109,18 @@ export function CampaignAllocationPanel({
                   {formatSupportLevel(recommendation.supportLevel)}
                 </Badge>
                 <Badge className={urgencyTone(recommendation.urgency)}>{recommendation.urgency}</Badge>
+                {recommendation.lifecycleStage ? (
+                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                    {getCampaignLifecycleStageLabel(recommendation.lifecycleStage)}
+                  </Badge>
+                ) : null}
               </div>
               <p className="mt-3 font-medium text-slate-950">{recommendation.campaignName}</p>
               <p className="mt-2 text-sm text-slate-700">{recommendation.allocationRecommendation}</p>
               <p className="mt-2 text-sm text-slate-600">{recommendation.reason}</p>
+              {recommendation.recommendedContentFocus ? (
+                <p className="mt-2 text-xs text-slate-500">{recommendation.recommendedContentFocus}</p>
+              ) : null}
               <p className="mt-2 text-xs text-slate-500">Suggested share: {recommendation.suggestedWeeklyShare}</p>
               {recommendation.supportingSignals[0] ? (
                 <p className="mt-2 text-xs text-slate-500">

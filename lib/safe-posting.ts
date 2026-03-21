@@ -318,10 +318,28 @@ export function buildSafePostingEligibilityMap(input: {
         : policy.decision === "suggest_only"
           ? "manual_only"
           : "blocked";
-    const blockReasons = postingEligibility === "blocked" ? policy.reasons : [];
+    const highRiskBlocked = candidate?.commercialRisk.decision === "block";
+    const mediumRiskManual = candidate?.commercialRisk.decision === "suggest_fix";
+    const normalizedEligibility: SafePostingEligibilityState = highRiskBlocked
+      ? "blocked"
+      : mediumRiskManual && postingEligibility === "eligible_safe_post"
+        ? "manual_only"
+        : postingEligibility;
+    const blockReasons =
+      normalizedEligibility === "blocked"
+        ? highRiskBlocked
+          ? [
+              candidate?.commercialRisk.topRisk?.reason ??
+                candidate?.commercialRisk.summary,
+            ]
+          : policy.reasons
+        : [];
     const manualOnlyReason =
-      postingEligibility === "manual_only"
-        ? policy.reasons[0] ?? `${pkg.platform === "reddit" ? "Reddit" : "This platform"} remains manual-only in strict safe mode.`
+      normalizedEligibility === "manual_only"
+        ? mediumRiskManual
+          ? candidate?.commercialRisk.topRisk?.suggestedFix ??
+            candidate?.commercialRisk.summary
+          : policy.reasons[0] ?? `${pkg.platform === "reddit" ? "Reddit" : "This platform"} remains manual-only in strict safe mode.`
         : null;
 
     return [
@@ -330,14 +348,14 @@ export function buildSafePostingEligibilityMap(input: {
         packageId: pkg.packageId,
         signalId: pkg.signalId,
         platform: pkg.platform,
-        postingEligibility,
+        postingEligibility: normalizedEligibility,
         blockReasons,
         supportedExecutionPath,
         manualOnlyReason,
         requiresConfirmation: confirmationRequired,
-        canPostNow: postingEligibility === "eligible_safe_post",
+        canPostNow: normalizedEligibility === "eligible_safe_post",
         summary: buildSafePostingSummary(
-          postingEligibility,
+          normalizedEligibility,
           blockReasons,
           manualOnlyReason,
         ),

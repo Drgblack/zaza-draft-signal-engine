@@ -5,6 +5,11 @@ import type { PlaybookCoverageGap, PlaybookCoverageSummary } from "@/lib/playboo
 import type { SourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import type { AudienceMemoryState } from "@/lib/audience-memory";
 import type { RevenueSignalInsights } from "@/lib/revenue-signals";
+import {
+  getRecommendationFamilyForOptimisation,
+  getRecommendationWeight,
+  type RecommendationTuningState,
+} from "@/lib/recommendation-tuning";
 import type { WeeklyRecap, WeeklyRecapItem, WeeklyRecapItemType } from "@/lib/weekly-recap";
 import type { WeeklyPostingPack } from "@/lib/weekly-posting-pack";
 
@@ -256,10 +261,30 @@ function mergeProposal(existing: FlywheelOptimisationProposal, next: FlywheelOpt
       };
 }
 
-function sortProposals(proposals: FlywheelOptimisationProposal[]): FlywheelOptimisationProposal[] {
+function sortProposals(
+  proposals: FlywheelOptimisationProposal[],
+  tuning?: RecommendationTuningState | null,
+): FlywheelOptimisationProposal[] {
   return [...proposals].sort(
     (left, right) =>
-      priorityWeight(right.priority) - priorityWeight(left.priority) ||
+      priorityWeight(right.priority) +
+        (getRecommendationWeight(
+          tuning,
+          getRecommendationFamilyForOptimisation({
+            category: right.category,
+            targetType: right.targetType,
+            targetLabel: right.targetLabel,
+          }),
+        ) - 1) -
+        (priorityWeight(left.priority) +
+          (getRecommendationWeight(
+            tuning,
+            getRecommendationFamilyForOptimisation({
+              category: left.category,
+              targetType: left.targetType,
+              targetLabel: left.targetLabel,
+            }),
+          ) - 1)) ||
       left.targetLabel.localeCompare(right.targetLabel) ||
       left.category.localeCompare(right.category),
   );
@@ -684,6 +709,7 @@ export function buildFlywheelOptimisation(input: {
   narrativeSequenceInsights?: NarrativeSequenceInsights | null;
   revenueInsights?: RevenueSignalInsights | null;
   audienceMemory?: AudienceMemoryState | null;
+  recommendationTuning?: RecommendationTuningState | null;
   now?: Date;
 }): FlywheelOptimisationState {
   const proposalMap = new Map<string, FlywheelOptimisationProposal>();
@@ -701,7 +727,7 @@ export function buildFlywheelOptimisation(input: {
   buildRevenueProposals(proposalMap, input.revenueInsights);
   buildAudienceProposals(proposalMap, input.audienceMemory);
 
-  const proposals = sortProposals(Array.from(proposalMap.values())).slice(0, 14);
+  const proposals = sortProposals(Array.from(proposalMap.values()), input.recommendationTuning).slice(0, 14);
   const grouped = emptyGrouped();
   for (const proposal of proposals) {
     grouped[proposal.category].push(proposal);

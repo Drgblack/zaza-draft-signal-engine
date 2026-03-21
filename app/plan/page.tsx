@@ -1,5 +1,10 @@
 import { CampaignAllocationPanel } from "@/components/campaigns/campaign-allocation-panel";
+import { CampaignLifecyclePanel } from "@/components/campaigns/campaign-lifecycle-panel";
+import { GrowthMemoryPanel } from "@/components/director/growth-memory-panel";
+import { FounderOverrideSummary } from "@/components/overrides/founder-override-summary";
 import { PlaybookPackSuggestions } from "@/components/playbook/playbook-pack-suggestions";
+import { FunnelEnginePanel } from "@/components/plan/funnel-engine-panel";
+import { RevenueAmplifierPanel } from "@/components/plan/revenue-amplifier-panel";
 import { RecommendedWeeklyPostingPackSection } from "@/components/plan/recommended-weekly-posting-pack";
 import { WeeklyPlanManager } from "@/components/plan/weekly-plan-manager";
 import { WeeklyRecapPanel } from "@/components/recap/weekly-recap-panel";
@@ -10,6 +15,7 @@ import { buildAudienceMemoryInsights, syncAudienceMemory } from "@/lib/audience-
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { buildCampaignAllocationState } from "@/lib/campaign-allocation";
+import { buildCampaignLifecycleState } from "@/lib/campaign-lifecycle";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import {
@@ -21,6 +27,8 @@ import { buildEvergreenSummary } from "@/lib/evergreen";
 import { listExperiments } from "@/lib/experiments";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { buildFatigueModel } from "@/lib/fatigue";
+import { syncFounderOverrideState } from "@/lib/founder-overrides";
+import { buildAdaptiveFunnelState } from "@/lib/funnel-engine";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { listPatterns } from "@/lib/patterns";
@@ -30,9 +38,15 @@ import { syncPlaybookPacks } from "@/lib/playbook-packs";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildRecommendedWeeklyPostingPack } from "@/lib/recommended-weekly-posting-pack";
-import { syncAttributionMemory } from "@/lib/attribution";
+import {
+  buildAttributionInsights,
+  syncAttributionMemory,
+} from "@/lib/attribution";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
-import { buildRevenueSignalsFromInputs } from "@/lib/revenue-signals";
+import { buildRevenueSignalInsights, buildRevenueSignalsFromInputs } from "@/lib/revenue-signals";
+import { buildGrowthMemory } from "@/lib/growth-memory";
+import { buildInfluencerGraphState } from "@/lib/influencer-graph";
+import { buildRevenueAmplifierState } from "@/lib/revenue-amplifier";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
 import { buildWeeklyRecap } from "@/lib/weekly-recap";
@@ -60,6 +74,7 @@ export default async function WeeklyPlanPage() {
   const duplicateClusters = await listDuplicateClusters();
   const experiments = await listExperiments();
   const tuning = await getOperatorTuning();
+  const founderOverrides = await syncFounderOverrideState();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
     signals,
@@ -118,6 +133,7 @@ export default async function WeeklyPlanPage() {
       postingOutcomes,
       strategicOutcomes,
       experiments,
+      founderOverrides,
     },
   );
   const evergreenSummary = buildEvergreenSummary({
@@ -184,6 +200,15 @@ export default async function WeeklyPlanPage() {
     revenueSignals,
   });
   const audienceInsights = buildAudienceMemoryInsights(audienceMemory);
+  const campaignLifecycle = buildCampaignLifecycleState({
+    strategy,
+    signals,
+    weeklyPlan: plan,
+    weeklyPackSignalIds: postingPack.items.map((item) => item.signalId),
+    approvalCandidates: approvalReadyCandidates,
+    cadence,
+    revenueSignals,
+  });
   const campaignAllocation = buildCampaignAllocationState({
     strategy,
     signals,
@@ -193,6 +218,15 @@ export default async function WeeklyPlanPage() {
     cadence,
     revenueSignals,
     audienceMemory,
+    lifecycle: campaignLifecycle,
+  });
+  const funnelEngine = buildAdaptiveFunnelState({
+    signals,
+    weeklyPackSignalIds: postingPack.items.map((item) => item.signalId),
+    approvalCandidates: approvalReadyCandidates,
+    attributionRecords,
+    revenueSignals,
+    campaignLifecycle,
   });
   const [importedConnectContexts, latestConnectExport] = await Promise.all([
     listImportedZazaConnectContexts(),
@@ -201,6 +235,25 @@ export default async function WeeklyPlanPage() {
   const connectBridgeSummary = buildZazaConnectBridgeSummary({
     latestExport: latestConnectExport,
     importedContexts: importedConnectContexts,
+  });
+  const attributionInsights = buildAttributionInsights(attributionRecords);
+  const revenueInsights = buildRevenueSignalInsights(revenueSignals);
+  const influencerGraph = await buildInfluencerGraphState();
+  const growthMemory = buildGrowthMemory({
+    attributionInsights,
+    revenueInsights,
+    audienceMemory,
+    reuseCases: reuseMemoryCases,
+    influencerGraph,
+    campaignAllocation,
+    weeklyRecap: recap,
+  });
+  const revenueAmplifier = buildRevenueAmplifierState({
+    signals,
+    revenueSignals,
+    attributionRecords,
+    growthMemory,
+    weeklyRecap: recap,
   });
 
   return (
@@ -241,6 +294,7 @@ export default async function WeeklyPlanPage() {
       </Card>
 
       <div className="space-y-4">
+        <FounderOverrideSummary state={founderOverrides} compact />
         <Card>
           <CardHeader>
             <CardTitle>Latest Winner Recap</CardTitle>
@@ -311,6 +365,10 @@ export default async function WeeklyPlanPage() {
         </CardContent>
       </Card>
 
+      <GrowthMemoryPanel memory={growthMemory} compact />
+
+      <RevenueAmplifierPanel state={revenueAmplifier} compact />
+
       <Card>
         <CardHeader>
           <CardTitle>Content fatigue</CardTitle>
@@ -346,6 +404,10 @@ export default async function WeeklyPlanPage() {
 
       <CampaignAllocationPanel state={campaignAllocation} compact />
 
+      <CampaignLifecyclePanel state={campaignLifecycle} compact />
+
+      <FunnelEnginePanel state={funnelEngine} />
+
       <PlaybookPackSuggestions
         title="Reusable Playbook Packs"
         description="Repeated winners promoted into compact planning hints. Use these to keep next week grounded in structures that already worked."
@@ -363,6 +425,7 @@ export default async function WeeklyPlanPage() {
         recentPlans={store.plans.slice(0, 6)}
         templates={WEEKLY_PLAN_TEMPLATES}
         strategy={strategy}
+        funnelEngine={funnelEngine}
       />
     </div>
   );

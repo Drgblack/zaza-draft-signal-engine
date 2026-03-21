@@ -1,6 +1,11 @@
 import type { ApprovalQueueCandidate } from "@/lib/approval-ranking";
 import type { AudienceMemoryState } from "@/lib/audience-memory";
 import type { Campaign, CampaignCadenceSummary, CampaignStrategy } from "@/lib/campaigns";
+import type {
+  CampaignLifecycleRecommendation,
+  CampaignLifecycleStage,
+  CampaignLifecycleState,
+} from "@/lib/campaign-lifecycle";
 import type { RevenueSignal } from "@/lib/revenue-signals";
 import type { WeeklyPlan } from "@/lib/weekly-plan";
 import type { SignalRecord } from "@/types/signal";
@@ -22,6 +27,9 @@ export interface CampaignAllocationRecommendation {
   campaignName: string;
   allocationRecommendation: string;
   supportLevel: CampaignAllocationSupportLevel;
+  lifecycleStage: CampaignLifecycleStage | null;
+  recommendedNextStage: CampaignLifecycleStage | null;
+  recommendedContentFocus: string | null;
   reason: string;
   urgency: CampaignAllocationUrgency;
   suggestedWeeklyShare: string;
@@ -142,6 +150,40 @@ function getSuggestedShare(level: CampaignAllocationSupportLevel) {
   }
 }
 
+function lifecycleSupportShift(
+  lifecycle: CampaignLifecycleRecommendation | null,
+  currentSupportLevel: CampaignAllocationSupportLevel,
+): CampaignAllocationSupportLevel {
+  if (!lifecycle) {
+    return currentSupportLevel;
+  }
+
+  if (lifecycle.lifecycleStage === "peak") {
+    return "increase";
+  }
+
+  if (lifecycle.lifecycleStage === "ramping" && currentSupportLevel === "maintain") {
+    return "increase";
+  }
+
+  if (lifecycle.lifecycleStage === "tapering" && currentSupportLevel === "increase") {
+    return "maintain";
+  }
+
+  if (
+    (lifecycle.lifecycleStage === "tapering" || lifecycle.lifecycleStage === "paused") &&
+    currentSupportLevel === "maintain"
+  ) {
+    return "reduce";
+  }
+
+  if (lifecycle.lifecycleStage === "not_started") {
+    return currentSupportLevel === "increase" ? "maintain" : currentSupportLevel;
+  }
+
+  return currentSupportLevel;
+}
+
 function sortRecommendations(items: CampaignAllocationRecommendation[]) {
   return [...items].sort(
     (left, right) =>
@@ -155,18 +197,24 @@ function buildRecommendation(input: {
   campaign: Campaign;
   supportLevel: CampaignAllocationSupportLevel;
   urgency: CampaignAllocationUrgency;
+  lifecycle: CampaignLifecycleRecommendation | null;
   reason: string;
   supportingSignals: string[];
   linkedWorkflow: string;
 }) {
+  const shiftedSupportLevel = lifecycleSupportShift(input.lifecycle, input.supportLevel);
+
   return {
     campaignId: input.campaign.id,
     campaignName: input.campaign.name,
-    allocationRecommendation: `${getSupportLevelLabel(input.supportLevel)} ${input.campaign.name} this week.`,
-    supportLevel: input.supportLevel,
+    allocationRecommendation: `${getSupportLevelLabel(shiftedSupportLevel)} ${input.campaign.name} this week.`,
+    supportLevel: shiftedSupportLevel,
+    lifecycleStage: input.lifecycle?.lifecycleStage ?? null,
+    recommendedNextStage: input.lifecycle?.recommendedNextStage ?? null,
+    recommendedContentFocus: input.lifecycle?.recommendedContentFocus ?? null,
     reason: input.reason,
     urgency: input.urgency,
-    suggestedWeeklyShare: getSuggestedShare(input.supportLevel),
+    suggestedWeeklyShare: getSuggestedShare(shiftedSupportLevel),
     supportingSignals: input.supportingSignals.slice(0, 4),
     linkedWorkflow: input.linkedWorkflow,
   } satisfies CampaignAllocationRecommendation;
@@ -181,9 +229,13 @@ export function buildCampaignAllocationState(input: {
   cadence: CampaignCadenceSummary;
   revenueSignals: RevenueSignal[];
   audienceMemory: AudienceMemoryState;
+  lifecycle?: CampaignLifecycleState | null;
   now?: Date;
 }): CampaignAllocationState {
   const now = input.now ?? new Date();
+  const lifecycleByCampaignId = new Map(
+    (input.lifecycle?.recommendations ?? []).map((recommendation) => [recommendation.campaignId, recommendation]),
+  );
   const signalById = new Map(input.signals.map((signal) => [signal.recordId, signal]));
   const recommendedPackCounts = new Map(
     input.strategy.campaigns.map((campaign) => [
@@ -231,6 +283,7 @@ export function buildCampaignAllocationState(input: {
       const daysUntilEnd = getDaysUntil(campaign.endDate, now);
       const ended = typeof daysUntilEnd === "number" && daysUntilEnd < 0;
       const nearEnd = typeof daysUntilEnd === "number" && daysUntilEnd >= 0 && daysUntilEnd <= 10;
+      const lifecycle = lifecycleByCampaignId.get(campaign.id) ?? null;
       const audienceSignal = getCampaignAudienceSignal(
         campaign.id,
         input.approvalCandidates,
@@ -260,12 +313,19 @@ export function buildCampaignAllocationState(input: {
       if (audienceSignal) {
         uniquePush(supportingSignals, audienceSignal);
       }
+      if (lifecycle) {
+        uniquePush(
+          supportingSignals,
+          `Lifecycle: ${lifecycle.lifecycleStage.replaceAll("_", " ")} now, ${lifecycle.recommendedNextStage.replaceAll("_", " ")} next.`,
+        );
+      }
 
       if (campaign.status !== "active" || ended) {
         return buildRecommendation({
           campaign,
           supportLevel: "pause_temporarily",
           urgency: "low",
+          lifecycle,
           reason:
             campaign.status !== "active"
               ? "This campaign is not currently active, so it should not take weekly content share right now."
@@ -280,6 +340,7 @@ export function buildCampaignAllocationState(input: {
           campaign,
           supportLevel: "reduce",
           urgency: nearEnd ? "medium" : "low",
+          lifecycle,
           reason:
             "This campaign is already well represented in the recent mix, but it is not showing matching high-strength commercial payoff right now.",
           supportingSignals,
@@ -295,6 +356,7 @@ export function buildCampaignAllocationState(input: {
           campaign,
           supportLevel: "increase",
           urgency: nearEnd || highStrengthRevenueCount > 0 ? "high" : "medium",
+          lifecycle,
           reason:
             highStrengthRevenueCount > 0
               ? "The campaign has commercial traction but is under-supported in this week’s content mix."
@@ -311,6 +373,7 @@ export function buildCampaignAllocationState(input: {
           campaign,
           supportLevel: "pause_temporarily",
           urgency: "low",
+          lifecycle,
           reason:
             "There is very little current queue support or commercial evidence behind this campaign, so it can stay out of the weekly mix for now.",
           supportingSignals,
@@ -322,6 +385,7 @@ export function buildCampaignAllocationState(input: {
         campaign,
         supportLevel: "maintain",
         urgency: nearEnd ? "medium" : "low",
+        lifecycle,
         reason:
           highStrengthRevenueCount > 0
             ? "Current support looks directionally healthy, so keep this campaign visible without letting it dominate the week."

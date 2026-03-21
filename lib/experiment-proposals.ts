@@ -8,6 +8,7 @@ import {
   buildExperimentAutopilotV2,
   type ExperimentAutopilotVariable,
 } from "@/lib/experiment-autopilot-v2";
+import type { FounderOverrideState } from "@/lib/founder-overrides";
 import {
   assignExperimentVariant,
   createExperiment,
@@ -201,10 +202,12 @@ function mergeWithStoredProposal(proposal: ExperimentProposal, storedProposal: E
 function buildAutopilotProposal(
   candidate: ApprovalQueueCandidate,
   experiments: ManualExperiment[] | undefined,
+  founderOverrides?: FounderOverrideState | null,
 ): { proposal: ExperimentProposal; score: number } | null {
   const autopilot = buildExperimentAutopilotV2({
     candidate,
     experiments,
+    founderOverrides,
   });
   if (autopilot.decision !== "created" || !autopilot.variable || !autopilot.experimentType || !autopilot.controlCandidate || !autopilot.variantCandidate) {
     return null;
@@ -349,12 +352,13 @@ export function buildAutonomousExperimentProposals(input: {
   experiments: ManualExperiment[];
   storedProposals?: ExperimentProposal[];
   maxProposals?: number;
+  founderOverrides?: FounderOverrideState | null;
 }): ExperimentProposal[] {
   const storedById = new Map((input.storedProposals ?? []).map((proposal) => [proposal.proposalId, proposal]));
   const scoredProposals: Array<{ proposal: ExperimentProposal; score: number }> = [];
 
   for (const candidate of input.candidates) {
-    const proposal = buildAutopilotProposal(candidate, input.experiments);
+    const proposal = buildAutopilotProposal(candidate, input.experiments, input.founderOverrides);
     if (!proposal) {
       continue;
     }
@@ -433,4 +437,3 @@ export function buildExperimentProposalInsights(proposals: ExperimentProposal[])
     summaries: summaries.slice(0, 3),
   };
 }
-

@@ -1,8 +1,10 @@
 import type { AutomationConfidenceAssessment } from "@/lib/confidence";
 import type { ConflictAssessment } from "@/lib/conflicts";
+import type { DistributionPriorityAssessment } from "@/lib/distribution-priority";
 import type { ExpectedOutcomeAssessment } from "@/lib/expected-outcome-ranking";
 import type { PackageAutofillResult } from "@/lib/package-filler";
 import type { PreReviewRepairResult } from "@/lib/review-repair";
+import type { CommercialRiskAssessment } from "@/lib/risk-guardrails";
 import type { StaleQueueAssessment } from "@/lib/stale-queue";
 
 export const QUEUE_TRIAGE_STATES = [
@@ -64,6 +66,8 @@ export function assessQueueTriage(input: {
   stale: StaleQueueAssessment;
   packageAutofill: PackageAutofillResult;
   preReviewRepair: PreReviewRepairResult;
+  commercialRisk: CommercialRiskAssessment;
+  distributionPriority: DistributionPriorityAssessment;
   experimentLinked?: boolean;
 }): QueueTriageAssessment {
   const supportingSignals: string[] = [];
@@ -111,15 +115,24 @@ export function assessQueueTriage(input: {
     input.conflicts.requiresJudgement ||
     input.automationConfidence.requiresOperatorJudgement ||
     input.automationConfidence.level !== "high" ||
-    input.experimentLinked
+    input.experimentLinked ||
+    input.commercialRisk.decision === "block"
   ) {
     uniquePush(supportingSignals, input.conflicts.summary[0]);
     uniquePush(supportingSignals, input.automationConfidence.summary);
     uniquePush(supportingSignals, input.packageAutofill.policy.summary);
+    uniquePush(supportingSignals, input.commercialRisk.topRisk?.reason);
+    uniquePush(
+      supportingSignals,
+      input.distributionPriority.distributionStrategy !== "single"
+        ? `${input.distributionPriority.primaryPlatformLabel} leads, but distribution should stay ${input.distributionPriority.distributionStrategy}.`
+        : null,
+    );
 
     return {
       triageState: "needs_judgement",
       reason:
+        input.commercialRisk.topRisk?.reason ??
         input.conflicts.topConflicts[0]?.reason ??
         input.automationConfidence.summary ??
         "This candidate still needs explicit operator judgement before it should sit in the fastest approval lane.",
@@ -158,6 +171,10 @@ export function assessQueueTriage(input: {
 
   uniquePush(supportingSignals, input.automationConfidence.summary);
   uniquePush(supportingSignals, input.expectedOutcome.expectedOutcomeReasons[0]);
+  uniquePush(
+    supportingSignals,
+    `${input.distributionPriority.primaryPlatformLabel} is the clearest first distribution route.`,
+  );
 
   return {
     triageState: "approve_ready",

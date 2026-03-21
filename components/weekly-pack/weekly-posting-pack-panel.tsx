@@ -148,6 +148,15 @@ export function WeeklyPostingPackPanel({
               {item.source === "evergreen" ? "Evergreen" : "Fresh"}
             </Badge>
             <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{item.platformLabel}</Badge>
+            {item.distributionPriority ? (
+              <Badge className={item.distributionPriority.distributionStrategy === "multi" ? "bg-sky-50 text-sky-700 ring-sky-200" : item.distributionPriority.distributionStrategy === "experimental" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                {item.distributionPriority.distributionStrategy === "multi"
+                  ? "Multi-platform"
+                  : item.distributionPriority.distributionStrategy === "experimental"
+                    ? "Experimental distribution"
+                    : "Single-platform"}
+              </Badge>
+            ) : null}
             {item.editorialModeLabel ? (
               <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{item.editorialModeLabel}</Badge>
             ) : null}
@@ -172,7 +181,7 @@ export function WeeklyPostingPackPanel({
             ) : null}
           </div>
 
-          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Funnel</p>
               <p className="mt-2 text-sm text-slate-700">{item.funnelStageLabel ?? "Not set"}</p>
@@ -189,7 +198,27 @@ export function WeeklyPostingPackPanel({
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Readiness</p>
               <p className="mt-2 text-sm text-slate-700">{item.publishPrepReadiness}</p>
             </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Distribution</p>
+              <p className="mt-2 text-sm text-slate-700">
+                {item.distributionPriority
+                  ? `${item.distributionPriority.primaryPlatformLabel} · ${item.distributionPriority.distributionStrategy === "multi" ? "Multi-platform" : item.distributionPriority.distributionStrategy === "experimental" ? "Experimental" : "Single-platform"}`
+                  : "No priority set"}
+              </p>
+            </div>
           </div>
+
+          {item.distributionPriority ? (
+            <div className="mt-4 rounded-2xl bg-slate-50/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Distribution priority</p>
+              <p className="mt-2 text-sm leading-6 text-slate-700">{item.distributionPriority.reason}</p>
+              {item.distributionPriority.secondaryPlatformLabels.length > 0 ? (
+                <p className="mt-2 text-xs text-slate-500">
+                  Secondary routes: {item.distributionPriority.secondaryPlatformLabels.join(" · ")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {item.sequenceContext ? (
             <div className="mt-4 rounded-2xl bg-slate-50/80 px-4 py-4">

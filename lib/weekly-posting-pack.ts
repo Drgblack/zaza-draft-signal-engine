@@ -8,6 +8,7 @@ import { appendAuditEventsSafe } from "@/lib/audit";
 import type { CampaignStrategy } from "@/lib/campaigns";
 import { getSignalContentContextSummary } from "@/lib/campaigns";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import type { DistributionPriorityAssessment } from "@/lib/distribution-priority";
 import type { EvergreenCandidate, EvergreenSummary } from "@/lib/evergreen";
 import {
   buildSignalNarrativeSequence,
@@ -115,6 +116,7 @@ export interface WeeklyPostingPackItem {
   strongestReasons: string[];
   isCampaignCritical: boolean;
   sequenceContext: WeeklyPostingPackItemSequenceContext | null;
+  distributionPriority: DistributionPriorityAssessment | null;
 }
 
 export interface WeeklyPostingPack {
@@ -170,6 +172,7 @@ interface PackChoice {
   baseScore: number;
   isCampaignCritical: boolean;
   planBoosts: string[];
+  distributionPriority: DistributionPriorityAssessment | null;
 }
 
 function uniquePush(target: string[], value: string | null | undefined) {
@@ -201,20 +204,6 @@ async function readPersistedStore() {
 async function writeStore(store: z.infer<typeof weeklyPostingPackStoreSchema>) {
   await mkdir(path.dirname(WEEKLY_POSTING_PACK_STORE_PATH), { recursive: true });
   await writeFile(WEEKLY_POSTING_PACK_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
-}
-
-function getPrimaryPlatform(
-  signal: ApprovalQueueCandidate["signal"] | EvergreenCandidate["signal"],
-): PostingPlatform {
-  if (signal.platformPriority === "X First") {
-    return "x";
-  }
-
-  if (signal.platformPriority === "Reddit First") {
-    return "reddit";
-  }
-
-  return "linkedin";
 }
 
 function getCompletenessReadinessLabel(
@@ -276,7 +265,7 @@ function buildChoiceFromApprovalCandidate(
   candidate: ApprovalQueueCandidate,
   strategy: CampaignStrategy,
 ): PackChoice {
-  const platform = getPrimaryPlatform(candidate.signal);
+  const platform = candidate.distributionPriority.primaryPlatform;
   const packageBundle = buildSignalPublishPrepBundle(candidate.signal);
   const primaryPackage =
     packageBundle?.packages.find(
@@ -292,8 +281,8 @@ function buildChoiceFromApprovalCandidate(
     sourceTitle: candidate.signal.sourceTitle,
     href: `/signals/${candidate.signal.recordId}/review`,
     source: "fresh",
-    platform,
-    platformLabel: getPostingPlatformLabel(platform),
+    platform: candidate.distributionPriority.primaryPlatform,
+    platformLabel: candidate.distributionPriority.primaryPlatformLabel,
     editorialMode: candidate.signal.editorialMode,
     editorialModeLabel: candidate.signal.editorialMode
       ? getEditorialModeDefinition(candidate.signal.editorialMode).label
@@ -334,6 +323,7 @@ function buildChoiceFromApprovalCandidate(
         reason.toLowerCase().includes("gap") ||
         reason.toLowerCase().includes("weekly"),
     ),
+    distributionPriority: candidate.distributionPriority,
   };
 }
 
@@ -370,6 +360,7 @@ function buildChoiceFromEvergreenCandidate(candidate: EvergreenCandidate): PackC
     baseScore: candidate.rankScore - 1,
     isCampaignCritical: Boolean(candidate.campaignLabel),
     planBoosts: candidate.weeklyGapReasons,
+    distributionPriority: null,
   };
 }
 
@@ -506,6 +497,12 @@ function adjustedSelectionScore(
     score += 1.25;
   }
 
+  if (choice.distributionPriority?.distributionStrategy === "multi" && choice.expectedOutcomeTier === "high") {
+    score += 0.75;
+  } else if (choice.distributionPriority?.distributionStrategy === "experimental") {
+    score -= 0.25;
+  }
+
   if (choice.planBoosts.length > 0) {
     score += Math.min(1.5, choice.planBoosts.length * 0.5);
   }
@@ -560,6 +557,19 @@ function buildWhySelected(choice: PackChoice, selected: PackChoice[]) {
 
   if (choice.isCampaignCritical && choice.campaignContext) {
     uniquePush(reasons, `Supports ${choice.campaignContext} while it is still relevant.`);
+  }
+  if (choice.distributionPriority?.distributionStrategy === "multi") {
+    uniquePush(
+      reasons,
+      `${choice.distributionPriority.primaryPlatformLabel} leads, with ${choice.distributionPriority.secondaryPlatformLabels.join(" and ")} available as bounded follow-on distribution.`,
+    );
+  } else if (choice.distributionPriority?.distributionStrategy === "experimental") {
+    uniquePush(
+      reasons,
+      `${choice.distributionPriority.primaryPlatformLabel} should lead while distribution stays experimentally bounded.`,
+    );
+  } else if (choice.distributionPriority) {
+    uniquePush(reasons, `${choice.distributionPriority.primaryPlatformLabel} is the clearest first distribution route.`);
   }
 
   uniquePush(reasons, choice.planBoosts[0]);
@@ -643,6 +653,7 @@ function toPackItem(
     strongestReasons: choice.strongestReasons,
     isCampaignCritical: choice.isCampaignCritical,
     sequenceContext,
+    distributionPriority: choice.distributionPriority,
   } satisfies WeeklyPostingPackItem;
 }
 
@@ -789,6 +800,9 @@ export async function buildWeeklyPostingPack(input: {
   }
   if (items.some((item) => item.isCampaignCritical)) {
     uniquePush(packRationale, "Campaign-critical work stayed in the pack without flattening the rest of the mix.");
+  }
+  if (items.some((item) => item.distributionPriority?.distributionStrategy === "multi")) {
+    uniquePush(packRationale, "High-value items with cross-platform upside stayed visible in the weekly pack.");
   }
   uniquePush(packRationale, coverageSummary.notes[0]);
   const sequences = selectedChoices

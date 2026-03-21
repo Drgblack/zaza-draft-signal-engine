@@ -84,6 +84,9 @@ import type { PostingAssistantActionResponse } from "@/types/api";
 import type { FounderVoiceMode, SignalDataSource, SignalRecord } from "@/types/signal";
 import type { AutomationConfidenceAssessment } from "@/lib/confidence";
 import type { ConflictAssessment } from "@/lib/conflicts";
+import type { DistributionPriorityAssessment } from "@/lib/distribution-priority";
+import type { CommercialRiskAssessment } from "@/lib/risk-guardrails";
+import type { RevenueAmplifierMatch } from "@/lib/revenue-amplifier";
 import type { StaleQueueAssessment } from "@/lib/stale-queue";
 
 type ReviewFormState = {
@@ -317,6 +320,54 @@ function conversionIntentLabel(posture: ConversionIntentAssessment["posture"]): 
   }
 }
 
+function commercialRiskTone(
+  severity: CommercialRiskAssessment["highestSeverity"],
+): "neutral" | "aging" | "stale" {
+  if (severity === "high") {
+    return "stale";
+  }
+
+  if (severity === "medium") {
+    return "aging";
+  }
+
+  return "neutral";
+}
+
+function commercialRiskLabel(
+  riskType: NonNullable<CommercialRiskAssessment["topRisk"]>["riskType"],
+) {
+  switch (riskType) {
+    case "over_aggressive_cta":
+      return "CTA too strong for the current posture";
+    case "weak_claim":
+      return "Weak claim risk";
+    case "repetitive_pattern":
+      return "Repetitive messaging pattern";
+    case "brand_tone_drift":
+      return "Brand tone drift";
+    case "audience_mismatch":
+      return "Audience mismatch";
+    case "low_evidence_assertion":
+      return "Low-evidence assertion";
+    case "fatigue_risk":
+    default:
+      return "Fatigue risk";
+  }
+}
+
+function distributionStrategyLabel(strategy: DistributionPriorityAssessment["distributionStrategy"]): string {
+  switch (strategy) {
+    case "multi":
+      return "Multi-platform";
+    case "experimental":
+      return "Experimental";
+    case "single":
+    default:
+      return "Single-platform";
+  }
+}
+
 function createFormState(signal: SignalRecord): ReviewFormState {
   const assetBundleJson = signal.assetBundleJson ?? stringifyAssetBundle(buildSignalAssetBundle(signal)) ?? "";
   const repurposingBundle = buildSignalRepurposingBundle(signal);
@@ -427,6 +478,9 @@ export function FinalReviewWorkspace({
   evergreenContext,
   staleContext,
   conflicts,
+  distributionPriority,
+  commercialRisk,
+  revenueAmplifierMatch,
   playbookPackMatches,
   narrativeSequenceSteps,
   navigation,
@@ -461,6 +515,9 @@ export function FinalReviewWorkspace({
   evergreenContext?: EvergreenCandidate | null;
   staleContext?: StaleQueueAssessment | null;
   conflicts?: ConflictAssessment | null;
+  distributionPriority?: DistributionPriorityAssessment | null;
+  commercialRisk?: CommercialRiskAssessment | null;
+  revenueAmplifierMatch?: RevenueAmplifierMatch | null;
   playbookPackMatches?: PlaybookPackMatch[];
   narrativeSequenceSteps?: Partial<
     Record<
@@ -1886,6 +1943,51 @@ export function FinalReviewWorkspace({
               {conversionIntent.cautionNotes[0] ? (
                 <p className="mt-2 text-slate-500">{conversionIntent.cautionNotes[0]}</p>
               ) : null}
+            </div>
+          ) : null}
+
+          {distributionPriority ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <div className="flex flex-wrap items-center gap-2">
+                <ReviewStateBadge tone={distributionPriority.distributionStrategy === "multi" ? "medium_value" : distributionPriority.distributionStrategy === "experimental" ? "aging" : "neutral"}>
+                  Distribution: {distributionPriority.primaryPlatformLabel}
+                </ReviewStateBadge>
+              </div>
+              <p className="mt-3 font-medium text-slate-900">
+                {distributionStrategyLabel(distributionPriority.distributionStrategy)}
+              </p>
+              <p className="mt-2">{distributionPriority.reason}</p>
+              {revenueAmplifierMatch ? (
+                <p className="mt-2 text-emerald-700">
+                  Revenue pattern: {revenueAmplifierMatch.revenueStrength === "high" ? "High-performing" : "Working"} · {revenueAmplifierMatch.label}
+                </p>
+              ) : null}
+              {distributionPriority.secondaryPlatformLabels[0] ? (
+                <p className="mt-2 text-slate-500">
+                  Secondary routes: {distributionPriority.secondaryPlatformLabels.join(" · ")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {commercialRisk?.topRisk ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <div className="flex flex-wrap items-center gap-2">
+                <ReviewStateBadge tone={commercialRiskTone(commercialRisk.highestSeverity)}>
+                  {commercialRisk.highestSeverity === "high"
+                    ? "high risk"
+                    : commercialRisk.highestSeverity === "medium"
+                      ? "fix suggested"
+                      : "risk note"}
+                </ReviewStateBadge>
+              </div>
+              <p className="mt-3 font-medium text-slate-900">
+                {commercialRiskLabel(commercialRisk.topRisk.riskType)}
+              </p>
+              <p className="mt-2">{commercialRisk.topRisk.reason}</p>
+              <p className="mt-2 text-slate-500">
+                Suggested fix: {commercialRisk.topRisk.suggestedFix}
+              </p>
             </div>
           ) : null}
 

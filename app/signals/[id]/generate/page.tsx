@@ -12,8 +12,10 @@ import { getCampaignStrategy } from "@/lib/campaigns";
 import { suggestEditorialMode } from "@/lib/editorial-modes";
 import { listExperiments } from "@/lib/experiments";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
+import { getFounderOverrideGenerationHints, syncFounderOverrideState } from "@/lib/founder-overrides";
 import { buildInitialGenerationFromSignal, toGenerationInputFromSignal } from "@/lib/generator";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
+import { buildAttributionRecordsFromInputs } from "@/lib/attribution";
 import { getBundlesForPattern, indexBundleSummariesByPatternId, listPatternBundles, type PatternBundleSummary } from "@/lib/pattern-bundles";
 import { findSuggestedPatterns } from "@/lib/pattern-match";
 import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
@@ -32,6 +34,8 @@ import { listPlaybookCards } from "@/lib/playbook-cards";
 import { matchPlaybookPacksForSignal, syncPlaybookPacks } from "@/lib/playbook-packs";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { buildRevenueAmplifierState, matchRevenueAmplifierToSignal } from "@/lib/revenue-amplifier";
+import { buildRevenueSignalsFromInputs } from "@/lib/revenue-signals";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
 import { buildWeeklyRecap } from "@/lib/weekly-recap";
@@ -107,6 +111,7 @@ export default async function GenerateSignalPage({
   const allAuditEvents = await listAuditEvents();
   const allPatternFeedbackEntries = await listPatternFeedbackEntries();
   const tuning = await getOperatorTuning();
+  const founderOverrides = await syncFounderOverrideState();
   const patternEffectivenessById = indexPatternEffectivenessSummaries(
     buildPatternEffectivenessSummaries(allPatterns, allAuditEvents, allPatternFeedbackEntries, allSignalFeedbackEntries),
   );
@@ -135,6 +140,24 @@ export default async function GenerateSignalPage({
     experiments,
     bundleSummariesByPatternId,
   });
+  const attributionRecords = buildAttributionRecordsFromInputs({
+    signals: allSignals,
+    postingEntries,
+    strategicOutcomes,
+  });
+  const revenueSignals = buildRevenueSignalsFromInputs({
+    signals: allSignals,
+    postingEntries,
+    strategicOutcomes,
+  });
+  const revenueAmplifier = buildRevenueAmplifierState({
+    signals: allSignals,
+    revenueSignals,
+    attributionRecords,
+    weeklyRecap,
+  });
+  const revenueAmplifierMatch = matchRevenueAmplifierToSignal(result.signal, revenueAmplifier);
+  const founderOverrideHints = getFounderOverrideGenerationHints(founderOverrides, result.signal);
   const playbookPacks = await syncPlaybookPacks({
     signals: allSignals,
     postingEntries,
@@ -252,6 +275,8 @@ export default async function GenerateSignalPage({
         campaigns={strategy.campaigns}
         pillars={strategy.pillars}
         audienceSegments={strategy.audienceSegments}
+        founderOverrideHints={founderOverrideHints}
+        revenueAmplifierMatch={revenueAmplifierMatch}
       />
 
       <FeedbackPanel

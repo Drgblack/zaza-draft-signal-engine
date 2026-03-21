@@ -65,7 +65,15 @@ function buildBaseStopConditions() {
 export function assessExecutionChain(input: {
   candidate: Pick<
     ApprovalQueueCandidate,
-    "signal" | "packageAutofill" | "preReviewRepair" | "automationConfidence" | "conflicts" | "completeness" | "triage"
+    | "signal"
+    | "packageAutofill"
+    | "preReviewRepair"
+    | "automationConfidence"
+    | "conflicts"
+    | "completeness"
+    | "triage"
+    | "commercialRisk"
+    | "distributionPriority"
   >;
   experimentLinked?: boolean;
   includeStage?: boolean;
@@ -107,6 +115,19 @@ export function assessExecutionChain(input: {
 
   uniquePush(triggerConditions, "No unresolved conflicts");
 
+  if (input.candidate.commercialRisk.decision === "block") {
+    return {
+      chainType: null,
+      eligible: false,
+      status: "blocked",
+      steps: [],
+      triggerConditions,
+      stopConditions,
+      blockReasons: [input.candidate.commercialRisk.summary],
+      summary: "Execution chain blocked by commercial risk guardrails.",
+    };
+  }
+
   if (input.experimentLinked) {
     return {
       chainType: null,
@@ -121,6 +142,10 @@ export function assessExecutionChain(input: {
   }
 
   uniquePush(triggerConditions, "No experiment lock");
+  uniquePush(
+    triggerConditions,
+    `${input.candidate.distributionPriority.primaryPlatformLabel} is the lead distribution route.`,
+  );
 
   if (input.candidate.packageAutofill.mode === "applied") {
     steps.push({

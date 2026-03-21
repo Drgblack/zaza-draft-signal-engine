@@ -1,7 +1,12 @@
 import Link from "next/link";
 
 import { CampaignAllocationPanel } from "@/components/campaigns/campaign-allocation-panel";
+import { FunnelEnginePanel } from "@/components/plan/funnel-engine-panel";
+import { ExecutiveBriefingPanel } from "@/components/director/executive-briefing-panel";
+import { FounderOverrideSummary } from "@/components/overrides/founder-override-summary";
+import { GrowthMemoryPanel } from "@/components/director/growth-memory-panel";
 import { GrowthDirectorPanel } from "@/components/director/growth-director-panel";
+import { OpportunityRadarPanel } from "@/components/director/opportunity-radar-panel";
 import { ResourceFocusPanel } from "@/components/director/resource-focus-panel";
 import { FlywheelOptimisationPanel } from "@/components/optimisation/flywheel-optimisation-panel";
 import { FollowUpTaskList } from "@/components/follow-up/follow-up-task-list";
@@ -13,10 +18,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { listSignalsWithFallback } from "@/lib/airtable";
 import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { appendAuditEventsSafe, listAuditEvents } from "@/lib/audit";
+import { buildAttributionInsights, buildAttributionRecordsFromInputs } from "@/lib/attribution";
 import { buildAutonomyScorecard } from "@/lib/autonomy-scorecard";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { buildCampaignAllocationState } from "@/lib/campaign-allocation";
+import { buildCampaignLifecycleState } from "@/lib/campaign-lifecycle";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildOperatorDigest } from "@/lib/digest";
 import {
@@ -25,6 +32,9 @@ import {
   listDuplicateClusters,
 } from "@/lib/duplicate-clusters";
 import { buildEvergreenSummary } from "@/lib/evergreen";
+import { buildExecutiveBriefing } from "@/lib/executive-briefing";
+import { syncFounderOverrideState } from "@/lib/founder-overrides";
+import { buildAdaptiveFunnelState } from "@/lib/funnel-engine";
 import { syncExceptionInbox } from "@/lib/exception-inbox";
 import { buildAutonomousExperimentProposals, buildExperimentProposalInsights, listExperimentProposals } from "@/lib/experiment-proposals";
 import { buildExperimentInsights, listExperiments } from "@/lib/experiments";
@@ -32,6 +42,7 @@ import { listFeedbackEntries } from "@/lib/feedback";
 import { listFollowUpTasks } from "@/lib/follow-up";
 import { buildFlywheelOptimisation } from "@/lib/flywheel-optimisation";
 import { buildGrowthDirector } from "@/lib/growth-director";
+import { buildGrowthMemory } from "@/lib/growth-memory";
 import { buildGrowthScorecard } from "@/lib/growth-scorecard";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
@@ -49,6 +60,9 @@ import { listPatterns } from "@/lib/patterns";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { listPostingAssistantPackages } from "@/lib/posting-assistant";
+import { buildCommercialOpportunityRadar } from "@/lib/opportunity-radar";
+import { buildRevenueAmplifierState } from "@/lib/revenue-amplifier";
+import { syncRecommendationTuningState } from "@/lib/recommendation-tuning";
 import { buildResourceFocusState } from "@/lib/resource-focus";
 import { buildRevenueSignalInsights, syncRevenueSignals } from "@/lib/revenue-signals";
 import { buildSafeReplyState } from "@/lib/safe-replies";
@@ -94,6 +108,7 @@ export default async function DigestPage() {
     safeReplies,
     importedConnectContexts,
     latestConnectExport,
+    founderOverrides,
   ] = await Promise.all([
     listSignalsWithFallback({ limit: 1000 }),
     listFeedbackEntries(),
@@ -115,6 +130,7 @@ export default async function DigestPage() {
     buildSafeReplyState(),
     listImportedZazaConnectContexts(),
     getLatestZazaConnectExport(),
+    syncFounderOverrideState(),
   ]);
 
   const weeklyPlanStore = await getWeeklyPlanStore(strategy);
@@ -207,6 +223,7 @@ export default async function DigestPage() {
       postingOutcomes,
       strategicOutcomes,
       experiments,
+      founderOverrides,
     },
   );
   const queueTriageInsights = buildQueueTriageInsights(
@@ -230,6 +247,40 @@ export default async function DigestPage() {
     weeklyPlanState,
     postingEntries,
   });
+  const revenueSignals = await syncRevenueSignals({
+    signals: signalResult.signals,
+    postingEntries,
+    strategicOutcomes,
+  });
+  const audienceMemory = buildAudienceMemoryState({
+    strategy,
+    signals: signalResult.signals,
+    postingEntries,
+    strategicOutcomes,
+    revenueSignals,
+  });
+  const campaignLifecycle = buildCampaignLifecycleState({
+    strategy,
+    signals: signalResult.signals,
+    weeklyPlan,
+    weeklyPackSignalIds: weeklyPostingPack.items.map((item) => item.signalId),
+    approvalCandidates: approvalReadyCandidates,
+    cadence,
+    revenueSignals,
+  });
+  const attributionRecords = buildAttributionRecordsFromInputs({
+    postingEntries,
+    strategicOutcomes,
+    signals: signalResult.signals,
+  });
+  const funnelEngine = buildAdaptiveFunnelState({
+    signals: signalResult.signals,
+    weeklyPackSignalIds: weeklyPostingPack.items.map((item) => item.signalId),
+    approvalCandidates: approvalReadyCandidates,
+    attributionRecords,
+    revenueSignals,
+    campaignLifecycle,
+  });
   const weeklyPostingPackInsights = buildWeeklyPostingPackInsights(weeklyPostingPack);
   const weeklyExecution = await runWeeklyExecutionAutopilot({
     weekStartDate: weeklyPostingPack.weekStartDate,
@@ -237,6 +288,10 @@ export default async function DigestPage() {
     approvalCandidates: approvalReadyCandidates,
     stagedPackages: existingStagedPostingPackages,
     experiments,
+    lifecycleByCampaignId: Object.fromEntries(
+      campaignLifecycle.recommendations.map((recommendation) => [recommendation.campaignId, recommendation]),
+    ),
+    funnelEngine,
   });
   const exceptionInbox = await syncExceptionInbox({
     approvalCandidates: approvalReadyCandidates,
@@ -289,12 +344,8 @@ export default async function DigestPage() {
     bundleSummariesByPatternId,
     weekStartDate: previousWeekStartDate.toISOString().slice(0, 10),
   });
-  const revenueSignals = await syncRevenueSignals({
-    signals: signalResult.signals,
-    postingEntries,
-    strategicOutcomes,
-  });
   const revenueInsights = buildRevenueSignalInsights(revenueSignals);
+  const attributionInsights = buildAttributionInsights(attributionRecords);
   const scorecard = buildGrowthScorecard({
     approvalCandidates: approvalReadyCandidates,
     weeklyPack: weeklyPostingPack,
@@ -306,13 +357,6 @@ export default async function DigestPage() {
     experiments,
     cadence,
     strategy,
-  });
-  const audienceMemory = buildAudienceMemoryState({
-    strategy,
-    signals: signalResult.signals,
-    postingEntries,
-    strategicOutcomes,
-    revenueSignals,
   });
   const sourceAutopilotState = await buildSourceAutopilotV2State({
     source: signalResult.source,
@@ -327,6 +371,7 @@ export default async function DigestPage() {
       candidates: approvalReadyCandidates,
       experiments,
       storedProposals: storedExperimentProposals,
+      founderOverrides,
       maxProposals: 6,
     }),
   );
@@ -346,17 +391,6 @@ export default async function DigestPage() {
     postingOutcomes,
     strategicOutcomes,
   });
-  const optimisation = buildFlywheelOptimisation({
-    weeklyRecap: recap,
-    sourceAutopilotState,
-    playbookCoverageSummary,
-    weeklyPostingPack,
-    evergreenSummary,
-    experimentProposalInsights,
-    narrativeSequenceInsights,
-    revenueInsights,
-    audienceMemory,
-  });
   const connectBridgeSummary = buildZazaConnectBridgeSummary({
     latestExport: latestConnectExport,
     importedContexts: importedConnectContexts,
@@ -371,6 +405,50 @@ export default async function DigestPage() {
     cadence,
     revenueSignals,
     audienceMemory,
+    lifecycle: campaignLifecycle,
+  });
+  const recommendationTuning = await syncRecommendationTuningState({
+    auditEvents,
+    approvalCandidates: approvalReadyCandidates,
+    weeklyExecution: weeklyExecution.flow,
+    campaignAllocation,
+    growthScorecard: scorecard,
+    weeklyRecap: recap,
+    revenueInsights,
+    attributionInsights,
+    sourceAutopilotState,
+    audienceMemory,
+    exceptionInbox,
+    influencerGraphSummary: influencerGraph.summary,
+    activeExperimentCount: experiments.filter((experiment) => experiment.status !== "completed").length,
+  });
+  const growthMemory = buildGrowthMemory({
+    attributionInsights,
+    revenueInsights,
+    audienceMemory,
+    reuseCases: reuseMemoryCases,
+    influencerGraph,
+    campaignAllocation,
+    weeklyRecap: recap,
+  });
+  const revenueAmplifier = buildRevenueAmplifierState({
+    signals: signalResult.signals,
+    revenueSignals,
+    attributionRecords,
+    growthMemory,
+    weeklyRecap: recap,
+  });
+  const optimisation = buildFlywheelOptimisation({
+    weeklyRecap: recap,
+    sourceAutopilotState,
+    playbookCoverageSummary,
+    weeklyPostingPack,
+    evergreenSummary,
+    experimentProposalInsights,
+    narrativeSequenceInsights,
+    revenueInsights,
+    audienceMemory,
+    recommendationTuning,
   });
   const growthDirector = buildGrowthDirector({
     weeklyPlan,
@@ -388,6 +466,8 @@ export default async function DigestPage() {
     narrativeSequenceInsights,
     connectBridgeSummary,
     scorecard,
+    growthMemory,
+    recommendationTuning,
   });
   const strategicDecisions = buildStrategicDecisionState({
     growthDirector,
@@ -399,7 +479,12 @@ export default async function DigestPage() {
     revenueInsights,
     audienceMemory,
     influencerGraphSummary: influencerGraph.summary,
+    funnelEngine,
+    growthMemory,
+    revenueAmplifier,
     activeExperimentCount: experiments.filter((experiment) => experiment.status !== "completed").length,
+    recommendationTuning,
+    founderOverrides,
   });
   const resourceFocus = buildResourceFocusState({
     exceptionInbox,
@@ -414,9 +499,76 @@ export default async function DigestPage() {
     influencerGraphSummary: influencerGraph.summary,
     revenueInsights,
     activeExperimentCount: experiments.filter((experiment) => experiment.status !== "completed").length,
+    recommendationTuning,
+    founderOverrides,
+  });
+  const opportunityRadar = buildCommercialOpportunityRadar({
+    approvalCandidates: approvalReadyCandidates,
+    weeklyPostingPack,
+    weeklyRecap: recap,
+    growthScorecard: scorecard,
+    attributionInsights,
+    revenueInsights,
+    audienceMemory,
+    sourceAutopilotState,
+    influencerGraph,
+    campaignAllocation,
+    evergreenSummary,
+    growthMemory,
+  });
+  const executiveBriefing = buildExecutiveBriefing({
+    weeklyPlan,
+    growthDirector,
+    strategicDecisions,
+    campaignAllocation,
+    resourceFocus,
+    weeklyExecution: weeklyExecution.flow,
+    autonomyScorecard,
+    growthScorecard: scorecard,
+    weeklyRecap: recap,
+    revenueInsights,
+    attributionInsights,
+    sourceAutopilotState,
+    exceptionInbox,
+    opportunityRadar,
+    growthMemory,
+    recommendationTuning,
+    founderOverrides,
   });
 
   await appendAuditEventsSafe([
+    {
+      signalId: `growth-memory:${digest.generatedAt.slice(0, 10)}`,
+      eventType: "GROWTH_MEMORY_CONSOLIDATED",
+      actor: "system",
+      summary: `Consolidated growth memory with ${growthMemory.currentBestCombos.length} best combo${growthMemory.currentBestCombos.length === 1 ? "" : "s"} and ${growthMemory.currentWeakCombos.length} caution combo${growthMemory.currentWeakCombos.length === 1 ? "" : "s"}.`,
+      metadata: {
+        bestCombos: growthMemory.currentBestCombos.length,
+        weakCombos: growthMemory.currentWeakCombos.length,
+        topCommercialHeadline: growthMemory.commercialMemory.headline,
+      },
+    },
+    {
+      signalId: `commercial-opportunity:${digest.generatedAt.slice(0, 10)}`,
+      eventType: "COMMERCIAL_OPPORTUNITY_DETECTED",
+      actor: "system",
+      summary: `Detected ${opportunityRadar.opportunities.length} commercial opportunit${opportunityRadar.opportunities.length === 1 ? "y" : "ies"} worth surfacing.`,
+      metadata: {
+        count: opportunityRadar.opportunities.length,
+        topCategory: opportunityRadar.opportunities[0]?.category ?? null,
+      },
+    },
+    {
+      signalId: `executive-briefing:${digest.generatedAt.slice(0, 10)}`,
+      eventType: "EXECUTIVE_BRIEFING_GENERATED",
+      actor: "system",
+      summary: `Generated executive briefing with ${executiveBriefing.topOpportunities.length} opportunities and ${executiveBriefing.topRisks.length} risks.`,
+      metadata: {
+        opportunities: executiveBriefing.topOpportunities.length,
+        risks: executiveBriefing.topRisks.length,
+        actions: executiveBriefing.recommendedActions.length,
+      },
+    },
     {
       signalId: `autonomy-scorecard:${weeklyExecution.flow.weekStartDate}`,
       eventType: "AUTONOMY_SCORECARD_COMPUTED",
@@ -670,6 +822,11 @@ export default async function DigestPage() {
         </CardContent>
       </Card>
 
+      <FounderOverrideSummary state={founderOverrides} compact />
+      <ExecutiveBriefingPanel briefing={executiveBriefing} compact />
+      <FunnelEnginePanel state={funnelEngine} compact />
+      <GrowthMemoryPanel memory={growthMemory} compact />
+      <OpportunityRadarPanel state={opportunityRadar} compact />
       <ResourceFocusPanel state={resourceFocus} compact />
       <CampaignAllocationPanel state={campaignAllocation} compact />
       <GrowthDirectorPanel director={growthDirector} compact />

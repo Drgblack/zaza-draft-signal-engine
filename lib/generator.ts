@@ -314,6 +314,8 @@ export async function generateDrafts(
     pattern?: SignalPattern | null;
     editorialMode?: EditorialMode;
     founderVoiceMode?: FounderVoiceMode;
+    founderOverrideHints?: string[];
+    revenueAmplifierHints?: string[];
   },
 ): Promise<DraftGenerationRun> {
   const providerConfig = getGenerationProviderConfig();
@@ -341,6 +343,8 @@ export async function generateDrafts(
         pattern: options?.pattern,
         editorialMode,
         founderVoiceMode,
+        founderOverrideHints: options?.founderOverrideHints,
+        revenueAmplifierHints: options?.revenueAmplifierHints,
       }),
       jsonSchema: GENERATION_JSON_SCHEMA,
     });

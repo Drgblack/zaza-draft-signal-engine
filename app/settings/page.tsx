@@ -1,7 +1,9 @@
+import { RecommendationTuningPanel } from "@/components/settings/recommendation-tuning-panel";
 import { TuningForm } from "@/components/settings/tuning-form";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buildAutonomyPolicyTuningSummary } from "@/lib/autonomy-policy";
+import { getStoredRecommendationTuningState } from "@/lib/recommendation-tuning";
 import {
   TUNING_CONTROL_DEFINITIONS,
   TUNING_PRESETS,
@@ -18,6 +20,7 @@ export const dynamic = "force-dynamic";
 export default async function SettingsPage() {
   const tuning = await getOperatorTuning();
   const autonomyPolicySummary = buildAutonomyPolicyTuningSummary(tuning);
+  const recommendationTuning = await getStoredRecommendationTuningState();
   const tuningRows = getOperatorTuningRows(tuning);
   const presetOptions = TUNING_PRESETS.map((preset) => ({
     value: preset,
@@ -97,6 +100,8 @@ export default async function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <RecommendationTuningPanel state={recommendationTuning} />
 
       <TuningForm
         initialTuning={tuning}

@@ -4,8 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { buildAttributionRecordsFromInputs } from "@/lib/attribution";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
+import { buildCampaignLifecycleState } from "@/lib/campaign-lifecycle";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import {
@@ -16,6 +18,7 @@ import {
 import { buildEvergreenSummary } from "@/lib/evergreen";
 import { listExperiments } from "@/lib/experiments";
 import { listFeedbackEntries } from "@/lib/feedback";
+import { buildAdaptiveFunnelState } from "@/lib/funnel-engine";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { listPatterns } from "@/lib/patterns";
@@ -25,8 +28,10 @@ import { listPostingLogEntries } from "@/lib/posting-log";
 import { listPostingAssistantPackages } from "@/lib/posting-assistant";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { buildRevenueSignalsFromInputs } from "@/lib/revenue-signals";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
+import { getPostingPlatformLabel } from "@/lib/posting-memory";
 import { buildWeeklyExecutionInsights, runWeeklyExecutionAutopilot, type WeeklyExecutionItem } from "@/lib/weekly-execution";
 import { buildWeeklyPostingPack } from "@/lib/weekly-posting-pack";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
@@ -197,12 +202,43 @@ export default async function ExecutionPage() {
     weeklyPlanState,
     postingEntries,
   });
+  const attributionRecords = buildAttributionRecordsFromInputs({
+    postingEntries,
+    strategicOutcomes,
+    signals: signalResult.signals,
+  });
+  const revenueSignals = buildRevenueSignalsFromInputs({
+    postingEntries,
+    strategicOutcomes,
+    signals: signalResult.signals,
+  });
+  const campaignLifecycle = buildCampaignLifecycleState({
+    strategy,
+    signals: signalResult.signals,
+    weeklyPlan,
+    weeklyPackSignalIds: weeklyPostingPack.items.map((item) => item.signalId),
+    approvalCandidates: approvalReadyCandidates,
+    cadence,
+    revenueSignals,
+  });
+  const funnelEngine = buildAdaptiveFunnelState({
+    signals: signalResult.signals,
+    weeklyPackSignalIds: weeklyPostingPack.items.map((item) => item.signalId),
+    approvalCandidates: approvalReadyCandidates,
+    attributionRecords,
+    revenueSignals,
+    campaignLifecycle,
+  });
   const execution = await runWeeklyExecutionAutopilot({
     weekStartDate: weeklyPostingPack.weekStartDate,
     pack: weeklyPostingPack,
     approvalCandidates: approvalReadyCandidates,
     stagedPackages: stagedPostingPackages,
     experiments,
+    lifecycleByCampaignId: Object.fromEntries(
+      campaignLifecycle.recommendations.map((recommendation) => [recommendation.campaignId, recommendation]),
+    ),
+    funnelEngine,
   });
   const executionInsights = buildWeeklyExecutionInsights([execution.flow]);
   const grouped = {
@@ -295,9 +331,29 @@ export default async function ExecutionPage() {
                         {item.sequenceStepLabel ? `${item.sequenceStepLabel} · ` : ""}{item.sequenceLabel}
                       </Badge>
                     ) : null}
+                    {item.distributionStrategy ? (
+                      <Badge className={item.distributionStrategy === "multi" ? "bg-sky-50 text-sky-700 ring-sky-200" : item.distributionStrategy === "experimental" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                        {item.distributionStrategy === "multi"
+                          ? "Multi-platform"
+                          : item.distributionStrategy === "experimental"
+                            ? "Experimental distribution"
+                            : "Single-platform"}
+                      </Badge>
+                    ) : null}
+                    {item.riskSeverity ? (
+                      <Badge className={item.riskSeverity === "high" ? "bg-rose-50 text-rose-700 ring-rose-200" : item.riskSeverity === "medium" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                        {item.riskSeverity === "high" ? "High risk" : item.riskSeverity === "medium" ? "Risk fix suggested" : "Risk note"}
+                      </Badge>
+                    ) : null}
                   </div>
                   <p className="mt-3 font-medium text-slate-950">{item.sourceTitle}</p>
                   <p className="mt-2 text-sm text-slate-600">{item.executionReason}</p>
+                  {item.distributionReason ? (
+                    <p className="mt-2 text-xs text-slate-500">{item.distributionReason}</p>
+                  ) : null}
+                  {item.riskSummary ? (
+                    <p className="mt-2 text-xs text-rose-700">{item.riskSummary}</p>
+                  ) : null}
                   {item.executionChainSummary ? (
                     <p className="mt-2 text-xs text-sky-700">Auto-executed chain: {item.executionChainSummary.replace(/^Auto-executed chain:\s*/i, "").replace(/\.$/, "")}</p>
                   ) : null}
@@ -371,9 +427,29 @@ export default async function ExecutionPage() {
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge className={statusClasses(item.status)}>{statusLabel(item.status)}</Badge>
                           <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{item.platform}</Badge>
+                          {item.riskSeverity ? (
+                            <Badge className={item.riskSeverity === "high" ? "bg-rose-50 text-rose-700 ring-rose-200" : item.riskSeverity === "medium" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                              {item.riskSeverity === "high" ? "High risk" : item.riskSeverity === "medium" ? "Risk fix suggested" : "Risk note"}
+                            </Badge>
+                          ) : null}
+                          {item.distributionStrategy ? (
+                            <Badge className={item.distributionStrategy === "multi" ? "bg-sky-50 text-sky-700 ring-sky-200" : item.distributionStrategy === "experimental" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                              {item.distributionStrategy === "multi"
+                                ? "Multi-platform"
+                                : item.distributionStrategy === "experimental"
+                                  ? "Experimental distribution"
+                                  : "Single-platform"}
+                            </Badge>
+                          ) : null}
                         </div>
                         <p className="mt-3 font-medium text-slate-950">{item.sourceTitle}</p>
                         <p className="mt-2 text-sm text-slate-600">{item.executionReason}</p>
+                        {item.distributionReason ? <p className="mt-2 text-xs text-slate-500">{item.distributionReason}</p> : null}
+                        {item.riskSummary ? <p className="mt-2 text-xs text-rose-700">{item.riskSummary}</p> : null}
+                        {item.riskSuggestedFix ? <p className="mt-2 text-xs text-slate-500">Suggested fix: {item.riskSuggestedFix}</p> : null}
+                        {item.secondaryPlatforms.length > 0 ? (
+                          <p className="mt-2 text-xs text-slate-500">Secondary routes: {item.secondaryPlatforms.map((platform) => getPostingPlatformLabel(platform)).join(" · ")}</p>
+                        ) : null}
                         {item.executionChainSummary ? (
                           <p className="mt-2 text-xs text-sky-700">{item.executionChainSummary}</p>
                         ) : null}

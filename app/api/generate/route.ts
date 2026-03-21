@@ -78,6 +78,8 @@ export async function POST(request: Request) {
     pattern: selectedPattern,
     editorialMode,
     founderVoiceMode,
+    founderOverrideHints: parsed.data.founderOverrideHints,
+    revenueAmplifierHints: parsed.data.revenueAmplifierHints,
   });
   const currentSignalId = signal.recordId ?? parsed.data.signalId ?? null;
   const tuning = await getOperatorTuning();

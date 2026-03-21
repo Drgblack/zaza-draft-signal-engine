@@ -1,5 +1,8 @@
 import Link from "next/link";
 
+import { GrowthMemoryPanel } from "@/components/director/growth-memory-panel";
+import { OpportunityRadarPanel } from "@/components/director/opportunity-radar-panel";
+import { RecommendationTuningPanel } from "@/components/settings/recommendation-tuning-panel";
 import { FlywheelOptimisationPanel } from "@/components/optimisation/flywheel-optimisation-panel";
 import { PlaybookPackSuggestions } from "@/components/playbook/playbook-pack-suggestions";
 import { Badge } from "@/components/ui/badge";
@@ -13,10 +16,12 @@ import { buildAutonomyScorecard } from "@/lib/autonomy-scorecard";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { buildBatchApprovalPrep } from "@/lib/batch-approval";
+import { buildCampaignAllocationState } from "@/lib/campaign-allocation";
 import { BUNDLE_COVERAGE_STRENGTH_LABELS, type BundleCoverageStrength } from "@/lib/bundle-coverage";
 import { buildCampaignCadenceSummary, buildCampaignDistributionInsights, getCampaignStrategy } from "@/lib/campaigns";
 import { buildConflictInsights } from "@/lib/conflicts";
 import { buildConversionIntentInsights, getConversionIntentLabel } from "@/lib/conversion-intent";
+import { buildDistributionPriorityInsights } from "@/lib/distribution-priority";
 import {
   filterSignalsForActiveReviewQueue,
   indexConfirmedClusterByCanonicalSignalId,
@@ -24,6 +29,7 @@ import {
 } from "@/lib/duplicate-clusters";
 import { buildExpectedOutcomeInsights } from "@/lib/expected-outcome-ranking";
 import { buildEvergreenSummary } from "@/lib/evergreen";
+import { syncExceptionInbox } from "@/lib/exception-inbox";
 import { buildExperimentInsights, listExperiments } from "@/lib/experiments";
 import { buildExperimentAutopilotV2 } from "@/lib/experiment-autopilot-v2";
 import { buildAutonomousExperimentProposals, buildExperimentProposalInsights, listExperimentProposals } from "@/lib/experiment-proposals";
@@ -33,6 +39,9 @@ import { listFollowUpTasks } from "@/lib/follow-up";
 import { buildFlywheelOptimisation } from "@/lib/flywheel-optimisation";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
+import { buildGrowthMemory } from "@/lib/growth-memory";
+import { buildGrowthScorecard } from "@/lib/growth-scorecard";
+import { buildInfluencerGraphState } from "@/lib/influencer-graph";
 import { buildNarrativeSequenceInsights, buildNarrativeSequencesForSignals } from "@/lib/narrative-sequences";
 import { buildOperatorTaskSummary, listOperatorTasks } from "@/lib/operator-tasks";
 import { listPostingOutcomes } from "@/lib/outcomes";
@@ -43,6 +52,8 @@ import { PATTERN_TYPE_LABELS } from "@/lib/pattern-definitions";
 import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
 import { buildPatternEffectivenessSummaries, listPatterns } from "@/lib/patterns";
 import { listPostingAssistantPackages } from "@/lib/posting-assistant";
+import { buildCommercialOpportunityRadar } from "@/lib/opportunity-radar";
+import { syncRecommendationTuningState } from "@/lib/recommendation-tuning";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildQueueTriageInsights } from "@/lib/queue-triage";
 import { buildRevenueSignalInsights, syncRevenueSignals } from "@/lib/revenue-signals";
@@ -50,6 +61,7 @@ import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { syncPlaybookPacks } from "@/lib/playbook-packs";
 import { buildPreReviewHealingInsights, buildPreReviewRepairInsights } from "@/lib/review-repair";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import { buildCommercialRiskInsights } from "@/lib/risk-guardrails";
 import { buildSafePostingEligibilityMap, buildSafePostingInsights } from "@/lib/safe-posting";
 import { buildSafeReplyState } from "@/lib/safe-replies";
 import { listIngestionSources } from "@/lib/ingestion/sources";
@@ -468,10 +480,102 @@ export default async function InsightsPage({
   const weeklyExecutionInsights = buildWeeklyExecutionInsights(
     storedWeeklyExecutionFlows.length > 0 ? storedWeeklyExecutionFlows : [weeklyExecutionPreview],
   );
+  const commercialRiskInsights = buildCommercialRiskInsights(
+    approvalReadyCandidates.map((candidate) => candidate.commercialRisk),
+    auditEvents,
+  );
+  const exceptionInbox = await syncExceptionInbox({
+    approvalCandidates: approvalReadyCandidates,
+    operatorTasks,
+    executionFlow: weeklyExecutionPreview,
+    now: renderNow,
+  });
   const autonomyScorecard = buildAutonomyScorecard({
     approvalCandidates: approvalReadyCandidates,
     executionFlow: weeklyExecutionPreview,
     auditEvents,
+    now: renderNow,
+  });
+  const influencerGraph = await buildInfluencerGraphState();
+  const campaignAllocation = buildCampaignAllocationState({
+    strategy,
+    signals,
+    weeklyPlan: currentWeeklyPlan,
+    weeklyPackSignalIds: weeklyPostingPack.items.map((item) => item.signalId),
+    approvalCandidates: approvalReadyCandidates,
+    cadence: campaignCadence,
+    revenueSignals,
+    audienceMemory,
+    now: renderNow,
+  });
+  const recommendationScorecard = buildGrowthScorecard({
+    approvalCandidates: approvalReadyCandidates,
+    weeklyPack: weeklyPostingPack,
+    weeklyPackInsights: weeklyPostingPackInsights,
+    distributionSummary: {
+      readyCount: stagedPostingPackages.length,
+      bundleCount: stagedPostingPackages.length,
+      multiPlatformBundleCount: 0,
+      sequencedBundleCount: 0,
+      platformRows: [],
+    },
+    currentRecap: weeklyRecap,
+    previousRecap: buildWeeklyRecap({
+      signals,
+      postingEntries,
+      postingOutcomes,
+      strategicOutcomes,
+      experiments,
+      bundleSummariesByPatternId,
+      weekStartDate: new Date(new Date(`${weeklyRecap.weekStartDate}T00:00:00Z`).getTime() - 7 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10),
+    }),
+    revenueSignals,
+    experiments,
+    cadence: campaignCadence,
+    strategy,
+    now: renderNow,
+  });
+  const recommendationTuning = await syncRecommendationTuningState({
+    auditEvents,
+    approvalCandidates: approvalReadyCandidates,
+    weeklyExecution: weeklyExecutionPreview,
+    campaignAllocation,
+    growthScorecard: recommendationScorecard,
+    weeklyRecap,
+    revenueInsights,
+    attributionInsights,
+    sourceAutopilotState: sourceAutopilot,
+    audienceMemory,
+    exceptionInbox,
+    influencerGraphSummary: influencerGraph.summary,
+    activeExperimentCount: experiments.filter((experiment) => experiment.status !== "completed").length,
+    now: renderNow,
+  });
+  const growthMemory = buildGrowthMemory({
+    attributionInsights,
+    revenueInsights,
+    audienceMemory,
+    reuseCases: reuseMemoryCases,
+    influencerGraph,
+    campaignAllocation,
+    weeklyRecap,
+    now: renderNow,
+  });
+  const opportunityRadar = buildCommercialOpportunityRadar({
+    approvalCandidates: approvalReadyCandidates,
+    weeklyPostingPack,
+    weeklyRecap,
+    growthScorecard: recommendationScorecard,
+    attributionInsights,
+    revenueInsights,
+    audienceMemory,
+    sourceAutopilotState: sourceAutopilot,
+    influencerGraph,
+    campaignAllocation,
+    evergreenSummary,
+    growthMemory,
     now: renderNow,
   });
   const safeReplyState = await buildSafeReplyState();
@@ -638,6 +742,9 @@ export default async function InsightsPage({
   const queueTriageInsights = buildQueueTriageInsights(
     approvalReadyCandidates.map((candidate) => candidate.triage),
   );
+  const distributionPriorityInsights = buildDistributionPriorityInsights(
+    approvalReadyCandidates.map((candidate) => candidate.distributionPriority),
+  );
   const experimentProposals = buildAutonomousExperimentProposals({
     candidates: approvalReadyCandidates,
     experiments,
@@ -661,6 +768,19 @@ export default async function InsightsPage({
     ).length,
   }));
   const experimentProposalInsights = buildExperimentProposalInsights(experimentProposals);
+  const flywheelOptimisation = buildFlywheelOptimisation({
+    weeklyRecap,
+    sourceAutopilotState: sourceAutopilot,
+    playbookCoverageSummary,
+    weeklyPostingPack,
+    evergreenSummary,
+    experimentProposalInsights,
+    narrativeSequenceInsights,
+    revenueInsights,
+    audienceMemory,
+    recommendationTuning,
+    now: renderNow,
+  });
   const experimentAutopilotEvaluations = approvalReadyCandidates.map((candidate) =>
     buildExperimentAutopilotV2({
       candidate,
@@ -697,18 +817,6 @@ export default async function InsightsPage({
     }))
     .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
     .slice(0, 4);
-  const flywheelOptimisation = buildFlywheelOptimisation({
-    weeklyRecap,
-    sourceAutopilotState: sourceAutopilot,
-    playbookCoverageSummary,
-    weeklyPostingPack,
-    evergreenSummary,
-    experimentProposalInsights,
-    narrativeSequenceInsights,
-    revenueInsights,
-    audienceMemory,
-    now: renderNow,
-  });
   const weeklyPlanInsights = buildWeeklyPlanInsights(
     weeklyPlanStore.plans,
     strategy,
@@ -885,6 +993,10 @@ export default async function InsightsPage({
           </div>
         </CardContent>
       </Card>
+
+      <RecommendationTuningPanel state={recommendationTuning} compact />
+      <GrowthMemoryPanel memory={growthMemory} />
+      <OpportunityRadarPanel state={opportunityRadar} />
 
       <Card>
         <CardHeader>
@@ -1575,6 +1687,88 @@ export default async function InsightsPage({
 
       <Card>
         <CardHeader>
+          <CardTitle>Commercial Risk Guardrails</CardTitle>
+          <CardDescription>
+            A bounded risk layer that flags trust, tone, repetition, evidence, and audience-fit issues before approval or staging.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Risky candidates"
+              value={String(commercialRiskInsights.riskyCount)}
+              detail="Approval candidates currently carrying at least one commercial risk flag."
+            />
+            <MetricCard
+              label="Blocked"
+              value={String(commercialRiskInsights.blockedCount)}
+              detail="High-risk cases that should not stage automatically."
+            />
+            <MetricCard
+              label="Fix suggested"
+              value={String(commercialRiskInsights.suggestFixCount)}
+              detail="Medium-risk cases that should be adjusted before approval or staging."
+            />
+            <MetricCard
+              label="Top risk"
+              value={commercialRiskInsights.topRiskTypes[0]?.label ?? "None yet"}
+              detail={commercialRiskInsights.topRiskTypes[0] ? `${commercialRiskInsights.topRiskTypes[0].count} current candidates.` : "No repeated risk type is stable enough yet."}
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current risk read</p>
+              {commercialRiskInsights.trendSummary.length === 0 ? (
+                <EmptyState copy="No stable commercial risk pattern is visible right now." />
+              ) : (
+                commercialRiskInsights.trendSummary.map((summary) => (
+                  <div key={summary} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                    {summary}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-white/80 px-4 py-4">
+                <p className="font-medium text-slate-950">Most common risks</p>
+                <div className="mt-3 space-y-2">
+                  {commercialRiskInsights.topRiskTypes.length === 0 ? (
+                    <p className="text-sm text-slate-500">No repeated commercial risk is stable enough to call out yet.</p>
+                  ) : (
+                    commercialRiskInsights.topRiskTypes.map((row) => (
+                      <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-slate-600">{row.label}</span>
+                        <span className="font-medium text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-white/80 px-4 py-4">
+                <p className="font-medium text-slate-950">Suggested fixes</p>
+                <div className="mt-3 space-y-2">
+                  {commercialRiskInsights.topSuggestedFixes.length === 0 ? (
+                    <p className="text-sm text-slate-500">No repeated suggested fix is stable enough yet.</p>
+                  ) : (
+                    commercialRiskInsights.topSuggestedFixes.map((row) => (
+                      <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-slate-600">{row.label}</span>
+                        <span className="font-medium text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Autonomy Scorecard</CardTitle>
           <CardDescription>
             A compact operational snapshot of how much of the workflow is fully autonomous, partially assisted, or still concentrated in human review and policy blocks.
@@ -1872,6 +2066,90 @@ export default async function InsightsPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Distribution Priority Engine</CardTitle>
+          <CardDescription>
+            Bounded platform-priority guidance for where strong candidates should go first, when cross-posting is worth it, and when a single-platform route is cleaner.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Top primary platform"
+              value={distributionPriorityInsights.primaryPlatformRows[0]?.label ?? "None yet"}
+              detail={
+                distributionPriorityInsights.primaryPlatformRows[0]
+                  ? `${distributionPriorityInsights.primaryPlatformRows[0].count} current approval-ready candidate${distributionPriorityInsights.primaryPlatformRows[0].count === 1 ? "" : "s"} lead there.`
+                  : "No platform lead is stable enough yet."
+              }
+            />
+            <MetricCard
+              label="Multi-platform"
+              value={String(distributionPriorityInsights.multiPlatformCount)}
+              detail="High-value candidates with bounded cross-platform upside."
+            />
+            <MetricCard
+              label="Single-platform"
+              value={String(distributionPriorityInsights.singlePlatformCount)}
+              detail="Candidates that should stay focused on one route first."
+            />
+            <MetricCard
+              label="Experimental"
+              value={String(distributionPriorityInsights.experimentalCount)}
+              detail="Candidates where platform expansion should stay deliberately bounded."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current read</p>
+              {distributionPriorityInsights.summaries.length === 0 ? (
+                <EmptyState copy="No stable distribution pattern is strong enough to summarize yet." />
+              ) : (
+                distributionPriorityInsights.summaries.map((summary) => (
+                  <div key={summary} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                    {summary}
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Primary platform mix</p>
+                <div className="mt-3 space-y-3">
+                  {distributionPriorityInsights.primaryPlatformRows.length === 0 ? (
+                    <EmptyState copy="No primary-platform pattern is stable enough yet." />
+                  ) : (
+                    distributionPriorityInsights.primaryPlatformRows.map((row) => (
+                      <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                        <span className="text-sm text-slate-600">{row.label}</span>
+                        <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Distribution patterns</p>
+                <div className="mt-3 space-y-3">
+                  {distributionPriorityInsights.strategyRows.length === 0 ? (
+                    <EmptyState copy="No distribution-strategy pattern is stable enough yet." />
+                  ) : (
+                    distributionPriorityInsights.strategyRows.map((row) => (
+                      <div key={row.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                        <span className="text-sm text-slate-600">{row.label}</span>
+                        <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

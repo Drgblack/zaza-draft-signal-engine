@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { ApprovalQueueCandidate } from "@/lib/approval-ranking";
 import { evaluateAutonomyPolicy } from "@/lib/autonomy-policy";
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
+import type { CampaignLifecycleRecommendation } from "@/lib/campaign-lifecycle";
 import {
   buildDistributionBundles,
   buildDistributionSummary,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/distribution";
 import { executePromotionExecutionChain } from "@/lib/execution-chains";
 import type { ManualExperiment } from "@/lib/experiments";
+import type { FunnelEngineState } from "@/lib/funnel-engine";
 import type { PostingAssistantPackage } from "@/lib/posting-assistant";
 import { stagePostingAssistantPackage } from "@/lib/posting-assistant";
 import type { PostingPlatform } from "@/lib/posting-memory";
@@ -43,8 +45,14 @@ export interface WeeklyExecutionItem {
   distributionBundleId: string | null;
   sequenceLabel: string | null;
   sequenceStepLabel: string | null;
+  distributionStrategy: "single" | "multi" | "experimental" | null;
+  secondaryPlatforms: PostingPlatform[];
+  distributionReason: string | null;
   executionReason: string;
   executionChainSummary: string | null;
+  riskSeverity: "low" | "medium" | "high" | null;
+  riskSummary: string | null;
+  riskSuggestedFix: string | null;
   blockReasons: string[];
 }
 
@@ -91,8 +99,14 @@ const weeklyExecutionItemSchema = z.object({
   distributionBundleId: z.string().trim().nullable().default(null),
   sequenceLabel: z.string().trim().nullable().default(null),
   sequenceStepLabel: z.string().trim().nullable().default(null),
+  distributionStrategy: z.enum(["single", "multi", "experimental"]).nullable().default(null),
+  secondaryPlatforms: z.array(z.enum(["x", "linkedin", "reddit"])).max(3).default([]),
+  distributionReason: z.string().trim().nullable().default(null),
   executionReason: z.string().trim().min(1),
   executionChainSummary: z.string().trim().nullable().default(null),
+  riskSeverity: z.enum(["low", "medium", "high"]).nullable().default(null),
+  riskSummary: z.string().trim().nullable().default(null),
+  riskSuggestedFix: z.string().trim().nullable().default(null),
   blockReasons: z.array(z.string().trim().min(1)).max(8).default([]),
 });
 
@@ -221,10 +235,33 @@ function getStatusPriority(status: WeeklyExecutionItemStatus) {
   }
 }
 
+function getFunnelPriority(
+  state: FunnelEngineState | null | undefined,
+  stage: WeeklyPostingPackItem["funnelStage"],
+) {
+  if (!state || !stage) {
+    return 2;
+  }
+
+  const row = state.recommendedNextMix.find((entry) => entry.stage === stage);
+  if (!row) {
+    return 2;
+  }
+
+  if (row.recommendedAdjustment === "increase") {
+    return 0;
+  }
+  if (row.recommendedAdjustment === "maintain") {
+    return 1;
+  }
+  return 2;
+}
+
 function buildBaseExecutionItem(input: {
   item: WeeklyPostingPackItem;
   candidate: ApprovalQueueCandidate | null;
   stagedPackage: PostingAssistantPackage | null;
+  lifecycle: CampaignLifecycleRecommendation | null;
 }): WeeklyExecutionItem {
   const sequenceStepLabel = input.item.sequenceContext
     ? `Step ${input.item.sequenceContext.stepNumber} of ${input.item.sequenceContext.totalSteps}`
@@ -244,8 +281,19 @@ function buildBaseExecutionItem(input: {
       distributionBundleId: null,
       sequenceLabel: input.item.sequenceContext?.narrativeLabel ?? null,
       sequenceStepLabel,
-      executionReason: input.stagedPackage.readinessReason,
+      distributionStrategy: input.item.distributionPriority?.distributionStrategy ?? null,
+      secondaryPlatforms: input.item.distributionPriority?.secondaryPlatforms ?? [],
+      distributionReason: input.item.distributionPriority?.reason ?? null,
+      executionReason:
+        input.lifecycle?.lifecycleStage === "peak"
+          ? `${input.stagedPackage.readinessReason} ${input.lifecycle.campaignName} is in peak stage, so it stays near the front of this week's execution flow.`
+          : input.lifecycle?.lifecycleStage === "tapering"
+            ? `${input.stagedPackage.readinessReason} ${input.lifecycle.campaignName} is tapering, so it stays visible without taking over the flow.`
+            : input.stagedPackage.readinessReason,
       executionChainSummary: extractChainSummary(input.stagedPackage.readinessReason),
+      riskSeverity: input.candidate?.commercialRisk.highestSeverity ?? null,
+      riskSummary: input.candidate?.commercialRisk.summary ?? null,
+      riskSuggestedFix: input.candidate?.commercialRisk.topRisk?.suggestedFix ?? null,
       blockReasons: [],
     };
   }
@@ -264,11 +312,19 @@ function buildBaseExecutionItem(input: {
       distributionBundleId: null,
       sequenceLabel: input.item.sequenceContext?.narrativeLabel ?? null,
       sequenceStepLabel,
+      distributionStrategy: input.item.distributionPriority?.distributionStrategy ?? null,
+      secondaryPlatforms: input.item.distributionPriority?.secondaryPlatforms ?? [],
+      distributionReason: input.item.distributionPriority?.reason ?? null,
       executionReason:
         input.item.source === "evergreen"
           ? "Evergreen reuse is in the weekly flow, but it still needs explicit operator review before staging."
-          : input.item.whySelected,
+          : input.lifecycle?.lifecycleStage === "peak"
+            ? `${input.item.whySelected} ${input.lifecycle.campaignName} is in peak stage, so this stays commercially prominent.`
+            : input.item.whySelected,
       executionChainSummary: input.candidate?.executionChain.summary ?? null,
+      riskSeverity: input.candidate?.commercialRisk.highestSeverity ?? null,
+      riskSummary: input.candidate?.commercialRisk.summary ?? null,
+      riskSuggestedFix: input.candidate?.commercialRisk.topRisk?.suggestedFix ?? null,
       blockReasons: [],
     };
   }
@@ -279,7 +335,8 @@ function buildBaseExecutionItem(input: {
     input.candidate.completeness.completenessState === "complete" &&
     input.candidate.triage.triageState !== "needs_judgement" &&
     input.candidate.triage.triageState !== "suppress" &&
-    input.candidate.conflicts.conflicts.length === 0;
+    input.candidate.conflicts.conflicts.length === 0 &&
+    input.candidate.commercialRisk.decision === "allow";
 
   if (isStageSafe) {
     return {
@@ -295,19 +352,36 @@ function buildBaseExecutionItem(input: {
       distributionBundleId: null,
       sequenceLabel: input.item.sequenceContext?.narrativeLabel ?? null,
       sequenceStepLabel,
+      distributionStrategy: input.item.distributionPriority?.distributionStrategy ?? null,
+      secondaryPlatforms: input.item.distributionPriority?.secondaryPlatforms ?? [],
+      distributionReason: input.item.distributionPriority?.reason ?? null,
       executionReason:
         policy.summary ||
-        "High-confidence complete package is safe to stage for this week's execution flow.",
+        (input.lifecycle?.lifecycleStage === "peak"
+          ? `High-confidence complete package is safe to stage, and ${input.lifecycle.campaignName} is currently in peak stage.`
+          : "High-confidence complete package is safe to stage for this week's execution flow."),
       executionChainSummary: input.candidate.executionChain.summary,
+      riskSeverity: input.candidate.commercialRisk.highestSeverity,
+      riskSummary: input.candidate.commercialRisk.summary,
+      riskSuggestedFix: input.candidate.commercialRisk.topRisk?.suggestedFix ?? null,
       blockReasons: [],
     };
   }
 
-  const blockReasons = policy.reasons.length > 0 ? policy.reasons : [policy.summary];
+  const blockReasons =
+    input.candidate.commercialRisk.decision === "block"
+      ? [
+          input.candidate.commercialRisk.topRisk?.reason ??
+            input.candidate.commercialRisk.summary,
+        ]
+      : policy.reasons.length > 0
+        ? policy.reasons
+        : [policy.summary];
   const reviewRequired =
     policy.decision === "suggest_only" ||
     input.candidate.completeness.completenessState === "mostly_complete" ||
-    input.candidate.triage.triageState === "repairable";
+    input.candidate.triage.triageState === "repairable" ||
+    input.candidate.commercialRisk.decision === "suggest_fix";
 
   return {
     candidateId: input.item.itemId,
@@ -322,11 +396,20 @@ function buildBaseExecutionItem(input: {
     distributionBundleId: null,
     sequenceLabel: input.item.sequenceContext?.narrativeLabel ?? null,
     sequenceStepLabel,
+    distributionStrategy: input.item.distributionPriority?.distributionStrategy ?? null,
+    secondaryPlatforms: input.item.distributionPriority?.secondaryPlatforms ?? [],
+    distributionReason: input.item.distributionPriority?.reason ?? null,
     executionReason:
       reviewRequired
-        ? blockReasons[0] ?? "This item still needs explicit review before staging."
+        ? blockReasons[0] ??
+          (input.lifecycle?.lifecycleStage === "tapering"
+            ? `${input.lifecycle.campaignName} is tapering, so this item still needs explicit review before staging.`
+            : "This item still needs explicit review before staging.")
         : blockReasons[0] ?? "This item is blocked from weekly execution autopilot staging.",
     executionChainSummary: input.candidate.executionChain.summary,
+    riskSeverity: input.candidate.commercialRisk.highestSeverity,
+    riskSummary: input.candidate.commercialRisk.summary,
+    riskSuggestedFix: input.candidate.commercialRisk.topRisk?.suggestedFix ?? null,
     blockReasons: reviewRequired ? [] : blockReasons,
   };
 }
@@ -336,6 +419,7 @@ function finalizeExecutionFlow(input: {
   items: WeeklyExecutionItem[];
   distributionBundles: DistributionBundle[];
   pack: WeeklyPostingPack;
+  funnelEngine?: FunnelEngineState | null;
 }) {
   const bundleBySignalId = new Map(
     input.distributionBundles.map((bundle) => [bundle.signalId, bundle]),
@@ -352,8 +436,15 @@ function finalizeExecutionFlow(input: {
         distributionBundleReady: Boolean(bundle),
         distributionBundleId: bundle?.bundleId ?? null,
         _sortPriority: getStatusPriority(item.status),
+        _funnelPriority: getFunnelPriority(input.funnelEngine, packItem?.funnelStage ?? null),
         _sequenceStep: packItem?.sequenceContext?.stepNumber ?? 99,
         _campaignBoost: packItem?.isCampaignCritical ? 0 : 1,
+        _distributionBoost:
+          item.distributionStrategy === "multi"
+            ? 0
+            : item.distributionStrategy === "single"
+              ? 1
+              : 2,
         _outcomeBoost:
           packItem?.expectedOutcomeTier === "high"
             ? 0
@@ -364,6 +455,8 @@ function finalizeExecutionFlow(input: {
     })
     .sort((left, right) =>
       left._sortPriority - right._sortPriority ||
+      left._funnelPriority - right._funnelPriority ||
+      left._distributionBoost - right._distributionBoost ||
       left._sequenceStep - right._sequenceStep ||
       left._campaignBoost - right._campaignBoost ||
       left._outcomeBoost - right._outcomeBoost ||
@@ -387,8 +480,14 @@ function finalizeExecutionFlow(input: {
       distributionBundleId: item.distributionBundleId,
       sequenceLabel: item.sequenceLabel,
       sequenceStepLabel: item.sequenceStepLabel,
+      distributionStrategy: item.distributionStrategy,
+      secondaryPlatforms: item.secondaryPlatforms,
+      distributionReason: item.distributionReason,
       executionReason: item.executionReason,
       executionChainSummary: item.executionChainSummary,
+      riskSeverity: item.riskSeverity,
+      riskSummary: item.riskSummary,
+      riskSuggestedFix: item.riskSuggestedFix,
       blockReasons: item.blockReasons,
     }),
   );
@@ -432,6 +531,14 @@ function finalizeExecutionFlow(input: {
       ? `${reviewCount} item${reviewCount === 1 ? "" : "s"} still need explicit review before staging.`
       : "No weekly-pack item is waiting on deeper review right now.",
   );
+  if ((input.funnelEngine?.boostedStages.length ?? 0) > 0) {
+    uniquePush(
+      executionReasons,
+      `Execution ordering is lightly favoring ${input.funnelEngine?.boostedStages
+        .map((stage) => stage.toLowerCase())
+        .join(" and ")} content to rebalance the funnel mix.`,
+    );
+  }
 
   return weeklyExecutionFlowSchema.parse({
     weekStartDate: input.weekStartDate,
@@ -451,18 +558,24 @@ export function prepareWeeklyExecutionFlow(input: {
   pack: WeeklyPostingPack;
   approvalCandidates: ApprovalQueueCandidate[];
   stagedPackages: PostingAssistantPackage[];
+  lifecycleByCampaignId?: Record<string, CampaignLifecycleRecommendation>;
+  funnelEngine?: FunnelEngineState | null;
 }): WeeklyExecutionRunResult {
   const candidateBySignalId = new Map(
     input.approvalCandidates.map((candidate) => [candidate.signal.recordId, candidate]),
   );
 
-  const baseItems = input.pack.items.map((item) =>
-    buildBaseExecutionItem({
+  const baseItems = input.pack.items.map((item) => {
+    const candidate = candidateBySignalId.get(item.signalId) ?? null;
+
+    return buildBaseExecutionItem({
       item,
-      candidate: candidateBySignalId.get(item.signalId) ?? null,
+      candidate,
       stagedPackage: getActivePackage(input.stagedPackages, item.signalId, item.platform),
-    }),
-  );
+      lifecycle:
+        candidate?.signal.campaignId ? input.lifecycleByCampaignId?.[candidate.signal.campaignId] ?? null : null,
+    });
+  });
   const distributionBundles = buildDistributionBundles({
     packages: input.stagedPackages.filter((pkg) =>
       input.pack.items.some(
@@ -505,6 +618,7 @@ export function prepareWeeklyExecutionFlow(input: {
       items: baseItems,
       distributionBundles,
       pack: input.pack,
+      funnelEngine: input.funnelEngine,
     }),
     stagedPackages: sortPackages(input.stagedPackages),
     distributionBundles,
@@ -521,6 +635,10 @@ function buildFlowSignature(flow: WeeklyExecutionFlow) {
       executionOrder: item.executionOrder,
       blockReasons: item.blockReasons,
       distributionBundleReady: item.distributionBundleReady,
+      distributionStrategy: item.distributionStrategy,
+      secondaryPlatforms: item.secondaryPlatforms,
+      riskSeverity: item.riskSeverity,
+      riskSummary: item.riskSummary,
     })),
   );
 }
@@ -585,6 +703,8 @@ export async function runWeeklyExecutionAutopilot(input: {
   approvalCandidates: ApprovalQueueCandidate[];
   stagedPackages: PostingAssistantPackage[];
   experiments?: ManualExperiment[];
+  lifecycleByCampaignId?: Record<string, CampaignLifecycleRecommendation>;
+  funnelEngine?: FunnelEngineState | null;
 }): Promise<WeeklyExecutionRunResult> {
   const candidateBySignalId = new Map(
     input.approvalCandidates.map((candidate) => [candidate.signal.recordId, candidate]),
@@ -614,7 +734,8 @@ export async function runWeeklyExecutionAutopilot(input: {
       candidate.completeness.completenessState === "complete" &&
       candidate.conflicts.conflicts.length === 0 &&
       candidate.triage.triageState !== "needs_judgement" &&
-      candidate.triage.triageState !== "suppress";
+      candidate.triage.triageState !== "suppress" &&
+      candidate.commercialRisk.decision === "allow";
     if (!isStageSafe) {
       continue;
     }
@@ -672,6 +793,8 @@ export async function runWeeklyExecutionAutopilot(input: {
     pack: input.pack,
     approvalCandidates: input.approvalCandidates,
     stagedPackages: workingPackages,
+    lifecycleByCampaignId: input.lifecycleByCampaignId,
+    funnelEngine: input.funnelEngine,
   });
   const store = await readPersistedStore();
   const previous = store.flowsByWeekStartDate[input.weekStartDate] ?? null;

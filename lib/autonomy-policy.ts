@@ -1,4 +1,5 @@
 import type { OperatorTuning, OperatorTuningSettings } from "@/lib/tuning-definitions";
+import type { FounderOverrideState } from "@/lib/founder-overrides";
 
 export const AUTONOMY_ACTION_TYPES = [
   "autofill_package",
@@ -42,6 +43,7 @@ export interface AutonomyPolicyInput {
   draftQualityLabel?: string | null;
   reviewContextKnown?: boolean;
   relationshipKnown?: boolean;
+  founderOverrides?: FounderOverrideState | null;
 }
 
 export interface AutonomyPolicyInsights {
@@ -225,6 +227,10 @@ export function evaluateAutonomyPolicy(input: AutonomyPolicyInput): AutonomyPoli
       if (isLow(input)) {
         pushReason(reasons, "Low-confidence candidates should not spawn autonomous experiment variants.");
         return finalizeDecision(input, "block", reasons, "experiment_learning", relatedSignals);
+      }
+      if (input.founderOverrides?.experimentDirection === "reduce") {
+        pushReason(reasons, "Founder override is temporarily reducing experiment load.");
+        return finalizeDecision(input, "suggest_only", reasons, "experiment_learning", relatedSignals);
       }
       if (input.hasUnresolvedConflicts) {
         pushReason(reasons, "Conflicted candidates can still suggest experiments, but they should not auto-escalate.");

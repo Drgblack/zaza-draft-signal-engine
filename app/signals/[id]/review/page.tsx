@@ -16,6 +16,7 @@ import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { buildFinalReviewSummary } from "@/lib/final-review";
 import { getExperimentStatusLabel, listExperiments, listExperimentsForSignal } from "@/lib/experiments";
+import { syncFounderOverrideState } from "@/lib/founder-overrides";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { listPostingOutcomes } from "@/lib/outcomes";
@@ -39,6 +40,11 @@ import { buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanAlignment } fr
 import { buildWeeklyRecap } from "@/lib/weekly-recap";
 import { assessAutomationConfidence } from "@/lib/confidence";
 import { assessConversionIntent } from "@/lib/conversion-intent";
+import { assessDistributionPriority } from "@/lib/distribution-priority";
+import { assessCommercialRisk } from "@/lib/risk-guardrails";
+import { buildAttributionRecordsFromInputs } from "@/lib/attribution";
+import { buildRevenueSignalsFromInputs } from "@/lib/revenue-signals";
+import { buildRevenueAmplifierState, matchRevenueAmplifierToSignal } from "@/lib/revenue-amplifier";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +90,7 @@ export default async function FinalReviewPage({
   const bundles = await listPatternBundles();
   const experiments = await listExperiments();
   const tuning = await getOperatorTuning();
+  const founderOverrides = await syncFounderOverrideState();
   const strategy = await getCampaignStrategy();
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
   const reuseMemoryCases = buildReuseMemoryCases({
@@ -170,6 +177,22 @@ export default async function FinalReviewPage({
     reddit: findNarrativeSequenceStep(narrativeSequence, "reddit"),
   };
   const cadence = buildCampaignCadenceSummary(allSignals, strategy, allPostingEntries);
+  const attributionRecords = buildAttributionRecordsFromInputs({
+    signals: allSignals,
+    postingEntries: allPostingEntries,
+    strategicOutcomes,
+  });
+  const revenueSignals = buildRevenueSignalsFromInputs({
+    signals: allSignals,
+    postingEntries: allPostingEntries,
+    strategicOutcomes,
+  });
+  const revenueAmplifier = buildRevenueAmplifierState({
+    signals: allSignals,
+    revenueSignals,
+    attributionRecords,
+    weeklyRecap,
+  });
   const evergreenSummary = buildEvergreenSummary({
     signals: allSignals,
     postingEntries: allPostingEntries,
@@ -216,6 +239,7 @@ export default async function FinalReviewPage({
         postingOutcomes,
         strategicOutcomes,
         experiments,
+        founderOverrides,
       },
     )[0] ?? null;
   const staleAssessment = rankedCandidate?.stale ?? null;
@@ -290,6 +314,41 @@ export default async function FinalReviewPage({
       strategy,
       conflicts: conflictAssessment,
     });
+  const commercialRisk =
+    rankedCandidate?.commercialRisk ??
+    assessCommercialRisk({
+      signal: preReviewRepair.signal,
+      completeness: preReviewRepair.completenessAfter,
+      confidenceLevel: automationConfidence.level,
+      conflicts: conflictAssessment,
+      fatigue:
+        rankedCandidate?.fatigue ?? {
+          warnings: [],
+          scorePenalty: 0,
+          summary: "No clear fatigue signal surfaced.",
+        },
+      conversionIntent,
+    });
+  const distributionPriority =
+    rankedCandidate?.distributionPriority ??
+    assessDistributionPriority({
+      signal: preReviewRepair.signal,
+      confidenceLevel: automationConfidence.level,
+      expectedOutcomeTier: rankedCandidate?.expectedOutcome.expectedOutcomeTier ?? "medium",
+      conversionIntent,
+      attributionRecords,
+      revenueSignals,
+      postingEntries: allPostingEntries,
+      fatigue:
+        rankedCandidate?.fatigue ?? {
+          warnings: [],
+          scorePenalty: 0,
+          summary: "No clear fatigue signal surfaced.",
+        },
+      revenueAmplifier,
+      founderOverrides,
+    });
+  const revenueAmplifierMatch = matchRevenueAmplifierToSignal(preReviewRepair.signal, revenueAmplifier);
   await appendAuditEventsSafe([
     {
       signalId: signal.recordId,
@@ -398,6 +457,35 @@ export default async function FinalReviewPage({
             },
           ]
         : []),
+    ...(commercialRisk.risks.length > 0
+      ? [
+          {
+            signalId: signal.recordId,
+            eventType: "RISK_DETECTED" as const,
+            actor: "system" as const,
+            summary: commercialRisk.summary,
+            metadata: {
+              riskType: commercialRisk.topRisk?.riskType ?? null,
+              severity: commercialRisk.highestSeverity ?? null,
+              suggestedFix: commercialRisk.topRisk?.suggestedFix ?? null,
+            },
+          },
+          ...(commercialRisk.decision === "block"
+            ? [
+                {
+                  signalId: signal.recordId,
+                  eventType: "RISK_BLOCKED" as const,
+                  actor: "system" as const,
+                  summary: commercialRisk.summary,
+                  metadata: {
+                    riskType: commercialRisk.topRisk?.riskType ?? null,
+                    severity: commercialRisk.highestSeverity ?? null,
+                  },
+                },
+              ]
+            : []),
+        ]
+      : []),
   ]);
   if (signal.platformPriority) {
     const platform =
@@ -531,6 +619,9 @@ export default async function FinalReviewPage({
         evergreenContext={evergreenContext?.signalId === signal.recordId ? evergreenContext : null}
         staleContext={staleAssessment}
         conflicts={conflictAssessment}
+        distributionPriority={distributionPriority}
+        commercialRisk={commercialRisk}
+        revenueAmplifierMatch={revenueAmplifierMatch}
         playbookPackMatches={playbookPackMatches}
         narrativeSequenceSteps={{
           x: narrativeSequenceSteps.x

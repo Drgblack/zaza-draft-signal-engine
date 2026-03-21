@@ -1,4 +1,5 @@
 import { CampaignAllocationPanel } from "@/components/campaigns/campaign-allocation-panel";
+import { CampaignLifecyclePanel } from "@/components/campaigns/campaign-lifecycle-panel";
 import { CampaignStrategyManager } from "@/components/campaigns/campaign-strategy-manager";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +9,7 @@ import { appendAuditEventsSafe } from "@/lib/audit";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { buildCampaignAllocationState } from "@/lib/campaign-allocation";
+import { buildCampaignLifecycleState } from "@/lib/campaign-lifecycle";
 import { buildCampaignCadenceSummary, CTA_GOAL_DESCRIPTIONS, FUNNEL_STAGE_DESCRIPTIONS, getCampaignStrategy } from "@/lib/campaigns";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { filterSignalsForActiveReviewQueue, indexConfirmedClusterByCanonicalSignalId, listDuplicateClusters } from "@/lib/duplicate-clusters";
@@ -149,6 +151,15 @@ export default async function CampaignsPage() {
     strategicOutcomes,
     revenueSignals,
   });
+  const lifecycle = buildCampaignLifecycleState({
+    strategy,
+    signals: signalResult.signals,
+    weeklyPlan,
+    weeklyPackSignalIds: weeklyPostingPack.items.map((item) => item.signalId),
+    approvalCandidates: approvalReadyCandidates,
+    cadence,
+    revenueSignals,
+  });
   const allocation = buildCampaignAllocationState({
     strategy,
     signals: signalResult.signals,
@@ -158,6 +169,7 @@ export default async function CampaignsPage() {
     cadence,
     revenueSignals,
     audienceMemory,
+    lifecycle,
   });
 
   await appendAuditEventsSafe([
@@ -171,6 +183,18 @@ export default async function CampaignsPage() {
         maintain: allocation.recommendations.filter((item) => item.supportLevel === "maintain").length,
         reduce: allocation.recommendations.filter((item) => item.supportLevel === "reduce").length,
         paused: allocation.pausedCount,
+      },
+    },
+    {
+      signalId: `campaign-lifecycle:${lifecycle.weekStartDate ?? new Date().toISOString().slice(0, 10)}`,
+      eventType: "CAMPAIGN_LIFECYCLE_COMPUTED",
+      actor: "system",
+      summary: `Computed lifecycle guidance for ${lifecycle.recommendations.length} campaign${lifecycle.recommendations.length === 1 ? "" : "s"}.`,
+      metadata: {
+        peak: lifecycle.stageCounts.peak,
+        ramping: lifecycle.stageCounts.ramping,
+        tapering: lifecycle.stageCounts.tapering,
+        paused: lifecycle.stageCounts.paused,
       },
     },
   ]);
@@ -212,6 +236,8 @@ export default async function CampaignsPage() {
       </Card>
 
       <CampaignAllocationPanel state={allocation} />
+
+      <CampaignLifecyclePanel state={lifecycle} />
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <Card>

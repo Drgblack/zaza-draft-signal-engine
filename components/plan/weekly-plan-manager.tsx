@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { CampaignStrategy } from "@/lib/campaigns";
 import { getPostingPlatformLabel, POSTING_PLATFORMS, type PostingPlatform } from "@/lib/posting-memory";
 import { EDITORIAL_MODE_DEFINITIONS } from "@/lib/editorial-modes";
+import type { FunnelEngineState } from "@/lib/funnel-engine";
 import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import { EDITORIAL_MODES, FUNNEL_STAGES, type EditorialMode, type FunnelStage } from "@/types/signal";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
@@ -56,6 +57,7 @@ type WeeklyPlanManagerProps = {
   recentPlans: WeeklyPlan[];
   templates: WeeklyPlanTemplate[];
   strategy: CampaignStrategy;
+  funnelEngine?: FunnelEngineState | null;
 };
 
 function toneClasses(tone: NonNullable<FeedbackState>["tone"]) {
@@ -138,6 +140,7 @@ export function WeeklyPlanManager({
   recentPlans,
   templates,
   strategy,
+  funnelEngine,
 }: WeeklyPlanManagerProps) {
   const [plan, setPlan] = useState<WeeklyPlan>(() => createEditablePlan(initialPlan));
   const [recentPlanRows, setRecentPlanRows] = useState<WeeklyPlan[]>(recentPlans);
@@ -613,6 +616,12 @@ export function WeeklyPlanManager({
             <CardDescription>Soft priorities only. Higher emphasis gives the queue a small nudge when gaps exist.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {funnelEngine ? (
+              <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-700">
+                <p>{funnelEngine.currentFunnelBalance}</p>
+                <p className="mt-2 font-medium text-slate-900">{funnelEngine.recommendedShift}</p>
+              </div>
+            ) : null}
             {FUNNEL_STAGES.map((stage) => (
               <div key={stage} className="grid gap-2 md:grid-cols-[1fr_220px] md:items-center">
                 <div>

@@ -7,6 +7,10 @@ import { assessConversionIntent, type ConversionIntentAssessment } from "@/lib/c
 import { assessCandidateConflicts, type ConflictAssessment } from "@/lib/conflicts";
 import { buildAttributionRecordsFromInputs } from "@/lib/attribution";
 import { buildAudienceMemoryState } from "@/lib/audience-memory";
+import {
+  assessDistributionPriority,
+  type DistributionPriorityAssessment,
+} from "@/lib/distribution-priority";
 import { assessExpectedOutcome, type ExpectedOutcomeAssessment } from "@/lib/expected-outcome-ranking";
 import { assessExecutionChain, type ExecutionChainAssessment } from "@/lib/execution-chains";
 import type { ManualExperiment } from "@/lib/experiments";
@@ -18,6 +22,10 @@ import { applyApprovalPackageAutofill, type PackageAutofillResult } from "@/lib/
 import type { PostingLogEntry } from "@/lib/posting-memory";
 import { applyPreReviewRepairs, type PreReviewRepairResult } from "@/lib/review-repair";
 import { assessQueueTriage, type QueueTriageAssessment } from "@/lib/queue-triage";
+import {
+  assessCommercialRisk,
+  type CommercialRiskAssessment,
+} from "@/lib/risk-guardrails";
 import { buildSignalRepurposingBundle } from "@/lib/repurposing";
 import {
   assessStaleQueueCandidate,
@@ -30,6 +38,12 @@ import { getWeeklyPlanAlignment } from "@/lib/weekly-plan";
 import type { SignalRecord } from "@/types/signal";
 import type { DuplicateCluster } from "@/lib/duplicate-clusters";
 import { buildRevenueSignalsFromInputs } from "@/lib/revenue-signals";
+import {
+  buildRevenueAmplifierState,
+  matchRevenueAmplifierToSignal,
+  type RevenueAmplifierMatch,
+} from "@/lib/revenue-amplifier";
+import type { FounderOverrideState } from "@/lib/founder-overrides";
 
 export interface ApprovalQueueCandidate {
   signal: SignalRecord;
@@ -44,6 +58,9 @@ export interface ApprovalQueueCandidate {
   automationConfidence: AutomationConfidenceAssessment;
   packageAutofill: PackageAutofillResult;
   preReviewRepair: PreReviewRepairResult;
+  commercialRisk: CommercialRiskAssessment;
+  distributionPriority: DistributionPriorityAssessment;
+  revenueAmplifierMatch: RevenueAmplifierMatch | null;
   executionChain: ExecutionChainAssessment;
   triage: QueueTriageAssessment;
   stale: StaleQueueAssessment;
@@ -88,9 +105,10 @@ export function rankApprovalCandidates(
     allSignals?: SignalRecord[];
     postingEntries?: PostingLogEntry[];
     postingOutcomes?: PostingOutcome[];
-    strategicOutcomes?: StrategicOutcome[];
-    experiments?: ManualExperiment[];
-  },
+      strategicOutcomes?: StrategicOutcome[];
+      experiments?: ManualExperiment[];
+      founderOverrides?: FounderOverrideState | null;
+    },
 ): ApprovalQueueCandidate[] {
   const now = new Date();
   const fatigueModel = buildFatigueModel({
@@ -123,6 +141,11 @@ export function rankApprovalCandidates(
         revenueSignals,
       })
     : null;
+  const revenueAmplifier = buildRevenueAmplifierState({
+    signals: options?.allSignals ?? candidates.map((item) => item.signal),
+    revenueSignals,
+    attributionRecords,
+  });
 
   return candidates
     .map((candidate) => {
@@ -347,6 +370,41 @@ export function rankApprovalCandidates(
               audienceMemory,
             })
           : autofillConversionIntent;
+      const commercialRisk = assessCommercialRisk({
+        signal: rankedSignal,
+        completeness,
+        confidenceLevel: automationConfidence.level,
+        conflicts,
+        fatigue,
+        conversionIntent,
+        audienceMemory,
+        postingEntries: options?.postingEntries ?? [],
+        postingOutcomes: options?.postingOutcomes ?? [],
+        strategicOutcomes: options?.strategicOutcomes ?? [],
+      });
+      const experimentLinked = (options?.experiments ?? []).some(
+        (experiment) =>
+          experiment.status !== "completed" &&
+          experiment.variants.some((variant) => variant.linkedSignalIds.includes(rankedSignal.recordId)),
+      );
+      const distributionPriority = assessDistributionPriority({
+        signal: rankedSignal,
+        confidenceLevel: candidate.guidance.confidence.confidenceLevel,
+        expectedOutcomeTier: expectedOutcome.expectedOutcomeTier,
+        conversionIntent,
+        audienceMemory,
+        attributionRecords,
+        revenueSignals,
+        postingEntries: options?.postingEntries ?? [],
+        fatigue,
+        revenueAmplifier,
+        founderOverrides: options?.founderOverrides,
+        experimentLinked,
+      });
+      const revenueAmplifierMatch = matchRevenueAmplifierToSignal(
+        rankedSignal,
+        revenueAmplifier,
+      );
 
       rankScore += scoreConfidence(candidate.guidance.confidence.confidenceLevel);
       if (candidate.guidance.confidence.confidenceLevel === "high") {
@@ -448,6 +506,17 @@ export function rankApprovalCandidates(
       if (conflicts.summary[0]) {
         uniquePush(rankReasons, `Conflict: ${conflicts.summary[0]}`);
       }
+      if (commercialRisk.topRisk) {
+        uniquePush(
+          rankReasons,
+          `Risk: ${commercialRisk.topRisk.riskType.replaceAll("_", " ")}`,
+        );
+      }
+      uniquePush(
+        rankReasons,
+        `Distribution: ${distributionPriority.primaryPlatformLabel} ${distributionPriority.distributionStrategy === "single" ? "first" : distributionPriority.distributionStrategy}`,
+      );
+      uniquePush(rankReasons, revenueAmplifierMatch?.recommendation);
 
       if (planAlignment) {
         rankScore += planAlignment.scoreDelta;
@@ -505,6 +574,11 @@ export function rankApprovalCandidates(
       if (candidate.guidance.reuseMemory?.highlights.find((highlight) => highlight.tone === "caution")) {
         rankScore -= 1;
       }
+      if (commercialRisk.decision === "block") {
+        rankScore -= 3;
+      } else if (commercialRisk.decision === "suggest_fix") {
+        rankScore -= 1;
+      }
 
       const stale = assessStaleQueueCandidate({
         signal: rankedSignal,
@@ -516,11 +590,6 @@ export function rankApprovalCandidates(
         operatorState: staleOperatorStatesBySignalId[rankedSignal.recordId] ?? null,
         now,
       });
-      const experimentLinked = (options?.experiments ?? []).some(
-        (experiment) =>
-          experiment.status !== "completed" &&
-          experiment.variants.some((variant) => variant.linkedSignalIds.includes(rankedSignal.recordId)),
-      );
       const triage = assessQueueTriage({
         automationConfidence,
         completeness,
@@ -529,6 +598,8 @@ export function rankApprovalCandidates(
         stale,
         packageAutofill,
         preReviewRepair,
+        commercialRisk,
+        distributionPriority,
         experimentLinked,
       });
       const executionChain = assessExecutionChain({
@@ -540,6 +611,8 @@ export function rankApprovalCandidates(
           conflicts,
           completeness,
           triage,
+          commercialRisk,
+          distributionPriority,
         },
         experimentLinked,
       });
@@ -560,6 +633,9 @@ export function rankApprovalCandidates(
         automationConfidence,
         packageAutofill,
         preReviewRepair,
+        commercialRisk,
+        distributionPriority,
+        revenueAmplifierMatch,
         executionChain,
         triage,
         stale,

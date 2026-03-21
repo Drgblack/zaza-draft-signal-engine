@@ -2,11 +2,17 @@ import type { ApprovalQueueCandidate } from "@/lib/approval-ranking";
 import type { DistributionSummary } from "@/lib/distribution";
 import type { FlywheelOptimisationState } from "@/lib/flywheel-optimisation";
 import type { FollowUpTask } from "@/lib/follow-up";
+import type { GrowthMemoryState } from "@/lib/growth-memory";
 import type { InfluencerGraphSummary } from "@/lib/influencer-graph";
 import type { NarrativeSequenceInsights } from "@/lib/narrative-sequences";
 import type { OperatorTask, OperatorTaskSummary } from "@/lib/operator-tasks";
 import type { GrowthScorecardSummary } from "@/lib/growth-scorecard";
 import type { RevenueSignalInsights } from "@/lib/revenue-signals";
+import {
+  inferRecommendationFamilyFromWorkflow,
+  getRecommendationWeight,
+  type RecommendationTuningState,
+} from "@/lib/recommendation-tuning";
 import type { SourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import type { WeeklyRecap } from "@/lib/weekly-recap";
 import type { WeeklyPostingPack } from "@/lib/weekly-posting-pack";
@@ -80,10 +86,16 @@ function createRecommendation(input: {
   };
 }
 
-function sortRecommendations(items: GrowthDirectorRecommendation[]) {
+function sortRecommendations(
+  items: GrowthDirectorRecommendation[],
+  tuning?: RecommendationTuningState | null,
+) {
   return [...items].sort(
     (left, right) =>
-      priorityWeight(right.priority) - priorityWeight(left.priority) ||
+      priorityWeight(right.priority) +
+        (getRecommendationWeight(tuning, inferRecommendationFamilyFromWorkflow(right.href, right.label)) - 1) -
+        (priorityWeight(left.priority) +
+          (getRecommendationWeight(tuning, inferRecommendationFamilyFromWorkflow(left.href, left.label)) - 1)) ||
       left.label.localeCompare(right.label),
   );
 }
@@ -145,6 +157,8 @@ export function buildGrowthDirector(input: {
   narrativeSequenceInsights: NarrativeSequenceInsights;
   connectBridgeSummary?: ZazaConnectBridgeSummary | null;
   scorecard?: GrowthScorecardSummary | null;
+  growthMemory?: GrowthMemoryState | null;
+  recommendationTuning?: RecommendationTuningState | null;
   now?: Date;
 }): GrowthDirectorSummary {
   const now = input.now ?? new Date();
@@ -319,6 +333,22 @@ export function buildGrowthDirector(input: {
     );
   }
 
+  if (input.growthMemory?.currentWeakCombos[0]) {
+    topBottlenecks.push(
+      createRecommendation({
+        id: "bottleneck-growth-memory-weak",
+        label: "A repeated weak combination is still visible in memory",
+        reason: `${input.growthMemory.currentWeakCombos[0].label}. ${input.growthMemory.currentWeakCombos[0].reason}`,
+        href: input.growthMemory.currentWeakCombos[0].href,
+        priority: "medium",
+        supportingSignals: [
+          input.growthMemory.cautionMemorySummary.headline,
+          input.growthMemory.cautionMemorySummary.supportingSignals[0] ?? "",
+        ],
+      }),
+    );
+  }
+
   if (input.weeklyRecap.reuseCandidates[0]) {
     strongestOpportunities.push(
       createRecommendation({
@@ -328,6 +358,22 @@ export function buildGrowthDirector(input: {
         href: input.weeklyRecap.reuseCandidates[0].href ?? "/recap",
         priority: "high",
         supportingSignals: input.weeklyRecap.commercialHighlights.slice(0, 2),
+      }),
+    );
+  }
+
+  if (input.growthMemory?.currentBestCombos[0]) {
+    strongestOpportunities.push(
+      createRecommendation({
+        id: "opportunity-growth-memory-best",
+        label: `Lean into ${input.growthMemory.currentBestCombos[0].label}`,
+        reason: input.growthMemory.currentBestCombos[0].reason,
+        href: input.growthMemory.currentBestCombos[0].href,
+        priority: "medium",
+        supportingSignals: [
+          input.growthMemory.commercialMemory.currentPosture,
+          input.growthMemory.topNotes[0] ?? "",
+        ],
       }),
     );
   }
@@ -387,7 +433,7 @@ export function buildGrowthDirector(input: {
     ...topPriorities,
     ...topBottlenecks,
     ...strongestOpportunities,
-  ]);
+  ], input.recommendationTuning);
 
   const recommendedActions = combinedActions.slice(0, 3);
   const planningSummary = input.weeklyPostingPack.coverageSummary.summary;
@@ -406,6 +452,9 @@ export function buildGrowthDirector(input: {
   uniquePush(supportingSignals, distributionSummary);
   uniquePush(supportingSignals, `${input.operatorTaskSummary.openCount} open operator task${input.operatorTaskSummary.openCount === 1 ? "" : "s"} and ${input.followUpTasks.length} follow-up task${input.followUpTasks.length === 1 ? "" : "s"}.`);
   uniquePush(supportingSignals, revenueSummary);
+  if (input.growthMemory?.topNotes[0]) {
+    uniquePush(supportingSignals, `Growth memory: ${input.growthMemory.topNotes[0]}`);
+  }
   if (input.scorecard?.topConcerns[0]) {
     uniquePush(supportingSignals, `Scorecard concern: ${input.scorecard.topConcerns[0].reason}`);
   }
@@ -425,9 +474,9 @@ export function buildGrowthDirector(input: {
       sourceAutopilotState: input.sourceAutopilotState,
       weeklyRecap: input.weeklyRecap,
     }),
-    topPriorities: sortRecommendations(topPriorities).slice(0, 5),
-    topBottlenecks: sortRecommendations(topBottlenecks).slice(0, 3),
-    strongestOpportunities: sortRecommendations(strongestOpportunities).slice(0, 4),
+    topPriorities: sortRecommendations(topPriorities, input.recommendationTuning).slice(0, 5),
+    topBottlenecks: sortRecommendations(topBottlenecks, input.recommendationTuning).slice(0, 3),
+    strongestOpportunities: sortRecommendations(strongestOpportunities, input.recommendationTuning).slice(0, 4),
     recommendedActions,
     supportingSignals: supportingSignals.slice(0, 6),
     planningSummary,

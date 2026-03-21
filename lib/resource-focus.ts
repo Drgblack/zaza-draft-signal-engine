@@ -1,10 +1,16 @@
 import type { ApprovalQueueCandidate } from "@/lib/approval-ranking";
 import type { CampaignAllocationState } from "@/lib/campaign-allocation";
 import type { ExceptionInboxState } from "@/lib/exception-inbox";
+import type { FounderOverrideState } from "@/lib/founder-overrides";
 import type { FollowUpTask } from "@/lib/follow-up";
 import type { InfluencerGraphSummary } from "@/lib/influencer-graph";
 import type { OperatorTask, OperatorTaskSummary } from "@/lib/operator-tasks";
 import type { RevenueSignalInsights } from "@/lib/revenue-signals";
+import {
+  getRecommendationFamilyForResourceFocus,
+  getRecommendationWeight,
+  type RecommendationTuningState,
+} from "@/lib/recommendation-tuning";
 import type { SourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import type { StrategicDecisionState } from "@/lib/strategic-decisions";
 import type { WeeklyExecutionFlow } from "@/lib/weekly-execution";
@@ -88,11 +94,17 @@ function createRecommendation(
   };
 }
 
-function sortRecommendations(items: ResourceFocusRecommendation[]) {
+function sortRecommendations(
+  items: ResourceFocusRecommendation[],
+  tuning?: RecommendationTuningState | null,
+) {
   return [...items].sort(
     (left, right) =>
       urgencyWeight(right.urgency) - urgencyWeight(left.urgency) ||
-      leverageWeight(right.leverage) - leverageWeight(left.leverage) ||
+      leverageWeight(right.leverage) +
+        (getRecommendationWeight(tuning, getRecommendationFamilyForResourceFocus(right.focusArea)) - 1) -
+        (leverageWeight(left.leverage) +
+          (getRecommendationWeight(tuning, getRecommendationFamilyForResourceFocus(left.focusArea)) - 1)) ||
       left.recommendation.localeCompare(right.recommendation),
   );
 }
@@ -124,6 +136,8 @@ export function buildResourceFocusState(input: {
   influencerGraphSummary: InfluencerGraphSummary;
   revenueInsights: RevenueSignalInsights;
   activeExperimentCount: number;
+  recommendationTuning?: RecommendationTuningState | null;
+  founderOverrides?: FounderOverrideState | null;
   now?: Date;
 }): ResourceFocusState {
   const now = input.now ?? new Date();
@@ -148,6 +162,22 @@ export function buildResourceFocusState(input: {
   const outreachOpportunityCount =
     input.influencerGraphSummary.newRepliesPendingCount +
     input.influencerGraphSummary.followUpNeededCount;
+  const topFounderOverride = input.founderOverrides?.activeOverrides[0] ?? null;
+
+  if (topFounderOverride) {
+    recommendations.push(
+      createRecommendation({
+        focusArea: "campaign_support",
+        urgency: topFounderOverride.priority,
+        leverage: "high",
+        recommendation: "Apply the active founder override before lower-leverage cleanup",
+        reason: `${topFounderOverride.instruction} stays active until ${new Date(topFounderOverride.expiresAt).toLocaleDateString("en-GB")} and should shape what gets attention first.`,
+        estimatedEffortBand: "10 min",
+        linkedWorkflow: "/overrides",
+        supportingSignals: input.founderOverrides?.topNotes.slice(0, 2) ?? [],
+      }),
+    );
+  }
 
   if (input.weeklyExecution.stagedCount > 0 || input.weeklyExecution.readyToStageCount > 0) {
     recommendations.push(
@@ -303,9 +333,11 @@ export function buildResourceFocusState(input: {
     );
   }
 
+  const sortedRecommendations = sortRecommendations(recommendations, input.recommendationTuning).slice(0, 3);
+
   return {
     generatedAt: now.toISOString(),
-    focusStack: sortRecommendations(recommendations).slice(0, 3),
-    topSummary: buildTopSummary(sortRecommendations(recommendations).slice(0, 3)),
+    focusStack: sortedRecommendations,
+    topSummary: buildTopSummary(sortedRecommendations),
   };
 }

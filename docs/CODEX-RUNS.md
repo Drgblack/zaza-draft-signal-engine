@@ -1,6 +1,116 @@
 # Codex Runs
 
 ## Current Run
+Run 118 adds Founder Override Layer:
+- added a centralized founder override helper in `lib/founder-overrides.ts`
+- founder overrides are now stored as visible temporary instructions with:
+  - override type
+  - target area
+  - instruction
+  - duration
+  - priority
+- added `/overrides` so the founder can:
+  - create overrides
+  - view active overrides
+  - remove overrides
+- added automatic expiry and audit coverage for:
+  - `FOUNDER_OVERRIDE_APPLIED`
+  - `FOUNDER_OVERRIDE_EXPIRED`
+- founder overrides now influence the system lightly across:
+  - strategic decision proposals
+  - resource focus
+  - generation hints
+  - distribution priority
+  - experiment pacing through autonomy policy
+- `/plan`, `/digest`, and `/director` now surface a compact founder override summary so steering stays visible
+- kept the layer intentionally bounded:
+  - no complex rule engine
+  - no hidden overrides
+  - no safety bypass
+  - no permanent configuration sprawl
+
+## Previous Run
+Run 117 adds Revenue Signal Amplifier:
+- added a centralized revenue amplification helper in `lib/revenue-amplifier.ts`
+- the system now identifies strong revenue-linked patterns across:
+  - platform
+  - editorial mode
+  - CTA and destination pairing
+  - audience context
+- the amplifier uses existing commercial evidence from:
+  - revenue signals
+  - attribution memory
+  - growth memory
+  - winner and weekly recap context
+- the layer now exposes bounded outputs such as:
+  - amplified patterns worth reusing more often
+  - caution patterns that should be de-emphasized
+  - compact recommended reuse guidance for downstream modules
+- integrated the amplifier into:
+  - generation guidance
+  - weekly planning
+  - strategic decision proposals
+  - distribution priority
+  - review and final review UI
+- review and generation now surface compact `Revenue pattern` summaries when a candidate matches a strong commercial family
+- kept the layer intentionally bounded:
+  - no auto-posting
+  - no hard overfitting to one winning route
+  - no hidden rewriting of core content framing
+
+## Previous Run
+Run 116 adds Adaptive Funnel Engine:
+- added a centralized funnel helper in `lib/funnel-engine.ts`
+- the system now measures weekly funnel balance across:
+  - `Awareness`
+  - `Trust`
+  - `Consideration`
+  - `Conversion`
+- funnel guidance now uses existing:
+  - weekly pack composition
+  - attribution memory
+  - revenue signals
+  - campaign lifecycle state
+  - fatigue hints
+- `/plan` now shows a full adaptive funnel panel with current mix and recommended next shift
+- `/digest` and `/director` now show compact funnel guidance so founder-level views stay aware of funnel imbalance
+- strategic decision proposals now reference the adaptive funnel state when ordering funnel-mix recommendations
+- weekly execution autopilot now uses funnel guidance lightly when ordering work and explains that bias in its summary
+- kept the layer intentionally bounded:
+  - no rigid funnel ratios
+  - no forced weekly-plan changes
+  - no auto-posting behavior
+
+## Previous Run
+Run 115 adds Autonomous Campaign Lifecycle:
+- added a centralized campaign lifecycle helper in `lib/campaign-lifecycle.ts`
+- campaigns can now be classified into:
+  - `not_started`
+  - `early`
+  - `ramping`
+  - `peak`
+  - `tapering`
+  - `paused`
+- lifecycle guidance now uses existing:
+  - campaign timing
+  - weekly plan alignment
+  - weekly pack representation
+  - approval-ready queue supply
+  - recent campaign support volume
+  - revenue-linked evidence
+  - fatigue hints
+- `/campaigns` now shows a full lifecycle panel with current stage, recommended next stage, reason, and stage-aware content focus
+- `/plan` now shows a compact lifecycle panel so weekly planning reflects campaign stage directly
+- campaign allocation now references lifecycle stage and stage-aware content focus
+- weekly execution autopilot now uses lifecycle emphasis lightly when ordering weekly work
+- added audit coverage for:
+  - `CAMPAIGN_LIFECYCLE_COMPUTED`
+- kept the layer intentionally bounded:
+  - advisory only
+  - no automatic campaign starts
+  - no automatic campaign shutdowns
+
+## Previous Run
 Run 107 adds Resource Focus Engine:
 - added a centralized resource-focus helper in `lib/resource-focus.ts`
 - the system can now recommend where limited operator attention should go first across:
@@ -2771,3 +2881,196 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
   - no aggressive conversion escalation
   - no experiment-breaking edits
   - no silent override of explicit operator selections in ambiguous cases
+
+## Run 108
+- added a centralized executive synthesis layer in `lib/executive-briefing.ts`
+- the system can now generate a bounded founder-facing briefing that summarizes:
+  - what matters this week
+  - what is improving
+  - what is slipping
+  - what should happen next
+  - where growth is coming from
+  - where risk is rising
+- the briefing is grounded in existing structured state, including:
+  - Growth Director
+  - strategic decisions
+  - campaign allocation
+  - resource focus
+  - weekly plan and weekly execution
+  - growth and autonomy scorecards
+  - winner recap
+  - attribution and revenue signals
+  - source autopilot pressure
+  - exception inbox state
+- `/director` now includes a full `Executive Briefing` section
+- `/digest` now includes a compact executive briefing card with the headline and top actions
+- added audit coverage for:
+  - `EXECUTIVE_BRIEFING_GENERATED`
+- kept the layer intentionally bounded:
+  - advisory only
+  - no auto-applied strategic actions
+  - no large reporting view
+  - no generic narrative filler
+
+## Run 109
+- added a centralized self-tuning recommendation layer in `lib/recommendation-tuning.ts`
+- recommendation families now carry bounded, inspectable weights, including:
+  - `campaign_focus`
+  - `evergreen_balance`
+  - `source_cleanup`
+  - `posting_priority`
+  - `outcome_completion`
+  - `experiment_pacing`
+  - `trust_stage_emphasis`
+  - `conversion_posture_shift`
+  - `outreach_focus`
+  - `queue_cleanup`
+- tuning uses existing stored signals only, such as:
+  - audit events and operator follow-through
+  - weekly recap and winner patterns
+  - revenue and attribution memory
+  - audience memory
+  - campaign allocation pressure
+  - weekly execution readiness
+  - source-autopilot pressure
+  - exception inbox pressure
+- the weights now nudge recommendation ordering in:
+  - strategic decision proposals
+  - Growth Director ordering
+  - resource focus ordering
+  - executive briefing ordering
+  - flywheel optimisation proposal prominence
+- `/insights` and `/settings` now show a compact recommendation-tuning section
+- added audit coverage for:
+  - `RECOMMENDATION_WEIGHT_ADJUSTED`
+  - `RECOMMENDATION_TUNING_EVALUATED`
+- kept the layer intentionally bounded:
+  - no ML
+  - no self-modifying logic
+  - no large hidden rewrites
+  - only small reversible weighting shifts
+
+## Run 110
+- added a centralized commercial opportunity radar in `lib/opportunity-radar.ts`
+- the system can now surface bounded, evidence-based commercial opportunities across categories such as:
+  - `platform_destination_opportunity`
+  - `audience_segment_opportunity`
+  - `campaign_gap_opportunity`
+  - `topic_cluster_opportunity`
+  - `outreach_opportunity`
+  - `influencer_opportunity`
+  - `evergreen_opportunity`
+  - `conversion_support_opportunity`
+- the radar uses only current stored system state, including:
+  - attribution memory
+  - revenue signals
+  - weekly recap
+  - growth scorecard
+  - audience memory
+  - campaign allocation
+  - influencer graph
+  - evergreen reuse state
+  - source-autopilot context
+- `/director` now includes a full `Commercial Opportunity Radar` section
+- `/digest` now includes a compact radar card
+- `/insights` now distinguishes compact future-looking opportunities from descriptive analysis
+- executive briefing can now lightly reference the top detected commercial opportunity
+- added audit coverage for:
+  - `COMMERCIAL_OPPORTUNITY_DETECTED`
+  - `COMMERCIAL_OPPORTUNITY_REFERENCED`
+- kept the layer intentionally bounded:
+  - advisory only
+  - no external market intelligence
+  - no forecasting
+  - no auto-applied strategic changes
+
+## Run 111
+- added a centralized growth memory consolidation layer in `lib/growth-memory.ts`
+- the system now synthesizes existing memory systems into compact reusable summaries, including:
+  - commercial memory
+  - audience memory summary
+  - reuse memory summary
+  - relationship memory summary
+  - campaign memory summary
+  - caution memory summary
+  - strongest current combos
+  - weak or cautionary combos
+- the layer is intentionally summary-first:
+  - no new persistence system
+  - no raw-memory duplication
+  - no knowledge-graph platform
+  - no vector search
+- integrated the consolidated memory into:
+  - Growth Director
+  - executive briefing
+  - strategic decision proposals
+  - commercial opportunity radar
+  - weekly planning
+  - director, digest, and insights surfaces
+- `/director` and `/insights` now show a full `Growth Memory Consolidation` section
+- `/digest` and `/plan` now show a compact growth memory summary card
+- added audit coverage for:
+  - `GROWTH_MEMORY_CONSOLIDATED`
+  - `GROWTH_MEMORY_REFERENCED`
+- kept the layer intentionally bounded:
+  - summary layer only
+  - advisory only
+  - it does not replace attribution, revenue, audience, reuse, or relationship memory systems
+
+## Run 112
+- added a centralized commercial risk guardrail layer in `lib/risk-guardrails.ts`
+- the system can now detect compact commercial risks before approval or staging, including:
+  - `over_aggressive_cta`
+  - `weak_claim`
+  - `repetitive_pattern`
+  - `brand_tone_drift`
+  - `audience_mismatch`
+  - `low_evidence_assertion`
+  - `fatigue_risk`
+- each risk now carries:
+  - severity
+  - a short reason
+  - a suggested fix
+- approval candidates now carry a shared commercial risk assessment through ranking, queue triage, execution-chain checks, weekly execution, safe posting, and final review
+- `/review` now shows compact risk badges and risk details on queue cards
+- `/signals/[id]/review` now shows a commercial risk support card in the final review workspace
+- `/execution` now surfaces risk severity, risk summary, and suggested fix for execution items
+- `/insights` now includes a compact `Commercial Risk Guardrails` section with top risks, blocked volume, fix-suggested volume, and suggested fixes
+- added audit coverage for:
+  - `RISK_DETECTED`
+  - `RISK_BLOCKED`
+- kept the layer intentionally bounded:
+  - no hidden rewriting
+  - no heavy moderation engine
+  - prefers flagging over blocking unless severity is high
+  - does not silently override operator decisions
+
+## Run 113
+- added a centralized distribution priority layer in `lib/distribution-priority.ts`
+- each approval-ready candidate can now carry a bounded distribution recommendation with:
+  - primary platform
+  - secondary platforms
+  - strategy: `single`, `multi`, or `experimental`
+  - a short reason
+- the priority layer uses existing stored inputs only, including:
+  - platform and destination performance
+  - attribution and revenue memory
+  - audience memory
+  - CTA and destination posture
+  - editorial mode and funnel stage
+  - fatigue signals
+- integrated the shared distribution recommendation into:
+  - approval ranking
+  - weekly posting pack selection
+  - weekly execution ordering
+  - review and final review UI
+  - insights
+- weekly pack items and execution items now surface:
+  - primary platform
+  - suggested distribution strategy
+  - secondary routes where relevant
+- kept the layer intentionally bounded:
+  - advisory only
+  - no auto-posting
+  - no scheduling system
+  - no platform API integration

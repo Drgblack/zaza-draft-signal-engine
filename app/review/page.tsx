@@ -26,6 +26,7 @@ import { buildExperimentAutopilotV2 } from "@/lib/experiment-autopilot-v2";
 import { buildAutonomousExperimentProposals, listExperimentProposals } from "@/lib/experiment-proposals";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { listFollowUpTasks } from "@/lib/follow-up";
+import { syncFounderOverrideState } from "@/lib/founder-overrides";
 import {
   buildDuplicateClusterDifferenceNotes,
   buildSuggestedDuplicateClusters,
@@ -109,6 +110,7 @@ export default async function ReviewPage({
   const strategicOutcomes = await listStrategicOutcomes();
   const duplicateClusters = await listDuplicateClusters();
   const experiments = await listExperiments();
+  const founderOverrides = await syncFounderOverrideState();
   const storedExperimentProposals = await listExperimentProposals();
   const strategy = await getCampaignStrategy();
   const tuning = await getOperatorTuning();
@@ -196,6 +198,7 @@ export default async function ReviewPage({
       postingOutcomes,
       strategicOutcomes,
       experiments,
+      founderOverrides,
     },
   );
   const staleAuditHistory = await listAuditEvents({
@@ -209,6 +212,7 @@ export default async function ReviewPage({
     candidates: approvalReadyCandidates,
     experiments,
     storedProposals: storedExperimentProposals,
+    founderOverrides,
     maxProposals: 5,
   }).filter((proposal) => proposal.status === "open");
   const experimentAutopilotEvaluations = approvalReadyCandidates.map((candidate) => ({
@@ -216,6 +220,7 @@ export default async function ReviewPage({
     autopilot: buildExperimentAutopilotV2({
       candidate,
       experiments,
+      founderOverrides,
     }),
   }));
   const staleOverview = buildStaleQueueOverview(approvalReadyCandidates.map((candidate) => candidate.stale));
@@ -411,9 +416,39 @@ export default async function ReviewPage({
                   },
                 ]
               : [];
+      const commercialRiskEvents: AuditEventInput[] =
+        candidate.commercialRisk.risks.length > 0
+          ? [
+              {
+                signalId: candidate.signal.recordId,
+                eventType: "RISK_DETECTED",
+                actor: "system",
+                summary: candidate.commercialRisk.summary,
+                metadata: {
+                  riskType: candidate.commercialRisk.topRisk?.riskType ?? null,
+                  severity: candidate.commercialRisk.highestSeverity ?? null,
+                  suggestedFix: candidate.commercialRisk.topRisk?.suggestedFix ?? null,
+                },
+              },
+              ...(candidate.commercialRisk.decision === "block"
+                ? [
+                    {
+                      signalId: candidate.signal.recordId,
+                      eventType: "RISK_BLOCKED" as const,
+                      actor: "system" as const,
+                      summary: candidate.commercialRisk.summary,
+                      metadata: {
+                        riskType: candidate.commercialRisk.topRisk?.riskType ?? null,
+                        severity: candidate.commercialRisk.highestSeverity ?? null,
+                      },
+                    },
+                  ]
+                : []),
+            ]
+          : [];
 
       if (!candidate.fatigue.warnings[0]) {
-        return [...events, ...autofillEvents, ...preReviewRepairEvents, ...ctaDestinationHealingEvents];
+        return [...events, ...autofillEvents, ...preReviewRepairEvents, ...ctaDestinationHealingEvents, ...commercialRiskEvents];
       }
 
       return [
@@ -432,6 +467,7 @@ export default async function ReviewPage({
         ...autofillEvents,
         ...preReviewRepairEvents,
         ...ctaDestinationHealingEvents,
+        ...commercialRiskEvents,
       ];
     }),
   );

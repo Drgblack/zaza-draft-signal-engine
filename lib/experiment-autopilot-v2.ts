@@ -2,6 +2,7 @@ import type { ApprovalQueueCandidate } from "@/lib/approval-ranking";
 import { evaluateAutonomyPolicy, type AutonomyPolicyDecision } from "@/lib/autonomy-policy";
 import { getConversionIntentLabel } from "@/lib/conversion-intent";
 import type { ExperimentType, ManualExperiment } from "@/lib/experiments";
+import type { FounderOverrideState } from "@/lib/founder-overrides";
 import { buildSignalPublishPrepBundle } from "@/lib/publish-prep";
 import { buildSignalRepurposingBundle } from "@/lib/repurposing";
 
@@ -560,6 +561,7 @@ function buildPatternVariantPack(
 export function buildExperimentAutopilotV2(input: {
   candidate: ApprovalQueueCandidate;
   experiments?: ManualExperiment[];
+  founderOverrides?: FounderOverrideState | null;
 }): ExperimentAutopilotV2Package {
   const { candidate } = input;
   const experimentLinked = (input.experiments ?? []).some(
@@ -579,6 +581,7 @@ export function buildExperimentAutopilotV2(input: {
     completenessState,
     hasUnresolvedConflicts: candidate.conflicts.conflicts.length > 0,
     experimentLinked,
+    founderOverrides: input.founderOverrides,
   });
 
   if (policy.decision === "block") {

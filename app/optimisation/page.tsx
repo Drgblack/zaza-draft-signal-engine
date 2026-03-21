@@ -29,6 +29,7 @@ import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/patte
 import { listPatterns } from "@/lib/patterns";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPostingLogEntries } from "@/lib/posting-log";
+import { getStoredRecommendationTuningState } from "@/lib/recommendation-tuning";
 import { buildRevenueSignalInsights, syncRevenueSignals } from "@/lib/revenue-signals";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
@@ -77,6 +78,7 @@ export default async function OptimisationPage() {
   ]);
 
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
+  const recommendationTuning = await getStoredRecommendationTuningState();
   const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, signalResult.signals, postingEntries);
   const cadence = buildCampaignCadenceSummary(signalResult.signals, strategy, postingEntries);
   const bundleSummariesByPatternId = indexBundleSummariesByPatternId(bundles);
@@ -215,6 +217,7 @@ export default async function OptimisationPage() {
     narrativeSequenceInsights,
     revenueInsights,
     audienceMemory,
+    recommendationTuning,
     now: renderNow,
   });
 

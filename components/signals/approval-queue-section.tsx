@@ -24,8 +24,11 @@ import { formatDate } from "@/lib/utils";
 import type { StaleQueueActionResponse } from "@/types/api";
 import type { SignalRecord } from "@/types/signal";
 import type { AutomationConfidenceLevel } from "@/lib/confidence";
+import type { DistributionPriorityAssessment } from "@/lib/distribution-priority";
 import type { ExecutionChainAssessment } from "@/lib/execution-chains";
 import type { PreReviewRepairResult } from "@/lib/review-repair";
+import type { CommercialRiskAssessment } from "@/lib/risk-guardrails";
+import type { RevenueAmplifierMatch } from "@/lib/revenue-amplifier";
 import type { StaleQueueOperatorAction } from "@/lib/stale-queue";
 
 type Candidate = {
@@ -116,6 +119,17 @@ type Candidate = {
     reasons: string[];
     requiresOperatorJudgement: boolean;
   };
+  distributionPriority: Pick<
+    DistributionPriorityAssessment,
+    | "primaryPlatform"
+    | "primaryPlatformLabel"
+    | "secondaryPlatforms"
+    | "secondaryPlatformLabels"
+    | "distributionStrategy"
+    | "reason"
+  >;
+  commercialRisk: Pick<CommercialRiskAssessment, "risks" | "highestSeverity" | "decision" | "summary" | "topRisk">;
+  revenueAmplifierMatch: RevenueAmplifierMatch | null;
   executionChain: Pick<ExecutionChainAssessment, "status" | "summary" | "chainType">;
   stale: {
     state: "fresh" | "aging" | "stale" | "stale_but_reusable" | "stale_needs_refresh";
@@ -196,8 +210,49 @@ function chipLabel(candidate: Candidate, experimentCount: number, hasRepair: boo
   if (candidate.conversionIntent.posture === "trust_first") chips.add("trust posture");
   if (candidate.conversionIntent.posture === "soft_conversion") chips.add("soft conversion");
   if (candidate.conversionIntent.posture === "direct_conversion") chips.add("direct conversion");
+  if (candidate.distributionPriority.distributionStrategy === "multi") chips.add("multi-platform");
+  if (candidate.distributionPriority.distributionStrategy === "experimental") chips.add("distribution test");
+  if (candidate.revenueAmplifierMatch) chips.add("revenue-backed");
   if (hasRepair) chips.add("auto-repaired");
+  if (candidate.commercialRisk.decision === "block") chips.add("risk blocked");
+  if (candidate.commercialRisk.decision === "suggest_fix") chips.add("risk fix suggested");
   return [...chips].slice(0, 5);
+}
+
+function commercialRiskTone(
+  severity: Candidate["commercialRisk"]["highestSeverity"],
+): "neutral" | "aging" | "stale" {
+  if (severity === "high") {
+    return "stale";
+  }
+
+  if (severity === "medium") {
+    return "aging";
+  }
+
+  return "neutral";
+}
+
+function commercialRiskLabel(
+  riskType: NonNullable<Candidate["commercialRisk"]["topRisk"]>["riskType"],
+) {
+  switch (riskType) {
+    case "over_aggressive_cta":
+      return "CTA too strong";
+    case "weak_claim":
+      return "Weak claim";
+    case "repetitive_pattern":
+      return "Repetitive pattern";
+    case "brand_tone_drift":
+      return "Brand drift";
+    case "audience_mismatch":
+      return "Audience mismatch";
+    case "low_evidence_assertion":
+      return "Low-evidence assertion";
+    case "fatigue_risk":
+    default:
+      return "Fatigue risk";
+  }
 }
 
 function conversionIntentLabel(posture: Candidate["conversionIntent"]["posture"]): string {
@@ -211,6 +266,18 @@ function conversionIntentLabel(posture: Candidate["conversionIntent"]["posture"]
     case "direct_conversion":
     default:
       return "Direct conversion";
+  }
+}
+
+function distributionStrategyLabel(strategy: Candidate["distributionPriority"]["distributionStrategy"]): string {
+  switch (strategy) {
+    case "multi":
+      return "Multi-platform";
+    case "experimental":
+      return "Experimental";
+    case "single":
+    default:
+      return "Single-platform";
   }
 }
 
@@ -533,6 +600,15 @@ export function ApprovalQueueSection({
                               : "alignment note"}
                         </ReviewStateBadge>
                       ) : null}
+                      {candidate.commercialRisk.highestSeverity ? (
+                        <ReviewStateBadge tone={commercialRiskTone(candidate.commercialRisk.highestSeverity)}>
+                          {candidate.commercialRisk.highestSeverity === "high"
+                            ? "risk blocked"
+                            : candidate.commercialRisk.highestSeverity === "medium"
+                              ? "risk fix suggested"
+                              : "risk note"}
+                        </ReviewStateBadge>
+                      ) : null}
                     </div>
                     <div>
                       <Link href={`/signals/${candidate.signal.recordId}`} className="text-lg font-semibold text-slate-950 hover:text-[color:var(--accent)]">{candidate.signal.sourceTitle}</Link>
@@ -560,12 +636,25 @@ export function ApprovalQueueSection({
                           {conflictLabel(conflict.conflictType)}
                         </span>
                       ))}
+                      {candidate.commercialRisk.topRisk ? (
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                            candidate.commercialRisk.highestSeverity === "high"
+                              ? "bg-rose-50 text-rose-700"
+                              : candidate.commercialRisk.highestSeverity === "medium"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {commercialRiskLabel(candidate.commercialRisk.topRisk.riskType)}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-2xl bg-slate-50/80 px-3 py-3 text-sm text-slate-600"><p className="font-medium text-slate-900">Why it matters</p><p className="mt-2">{candidate.expectedOutcome.expectedOutcomeReasons[0] ?? candidate.rankReasons[0] ?? "Strong support surfaced."}</p><p className="mt-2 text-slate-500">Conversion posture: {conversionIntentLabel(candidate.conversionIntent.posture)}.</p></div>
-                      <div className="rounded-2xl bg-slate-50/80 px-3 py-3 text-sm text-slate-600"><p className="font-medium text-slate-900">What is missing</p><p className="mt-2">{candidate.conflicts.topConflicts[0]?.reason ?? candidate.triage.reason ?? (candidate.stale.state !== "fresh" && candidate.stale.reasons[0] ? candidate.stale.reasons[0].summary : candidate.preReviewRepair.decision === "applied" ? candidate.preReviewRepair.summary : candidate.completeness.missingElements.length > 0 ? candidate.completeness.missingElements.slice(0, 2).join(" · ") : "No major package gaps")}</p></div>
+                      <div className="rounded-2xl bg-slate-50/80 px-3 py-3 text-sm text-slate-600"><p className="font-medium text-slate-900">What is missing</p><p className="mt-2">{candidate.commercialRisk.topRisk?.reason ?? candidate.conflicts.topConflicts[0]?.reason ?? candidate.triage.reason ?? (candidate.stale.state !== "fresh" && candidate.stale.reasons[0] ? candidate.stale.reasons[0].summary : candidate.preReviewRepair.decision === "applied" ? candidate.preReviewRepair.summary : candidate.completeness.missingElements.length > 0 ? candidate.completeness.missingElements.slice(0, 2).join(" · ") : "No major package gaps")}</p></div>
                       <div className="rounded-2xl bg-slate-50/80 px-3 py-3 text-sm text-slate-600"><p className="font-medium text-slate-900">{getAutofillHeading(candidate.packageAutofill.mode)}</p><p className="mt-2">{candidate.packageAutofill.mode === "blocked" ? candidate.packageAutofill.policy.summary : candidate.packageAutofill.notes.length > 0 ? candidate.packageAutofill.notes.slice(0, 2).map((note) => `${note.label}: ${note.value}`).join(" · ") : "No bounded autofill needed"}</p></div>
-                      <div className="rounded-2xl bg-slate-950 px-3 py-3 text-sm text-slate-100"><p className="font-medium text-white">Action now</p><p className="mt-2">{candidate.automationConfidence.level === "low" ? candidate.automationConfidence.summary : candidate.conflicts.topConflicts[0]?.suggestedFix ?? candidate.triage.suggestedNextAction ?? (candidate.stale.state !== "fresh" ? `${candidate.stale.actionSummary}. ${candidate.guidance.primaryAction}` : candidate.preReviewRepair.decision === "applied" ? candidate.preReviewRepair.summary : candidate.guidance.primaryAction)}</p></div>
+                      <div className="rounded-2xl bg-slate-950 px-3 py-3 text-sm text-slate-100"><p className="font-medium text-white">Action now</p><p className="mt-2">{candidate.commercialRisk.topRisk?.suggestedFix ?? (candidate.automationConfidence.level === "low" ? candidate.automationConfidence.summary : candidate.conflicts.topConflicts[0]?.suggestedFix ?? candidate.triage.suggestedNextAction ?? (candidate.stale.state !== "fresh" ? `${candidate.stale.actionSummary}. ${candidate.guidance.primaryAction}` : candidate.preReviewRepair.decision === "applied" ? candidate.preReviewRepair.summary : candidate.guidance.primaryAction))}</p></div>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Link href={`/signals/${candidate.signal.recordId}/review`} className={buttonVariants({ variant: "secondary", size: "sm" })}>Open final review</Link>
@@ -613,15 +702,22 @@ export function ApprovalQueueSection({
                     <p>{candidate.assessment.suggestedPlatformPriority ?? candidate.signal.platformPriority ?? "Platform not set"}</p>
                     <p className="mt-2">{candidate.signal.editorialMode ? getEditorialModeDefinition(candidate.signal.editorialMode).label : "Editorial mode not set"}</p>
                     <p className="mt-2">Conversion posture: {conversionIntentLabel(candidate.conversionIntent.posture)}</p>
+                    <p className="mt-2">Distribution: {candidate.distributionPriority.primaryPlatformLabel} · {distributionStrategyLabel(candidate.distributionPriority.distributionStrategy)}</p>
+                    {candidate.revenueAmplifierMatch ? (
+                      <p className="mt-2 text-emerald-800">
+                        Revenue pattern: {candidate.revenueAmplifierMatch.revenueStrength === "high" ? "High-performing" : "Working"} · {candidate.revenueAmplifierMatch.label}
+                      </p>
+                    ) : null}
                     <p className="mt-2">{formatContextLabel(candidate.signal.campaignId) ?? "No campaign"}</p>
                     <p className="mt-2">{formatContextLabel(candidate.signal.funnelStage) ?? "Funnel not set"} · {formatContextLabel(candidate.signal.ctaGoal) ?? "CTA not set"}</p>
-                    <p className="mt-2">{candidate.triage.reason ?? candidate.automationConfidence.reasons[0] ?? candidate.conflicts.topConflicts[0]?.reason ?? (candidate.stale.state !== "fresh" ? candidate.stale.reasons[0]?.summary ?? candidate.assessment.strongestCaution ?? candidate.guidance.cautionNotes[0] ?? "No major caution surfaced" : candidate.assessment.strongestCaution ?? candidate.guidance.cautionNotes[0] ?? "No major caution surfaced")}</p>
+                    <p className="mt-2">{candidate.commercialRisk.topRisk?.reason ?? candidate.triage.reason ?? candidate.automationConfidence.reasons[0] ?? candidate.conflicts.topConflicts[0]?.reason ?? (candidate.stale.state !== "fresh" ? candidate.stale.reasons[0]?.summary ?? candidate.assessment.strongestCaution ?? candidate.guidance.cautionNotes[0] ?? "No major caution surfaced" : candidate.assessment.strongestCaution ?? candidate.guidance.cautionNotes[0] ?? "No major caution surfaced")}</p>
                     {candidate.preReviewRepair.decision === "applied" ? <p className="mt-2 text-xs text-slate-500">{candidate.preReviewRepair.summary}</p> : null}
                     {candidate.executionChain.status === "completed" || candidate.executionChain.status === "available" ? <p className="mt-2 text-xs text-sky-700">{candidate.executionChain.summary}</p> : null}
+                    {candidate.commercialRisk.topRisk ? <p className="mt-2 text-xs text-rose-700">Suggested fix: {candidate.commercialRisk.topRisk.suggestedFix}</p> : null}
                     {candidate.stale.operatorActionNote ? <p className="mt-2 text-xs text-slate-500">Note: {candidate.stale.operatorActionNote}</p> : null}
                   </div>
                 </div>
-                {expanded ? <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_0.95fr]"><div className="grid gap-4 md:grid-cols-2"><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Post hypothesis</p><p className="mt-2"><span className="font-medium text-slate-900">Objective:</span> {candidate.hypothesis.objective}</p><p className="mt-2"><span className="font-medium text-slate-900">Why it may work:</span> {candidate.hypothesis.whyItMayWork}</p><p className="mt-2 text-slate-500">Levers: {candidate.hypothesis.keyLevers.join(" · ")}</p></div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Expected outcome detail</p><p className="mt-2">{candidate.expectedOutcome.expectedOutcomeReasons.join(" · ")}</p>{candidate.expectedOutcome.riskSignals.length > 0 ? <p className="mt-2 text-slate-500">Risks: {candidate.expectedOutcome.riskSignals.join(" · ")}</p> : null}</div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Package and supports</p><p className="mt-2">Score {candidate.completeness.completenessScore} · {candidate.completeness.completenessState.replaceAll("_", " ")}</p><p className="mt-2 text-slate-500">Asset: {assetSummary?.summary ?? "Not generated yet"}</p><p className="mt-2 text-slate-500">Repurposing: {repurposingSummary ? `${repurposingSummary.count} variants` : "Not generated yet"}</p><p className="mt-2 text-slate-500">Publish prep: {publishPrepSummary ? `${publishPrepSummary.packageCount} packages ready` : "Not prepared yet"}</p></div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Strategy and fatigue</p><p className="mt-2">{candidate.rankReasons[0] ?? "No strong strategic rebalance note surfaced."}</p>{candidate.expectedOutcome.riskSignals[0] ? <p className="mt-2 text-slate-500">Caution: {candidate.expectedOutcome.riskSignals[0]}</p> : null}{candidate.fatigue.warnings.length > 0 ? <p className="mt-2 text-slate-500">Fatigue: {candidate.fatigue.warnings.map((warning) => warning.summary).join(" · ")}</p> : null}</div></div><div className="space-y-4"><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Support detail</p>{experimentContexts.length > 0 ? <p className="mt-2">Experiments: {experimentContexts.map((experiment) => `${experiment.name} (${experiment.variantLabels.join(" · ")})`).join(" · ")}</p> : <p className="mt-2">No active experiment context attached.</p>}<p className="mt-2 text-slate-500">{candidate.guidance.relatedPlaybookCards[0]?.title ?? candidate.guidance.relatedPatterns[0]?.title ?? "No direct playbook or pattern surfaced."}</p>{candidate.preReviewRepair.decision === "applied" ? <p className="mt-2 text-slate-500">{candidate.preReviewRepair.summary}</p> : latestRepair ? <p className="mt-2 text-slate-500">{getAutoRepairLabel(latestRepair)}</p> : null}</div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Conversion posture</p><p className="mt-2">{conversionIntentLabel(candidate.conversionIntent.posture)}</p><p className="mt-2 text-slate-500">{candidate.conversionIntent.whyChosen[0] ?? "No extra conversion note surfaced."}</p>{candidate.conversionIntent.cautionNotes[0] ? <p className="mt-2 text-slate-500">Caution: {candidate.conversionIntent.cautionNotes[0]}</p> : null}</div>{candidate.preReviewRepair.decision === "applied" ? <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Pre-review repair</p><div className="mt-3 space-y-3">{candidate.preReviewRepair.repairs.slice(0, 4).map((repair) => <div key={`${candidate.signal.recordId}-${repair.repairType}-${repair.after}`} className="rounded-2xl bg-white/80 px-3 py-3"><div className="flex flex-wrap items-center gap-2"><ReviewStateBadge tone="autofill">Auto-repaired</ReviewStateBadge><span className="text-sm font-medium text-slate-900">{repair.repairType.replaceAll("_", " ")}</span></div><p className="mt-2">{repair.reason}</p><p className="mt-2 text-slate-500">{repair.before} → {repair.after}</p></div>)}</div></div> : null}{candidate.conflicts.topConflicts.length > 0 ? <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Conflict detail</p><div className="mt-3 space-y-3">{candidate.conflicts.topConflicts.map((conflict) => <div key={`${candidate.signal.recordId}-detail-${conflict.conflictType}-${conflict.platform ?? "all"}`} className="rounded-2xl bg-white/80 px-3 py-3"><div className="flex flex-wrap items-center gap-2"><ReviewStateBadge tone={conflictTone(conflict.severity)}>{conflict.severity} conflict</ReviewStateBadge><span className="text-sm font-medium text-slate-900">{conflictLabel(conflict.conflictType)}</span></div><p className="mt-2">{conflict.reason}</p>{conflict.suggestedFix ? <p className="mt-2 text-slate-500">Suggested fix: {conflict.suggestedFix}</p> : null}</div>)}</div></div> : null}</div></div> : null}
+                {expanded ? <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_0.95fr]"><div className="grid gap-4 md:grid-cols-2"><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Post hypothesis</p><p className="mt-2"><span className="font-medium text-slate-900">Objective:</span> {candidate.hypothesis.objective}</p><p className="mt-2"><span className="font-medium text-slate-900">Why it may work:</span> {candidate.hypothesis.whyItMayWork}</p><p className="mt-2 text-slate-500">Levers: {candidate.hypothesis.keyLevers.join(" · ")}</p></div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Expected outcome detail</p><p className="mt-2">{candidate.expectedOutcome.expectedOutcomeReasons.join(" · ")}</p>{candidate.expectedOutcome.riskSignals.length > 0 ? <p className="mt-2 text-slate-500">Risks: {candidate.expectedOutcome.riskSignals.join(" · ")}</p> : null}</div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Package and supports</p><p className="mt-2">Score {candidate.completeness.completenessScore} · {candidate.completeness.completenessState.replaceAll("_", " ")}</p><p className="mt-2 text-slate-500">Asset: {assetSummary?.summary ?? "Not generated yet"}</p><p className="mt-2 text-slate-500">Repurposing: {repurposingSummary ? `${repurposingSummary.count} variants` : "Not generated yet"}</p><p className="mt-2 text-slate-500">Publish prep: {publishPrepSummary ? `${publishPrepSummary.packageCount} packages ready` : "Not prepared yet"}</p></div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Strategy and fatigue</p><p className="mt-2">{candidate.rankReasons[0] ?? "No strong strategic rebalance note surfaced."}</p>{candidate.expectedOutcome.riskSignals[0] ? <p className="mt-2 text-slate-500">Caution: {candidate.expectedOutcome.riskSignals[0]}</p> : null}{candidate.fatigue.warnings.length > 0 ? <p className="mt-2 text-slate-500">Fatigue: {candidate.fatigue.warnings.map((warning) => warning.summary).join(" · ")}</p> : null}</div></div><div className="space-y-4"><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Support detail</p>{experimentContexts.length > 0 ? <p className="mt-2">Experiments: {experimentContexts.map((experiment) => `${experiment.name} (${experiment.variantLabels.join(" · ")})`).join(" · ")}</p> : <p className="mt-2">No active experiment context attached.</p>}<p className="mt-2 text-slate-500">{candidate.guidance.relatedPlaybookCards[0]?.title ?? candidate.guidance.relatedPatterns[0]?.title ?? "No direct playbook or pattern surfaced."}</p>{candidate.preReviewRepair.decision === "applied" ? <p className="mt-2 text-slate-500">{candidate.preReviewRepair.summary}</p> : latestRepair ? <p className="mt-2 text-slate-500">{getAutoRepairLabel(latestRepair)}</p> : null}</div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Conversion posture</p><p className="mt-2">{conversionIntentLabel(candidate.conversionIntent.posture)}</p><p className="mt-2 text-slate-500">{candidate.conversionIntent.whyChosen[0] ?? "No extra conversion note surfaced."}</p>{candidate.conversionIntent.cautionNotes[0] ? <p className="mt-2 text-slate-500">Caution: {candidate.conversionIntent.cautionNotes[0]}</p> : null}</div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Distribution priority</p><p className="mt-2">{candidate.distributionPriority.primaryPlatformLabel} · {distributionStrategyLabel(candidate.distributionPriority.distributionStrategy)}</p><p className="mt-2 text-slate-500">{candidate.distributionPriority.reason}</p>{candidate.distributionPriority.secondaryPlatformLabels.length > 0 ? <p className="mt-2 text-slate-500">Secondary routes: {candidate.distributionPriority.secondaryPlatformLabels.join(" · ")}</p> : null}</div>{candidate.preReviewRepair.decision === "applied" ? <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Pre-review repair</p><div className="mt-3 space-y-3">{candidate.preReviewRepair.repairs.slice(0, 4).map((repair) => <div key={`${candidate.signal.recordId}-${repair.repairType}-${repair.after}`} className="rounded-2xl bg-white/80 px-3 py-3"><div className="flex flex-wrap items-center gap-2"><ReviewStateBadge tone="autofill">Auto-repaired</ReviewStateBadge><span className="text-sm font-medium text-slate-900">{repair.repairType.replaceAll("_", " ")}</span></div><p className="mt-2">{repair.reason}</p><p className="mt-2 text-slate-500">{repair.before} → {repair.after}</p></div>)}</div></div> : null}{candidate.commercialRisk.topRisk ? <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><div className="flex flex-wrap items-center gap-2"><ReviewStateBadge tone={commercialRiskTone(candidate.commercialRisk.highestSeverity)}>{candidate.commercialRisk.highestSeverity === "high" ? "High risk" : candidate.commercialRisk.highestSeverity === "medium" ? "Fix suggested" : "Risk note"}</ReviewStateBadge><span className="text-sm font-medium text-slate-900">{commercialRiskLabel(candidate.commercialRisk.topRisk.riskType)}</span></div><p className="mt-2">{candidate.commercialRisk.topRisk.reason}</p><p className="mt-2 text-slate-500">Suggested fix: {candidate.commercialRisk.topRisk.suggestedFix}</p></div> : null}{candidate.conflicts.topConflicts.length > 0 ? <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Conflict detail</p><div className="mt-3 space-y-3">{candidate.conflicts.topConflicts.map((conflict) => <div key={`${candidate.signal.recordId}-detail-${conflict.conflictType}-${conflict.platform ?? "all"}`} className="rounded-2xl bg-white/80 px-3 py-3"><div className="flex flex-wrap items-center gap-2"><ReviewStateBadge tone={conflictTone(conflict.severity)}>{conflict.severity} conflict</ReviewStateBadge><span className="text-sm font-medium text-slate-900">{conflictLabel(conflict.conflictType)}</span></div><p className="mt-2">{conflict.reason}</p>{conflict.suggestedFix ? <p className="mt-2 text-slate-500">Suggested fix: {conflict.suggestedFix}</p> : null}</div>)}</div></div> : null}</div></div> : null}
               </div>
             );
           })}

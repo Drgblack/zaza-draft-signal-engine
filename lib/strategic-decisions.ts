@@ -1,8 +1,17 @@
 import type { ApprovalQueueCandidate } from "@/lib/approval-ranking";
 import type { AudienceMemoryState } from "@/lib/audience-memory";
 import type { GrowthDirectorSummary } from "@/lib/growth-director";
+import type { GrowthMemoryState } from "@/lib/growth-memory";
 import type { InfluencerGraphSummary } from "@/lib/influencer-graph";
+import type { FunnelEngineState } from "@/lib/funnel-engine";
+import type { RevenueAmplifierState } from "@/lib/revenue-amplifier";
+import {
+  getRecommendationFamilyForStrategicCategory,
+  getRecommendationWeight,
+  type RecommendationTuningState,
+} from "@/lib/recommendation-tuning";
 import type { FlywheelOptimisationState } from "@/lib/flywheel-optimisation";
+import type { FounderOverrideState } from "@/lib/founder-overrides";
 import type { RevenueSignalInsights } from "@/lib/revenue-signals";
 import type { SourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import type { WeeklyRecap } from "@/lib/weekly-recap";
@@ -39,6 +48,26 @@ export interface StrategicDecisionState {
   topSummary: string[];
 }
 
+function founderOverrideCategory(
+  state: FounderOverrideState | null | undefined,
+): StrategicDecisionCategory {
+  const override = state?.activeOverrides[0];
+  switch (override?.targetArea) {
+    case "platform_priority":
+      return "platform_mix";
+    case "experiment_pacing":
+      return "experiment_pacing";
+    case "conversion_pressure":
+      return "conversion_pressure";
+    case "campaign_focus":
+      return "campaign_focus";
+    case "messaging_focus":
+    case "planning_focus":
+    default:
+      return "funnel_mix";
+  }
+}
+
 function uniquePush(target: string[], value: string | null | undefined) {
   const normalized = value?.trim();
   if (!normalized || target.includes(normalized)) {
@@ -67,10 +96,16 @@ function priorityWeight(priority: StrategicDecisionProposal["priority"]) {
   }
 }
 
-function sortProposals(items: StrategicDecisionProposal[]) {
+function sortProposals(
+  items: StrategicDecisionProposal[],
+  tuning?: RecommendationTuningState | null,
+) {
   return [...items].sort(
     (left, right) =>
-      priorityWeight(right.priority) - priorityWeight(left.priority) ||
+      priorityWeight(right.priority) +
+        (getRecommendationWeight(tuning, getRecommendationFamilyForStrategicCategory(right.category)) - 1) -
+        (priorityWeight(left.priority) +
+          (getRecommendationWeight(tuning, getRecommendationFamilyForStrategicCategory(left.category)) - 1)) ||
       left.title.localeCompare(right.title),
   );
 }
@@ -99,7 +134,12 @@ export function buildStrategicDecisionState(input: {
   revenueInsights: RevenueSignalInsights;
   audienceMemory: AudienceMemoryState;
   influencerGraphSummary: InfluencerGraphSummary;
+  funnelEngine?: FunnelEngineState | null;
+  growthMemory?: GrowthMemoryState | null;
+  revenueAmplifier?: RevenueAmplifierState | null;
   activeExperimentCount?: number;
+  recommendationTuning?: RecommendationTuningState | null;
+  founderOverrides?: FounderOverrideState | null;
   now?: Date;
 }): StrategicDecisionState {
   const now = input.now ?? new Date();
@@ -123,6 +163,33 @@ export function buildStrategicDecisionState(input: {
   ).length;
   const topPlatform = input.weeklyPostingPack.platformMix[0] ?? null;
   const activeExperimentCount = input.activeExperimentCount ?? input.weeklyRecap.supportingMetrics.experimentCount;
+  const bestMemoryCombo = input.growthMemory?.currentBestCombos[0] ?? null;
+  const weakMemoryCombo = input.growthMemory?.currentWeakCombos[0] ?? null;
+  const topRevenueAmplifier = input.revenueAmplifier?.amplifiedPatterns[0] ?? null;
+  const topRevenueCaution = input.revenueAmplifier?.cautionPatterns[0] ?? null;
+  const topFunnelIncrease = input.funnelEngine?.recommendedNextMix.find(
+    (row) => row.recommendedAdjustment === "increase",
+  ) ?? null;
+  const topFunnelReduce = input.funnelEngine?.recommendedNextMix.find(
+    (row) => row.recommendedAdjustment === "reduce",
+  ) ?? null;
+  const topFounderOverride = input.founderOverrides?.activeOverrides[0] ?? null;
+
+  if (topFounderOverride) {
+    proposals.push(
+      createProposal({
+        proposalId: `founder-override:${topFounderOverride.overrideId}`,
+        category: founderOverrideCategory(input.founderOverrides),
+        title: "Follow the current founder override",
+        recommendation: topFounderOverride.instruction,
+        reason: `A ${topFounderOverride.priority}-priority founder override is active until ${new Date(topFounderOverride.expiresAt).toLocaleDateString("en-GB")}.`,
+        expectedBenefit: "This keeps strategic recommendations aligned with current founder direction without changing safety boundaries.",
+        supportingSignals: input.founderOverrides?.topNotes.slice(0, 2) ?? [],
+        linkedWorkflow: "/overrides",
+        priority: topFounderOverride.priority,
+      }),
+    );
+  }
 
   if (
     input.sourceAutopilotState.proposalSummary.openPauseCount > 0 ||
@@ -269,17 +336,34 @@ export function buildStrategicDecisionState(input: {
     );
   }
 
-  if (input.audienceMemory.topNotes[0] && conversionCount === 0 && trustFirstCount > 0) {
+  if (topFunnelIncrease || topFunnelReduce || (input.audienceMemory.topNotes[0] && conversionCount === 0 && trustFirstCount > 0)) {
     proposals.push(
       createProposal({
         proposalId: "funnel-mix-trust-emphasis",
         category: "funnel_mix",
-        title: "Emphasize trust-stage content before harder conversion",
-        recommendation: "Keep the weekly mix weighted toward trust-stage framing until audience evidence justifies more direct asks.",
-        reason: input.audienceMemory.topNotes[0],
-        expectedBenefit: "Better audience-fit should improve response quality without increasing friction or hype.",
+        title:
+          topFunnelIncrease?.stage === "Conversion"
+            ? "Increase conversion-stage support selectively"
+            : topFunnelIncrease?.stage === "Consideration"
+              ? "Increase consideration-stage support next"
+              : topFunnelIncrease?.stage === "Awareness"
+                ? "Rebuild top-of-funnel coverage"
+                : "Emphasize trust-stage content before harder conversion",
+        recommendation:
+          input.funnelEngine?.recommendedShift ??
+          "Keep the weekly mix weighted toward trust-stage framing until audience evidence justifies more direct asks.",
+        reason:
+          topFunnelIncrease?.reason ??
+          topFunnelReduce?.reason ??
+          input.audienceMemory.topNotes[0] ??
+          input.funnelEngine?.currentFunnelBalance ??
+          "The current funnel mix needs a small adjustment.",
+        expectedBenefit:
+          topFunnelIncrease?.stage === "Conversion"
+            ? "This should convert stronger trust momentum into more commercial follow-through."
+            : "A cleaner funnel balance should improve response quality without forcing rigid ratios.",
         supportingSignals: [
-          input.weeklyRecap.summary[0] ?? "",
+          input.funnelEngine?.supportingSignals[0] ?? "",
           input.weeklyPostingPack.coverageSummary.summary,
         ],
         linkedWorkflow: "/plan",
@@ -288,7 +372,77 @@ export function buildStrategicDecisionState(input: {
     );
   }
 
-  const sorted = sortProposals(proposals).slice(0, 5);
+  if (bestMemoryCombo && !proposals.some((proposal) => proposal.category === "campaign_focus")) {
+    proposals.push(
+      createProposal({
+        proposalId: "growth-memory-focus",
+        category: "campaign_focus",
+        title: "Concentrate this week around the strongest remembered commercial family",
+        recommendation: `Use ${bestMemoryCombo.label} as a stronger planning anchor instead of spreading effort across weaker themes.`,
+        reason: bestMemoryCombo.reason,
+        expectedBenefit: "Planning around a currently reinforced memory signal should reduce drift and improve reuse of proven combinations.",
+        supportingSignals: [
+          input.growthMemory?.commercialMemory.currentPosture ?? "",
+          input.growthMemory?.topNotes[0] ?? "",
+        ],
+        linkedWorkflow: bestMemoryCombo.href,
+        priority: "medium",
+      }),
+    );
+  }
+
+  if (topRevenueAmplifier && !proposals.some((proposal) => proposal.category === "conversion_pressure")) {
+    proposals.push(
+      createProposal({
+        proposalId: "revenue-amplifier-push",
+        category:
+          topRevenueAmplifier.platform === "linkedin" ? "platform_mix" : "conversion_pressure",
+        title: "Amplify the strongest revenue-backed content family",
+        recommendation: topRevenueAmplifier.recommendation,
+        reason: topRevenueAmplifier.reason,
+        expectedBenefit: "This should reuse proven commercial patterns more deliberately without turning the whole mix into a single repetitive play.",
+        supportingSignals: topRevenueAmplifier.supportingSignals,
+        linkedWorkflow: "/plan",
+        priority: topRevenueAmplifier.revenueStrength === "high" ? "high" : "medium",
+      }),
+    );
+  }
+
+  if (weakMemoryCombo && !proposals.some((proposal) => proposal.category === "platform_mix")) {
+    proposals.push(
+      createProposal({
+        proposalId: "growth-memory-caution",
+        category: "platform_mix",
+        title: "Avoid repeating a memory-backed weak combination",
+        recommendation: `Reduce emphasis on ${weakMemoryCombo.label.toLowerCase()} until a cleaner context justifies retesting it.`,
+        reason: weakMemoryCombo.reason,
+        expectedBenefit: "This should reduce avoidable noise from combinations that current memory already treats cautiously.",
+        supportingSignals: [
+          input.growthMemory?.cautionMemorySummary.headline ?? "",
+        ],
+        linkedWorkflow: weakMemoryCombo.href,
+        priority: "low",
+      }),
+    );
+  }
+
+  if (topRevenueCaution && !proposals.some((proposal) => proposal.proposalId === "revenue-amplifier-caution")) {
+    proposals.push(
+      createProposal({
+        proposalId: "revenue-amplifier-caution",
+        category: "platform_mix",
+        title: "Reduce emphasis on a weak revenue-backed route",
+        recommendation: topRevenueCaution.recommendation,
+        reason: topRevenueCaution.reason,
+        expectedBenefit: "This should stop weaker commercial pairings from taking slots away from stronger combinations.",
+        supportingSignals: topRevenueCaution.supportingSignals,
+        linkedWorkflow: "/plan",
+        priority: "low",
+      }),
+    );
+  }
+
+  const sorted = sortProposals(proposals, input.recommendationTuning).slice(0, 5);
 
   return {
     generatedAt: now.toISOString(),

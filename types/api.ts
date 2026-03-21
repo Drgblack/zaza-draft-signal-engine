@@ -53,6 +53,7 @@ import type { PatternBundle } from "@/lib/pattern-bundles";
 import type { ScenarioAngleAssessment, ScenarioAngleSuggestion } from "@/lib/scenario-angle";
 import type { OperatorTuning } from "@/lib/tuning-definitions";
 import type { AudienceSegment, Campaign, CampaignStrategy, ContentPillar } from "@/lib/campaigns";
+import type { FounderOverrideState } from "@/lib/founder-overrides";
 import type { DuplicateCluster } from "@/lib/duplicate-clusters";
 import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
@@ -246,6 +247,8 @@ export const generateRequestSchema = z
     suggestedPatternId: z.string().trim().min(1).optional(),
     editorialMode: z.enum(EDITORIAL_MODES).optional(),
     founderVoiceMode: z.enum(FOUNDER_VOICE_MODES).optional(),
+    founderOverrideHints: z.array(z.string().trim().min(1)).max(4).optional(),
+    revenueAmplifierHints: z.array(z.string().trim().min(1)).max(4).optional(),
   })
   .superRefine((value, context) => {
     if (!value.signalId && !value.signal) {
@@ -383,6 +386,26 @@ export const outreachRequestSchema = z.object({
   collaborationGoal: optionalNullableString,
   inboundMessage: optionalNullableString,
   founderVoiceMode: z.enum(FOUNDER_VOICE_MODES).optional(),
+});
+
+export const founderOverrideCreateRequestSchema = z.object({
+  overrideType: z.enum(["temporary_rule", "priority_shift", "strategic_direction"]),
+  targetArea: z.enum([
+    "platform_priority",
+    "experiment_pacing",
+    "messaging_focus",
+    "conversion_pressure",
+    "distribution_strategy",
+    "campaign_focus",
+    "planning_focus",
+  ]),
+  instruction: z.string().trim().min(6),
+  durationHours: z.number().int().min(1).max(24 * 30),
+  priority: z.enum(["high", "medium", "low"]),
+});
+
+export const founderOverrideDeleteRequestSchema = z.object({
+  overrideId: z.string().trim().min(1),
 });
 
 export const zazaConnectBridgeActionRequestSchema = z.discriminatedUnion("action", [
@@ -895,6 +918,13 @@ export interface AutonomousRunResponse {
 export interface TuningResponse {
   success: boolean;
   tuning: OperatorTuning | null;
+  message?: string;
+  error?: string;
+}
+
+export interface FounderOverrideResponse {
+  success: boolean;
+  state: FounderOverrideState | null;
   message?: string;
   error?: string;
 }

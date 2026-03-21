@@ -43,6 +43,10 @@ Convert selected teacher-relevant signals into structured, platform-specific dra
 - Safe Multi-Step Execution Chains that let bounded repair, re-evaluation, and promotion paths run automatically when confidence and policy both allow it
 - Strategic Decision Proposals that surface the top bounded founder-level calls across campaign focus, platform mix, evergreen balance, source quality, outreach, experiments, and conversion pressure
 - Campaign Allocation Autopilot that recommends how much weekly content share each campaign should receive based on current support, queue supply, recent outcomes, and campaign relevance
+- Campaign Lifecycle layer that keeps campaigns in visible `not started`, `early`, `ramping`, `peak`, `tapering`, or `paused` stages and recommends stage-aware content focus
+- Adaptive Funnel Engine that measures current awareness, trust, consideration, and conversion balance and recommends the next funnel mix without enforcing rigid ratios
+- Revenue Signal Amplifier that identifies strong revenue-linked patterns and feeds them back into generation, planning, strategy, and distribution guidance without collapsing the whole system into one route
+- Founder Override Layer that lets the founder apply visible temporary direction across strategy, planning, generation, distribution, and experiment pacing without creating a full rule engine
 - Resource Focus Engine that recommends where the next 10 to 60 minutes of operator attention should go across execution, review, campaigns, outcomes, sources, experiments, evergreen reuse, and outreach
 - Semi-Autonomous Distribution Engine (Safe Mode) that groups staged platform variants, prompts, and follow-up notes into explicit manual distribution bundles
 - Founder Voice Mode that applies Zaza's calm, grounded, teacher-first identity layer across generation and review when enabled
@@ -222,6 +226,123 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - advisory only
   - no automatic campaign pausing
   - weekly share suggestions are intentionally approximate, not exact planning quotas
+
+## Campaign Lifecycle
+- Campaign lifecycle logic is centralized in `lib/campaign-lifecycle.ts`.
+- The layer stays intentionally bounded:
+  - no automatic campaign creation
+  - no automatic campaign shutdown
+  - no hidden plan changes
+- Current lifecycle stages are:
+  - `not_started`
+  - `early`
+  - `ramping`
+  - `peak`
+  - `tapering`
+  - `paused`
+- Current operator surfaces:
+  - `/campaigns`
+  - compact lifecycle panel in `/plan`
+  - lifecycle-aware emphasis inside campaign allocation
+- What it does:
+  - compares campaign timing, weekly plan alignment, weekly-pack support, queue depth, recent content support, revenue-linked evidence, and fatigue hints
+  - recommends the current stage, the next likely stage, and the content emphasis that best fits that stage
+  - gives weekly planning and weekly execution one shared lifecycle view instead of treating every campaign as flat
+- Limitations:
+  - advisory only
+  - no automatic starts or shutdowns
+  - strongest when campaign timing, queue support, and recent outcome evidence are current
+
+## Adaptive Funnel Engine
+- Funnel-balance logic is centralized in `lib/funnel-engine.ts`.
+- The layer stays intentionally bounded:
+  - no rigid funnel quotas
+  - no forced plan changes
+  - no automatic posting changes
+- Current funnel stages tracked are:
+  - `Awareness`
+  - `Trust`
+  - `Consideration`
+  - `Conversion`
+- Current operator surfaces:
+  - full adaptive funnel panel in `/plan`
+  - compact funnel panel in `/digest`
+  - compact funnel panel in `/director`
+- What it does:
+  - measures current weekly pack funnel distribution
+  - references stage-level attribution and revenue evidence
+  - uses campaign lifecycle pressure and fatigue hints to recommend the next funnel mix
+  - lightly influences strategic decision ordering and weekly execution ordering
+- Limitations:
+  - advisory only
+  - no rigid ratio enforcement
+  - strongest when funnel tags, attribution, revenue signals, and campaign lifecycle state are current
+
+## Revenue Signal Amplifier
+- Revenue amplification is centralized in `lib/revenue-amplifier.ts`.
+- The layer stays intentionally bounded:
+  - no hidden auto-posting changes
+  - no hard overfitting to one winning route
+  - no full commercial rewrite engine
+- It identifies compact revenue-linked patterns across:
+  - platform
+  - editorial mode
+  - CTA and destination pairing
+  - audience context
+- It uses only current stored commercial evidence, including:
+  - revenue signals
+  - attribution memory
+  - growth memory
+  - winner and weekly recap context
+- It exposes reusable guidance such as:
+  - amplified patterns worth reusing more often
+  - caution patterns that should be de-emphasized
+  - compact recommended reuse notes for other modules
+- It is integrated lightly into:
+  - generation
+  - weekly planning
+  - strategic decision proposals
+  - distribution priority
+  - review and final review
+- Limitations:
+  - heuristic only
+  - strongest when attribution and revenue state are current
+  - bounded reuse guidance rather than aggressive commercial over-optimization
+
+## Founder Override Layer
+- Founder overrides are centralized in `lib/founder-overrides.ts`.
+- This layer stays intentionally lightweight:
+  - no complex rule engine
+  - no hidden overrides
+  - no safety bypasses
+  - no permanent configuration sprawl
+- Each override carries:
+  - override type
+  - target area
+  - instruction
+  - duration and expiry
+  - priority
+- Current target areas include:
+  - platform priority
+  - experiment pacing
+  - messaging focus
+  - conversion pressure
+  - distribution strategy
+  - campaign focus
+  - planning focus
+- Overrides are surfaced in:
+  - `/overrides` for creation, visibility, and removal
+  - compact summary cards in `/plan`, `/digest`, and `/director`
+- They influence the system lightly across:
+  - strategic decision ordering
+  - resource focus
+  - generation emphasis
+  - distribution priority
+  - experiment pacing through the autonomy policy layer
+- Limitations:
+  - temporary guidance only
+  - advisory and bounded
+  - strongest when the instruction is short, explicit, and tied to one clear target area
 
 ## Resource Focus Engine
 - Resource focus logic is centralized in `lib/resource-focus.ts`.
@@ -1619,3 +1740,202 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - advisory only
   - intentionally incomplete
   - best used for directional learning about business value rather than precise attribution
+
+## Executive Briefing
+- Executive briefing is centralized in `lib/executive-briefing.ts`.
+- This layer is intentionally founder-facing and bounded:
+  - no auto-decisions
+  - no long reports
+  - no generic analytics dump
+  - no hidden strategic changes
+- It synthesizes existing system state into a compact founder briefing using:
+  - Growth Director
+  - strategic decisions
+  - campaign allocation
+  - resource focus
+  - weekly plan and weekly execution
+  - growth and autonomy scorecards
+  - winner recap
+  - revenue and attribution signals
+  - source-autopilot pressure
+  - exception inbox pressure
+- The briefing stays short and structured around:
+  - current situation
+  - top opportunities
+  - top risks
+  - recommended actions
+  - growth, content, and execution signal summaries
+- It is surfaced lightly in:
+  - `/director` as the full executive briefing section
+  - `/digest` as a compact daily starting point
+- Limitations:
+  - heuristic only
+  - advisory only
+  - strongest when underlying planning, outcome, and exception state is current
+
+## Self-Tuning Recommendation Engine
+- Recommendation tuning is centralized in `lib/recommendation-tuning.ts`.
+- This layer stays intentionally bounded and explicit:
+  - no machine learning
+  - no hidden goal changes
+  - no self-modifying prompts or code
+  - no policy-boundary overrides
+- It keeps a compact weight per recommendation family, including:
+  - campaign focus
+  - evergreen balance
+  - source cleanup
+  - posting priority
+  - outcome completion
+  - experiment pacing
+  - trust-stage emphasis
+  - conversion-posture shift
+  - outreach focus
+  - queue cleanup
+- Weighting inputs come from existing system memory, such as:
+  - audit events and operator follow-through
+  - weekly recap patterns
+  - revenue and attribution signals
+  - audience memory
+  - campaign allocation pressure
+  - exception inbox pressure
+  - weekly execution readiness
+  - source-autopilot pressure
+- The weights only nudge recommendation ordering. They do not replace the underlying heuristics.
+- Tuning is surfaced lightly in:
+  - `/insights`
+  - `/settings`
+  - and recommendation ordering across director, digest, optimisation, and briefing surfaces
+- Limitations:
+  - heuristic only
+  - small bounded shifts only
+  - strongest when recent operator and outcome signals are being recorded consistently
+
+## Commercial Opportunity Radar
+- Commercial opportunity detection is centralized in `lib/opportunity-radar.ts`.
+- This layer stays intentionally bounded and evidence-based:
+  - no forecasting
+  - no external market research
+  - no auto-changes to plan or strategy
+  - no giant opportunity report
+- It surfaces compact opportunities across categories such as:
+  - platform and destination combinations
+  - audience segments
+  - campaign gaps
+  - topic or mode clusters
+  - outreach and influencer openings
+  - evergreen reuse opportunities
+  - conversion-support opportunities
+- Inputs are limited to current stored system memory, including:
+  - attribution memory
+  - revenue signals
+  - weekly recap and growth scorecard
+  - audience memory
+  - campaign allocation
+  - influencer graph
+  - evergreen reuse state
+  - source autopilot context
+- It is surfaced lightly in:
+  - `/director` as the full radar section
+  - `/digest` as a compact opportunity read
+  - `/insights` as a distinct “what looks promising next” layer
+- Limitations:
+  - heuristic only
+  - strongest when outcome, attribution, campaign, and influencer state are current
+  - advisory only
+
+## Growth Memory Consolidation
+- Growth memory consolidation is centralized in `lib/growth-memory.ts`.
+- This layer stays intentionally summary-first and bounded:
+  - no new database
+  - no raw-memory duplication
+  - no vector search
+  - no giant memory dashboard
+- It consolidates existing memory domains into compact reusable summaries, including:
+  - commercial memory from attribution and revenue signals
+  - audience memory summaries
+  - reuse memory summaries
+  - relationship memory from the influencer graph
+  - campaign memory from allocation guidance
+  - caution memory from weak combos and underperforming families
+- The consolidated layer also exposes:
+  - strongest current combos
+  - weak or cautionary combos
+  - compact top notes for other modules to reuse
+- It is referenced lightly in:
+  - `/director`
+  - `/digest`
+  - `/insights`
+  - `/plan`
+  - and strategic synthesis layers like Growth Director, executive briefing, strategic decisions, and opportunity radar
+- Limitations:
+  - summary layer only
+  - does not replace the underlying memory systems
+  - strongest when attribution, revenue, audience, reuse, and relationship state are current
+
+## Commercial Risk Guardrails
+- Commercial risk guardrails are centralized in `lib/risk-guardrails.ts`.
+- This layer stays intentionally bounded and explicit:
+  - no full compliance engine
+  - no hidden moderation rules
+  - no automatic full-content rewriting
+  - no silent operator overrides
+- It detects compact commercial risk categories such as:
+  - over-aggressive CTA
+  - weak claim
+  - repetitive pattern
+  - brand tone drift
+  - audience mismatch
+  - low-evidence assertion
+  - fatigue risk
+- Each risk carries:
+  - severity
+  - a short reason
+  - a suggested fix
+- The guardrails use current system memory and package state, including:
+  - generated copy and publish prep
+  - CTA and destination pairing
+  - growth memory and audience memory
+  - repetition and fatigue signals
+  - confidence and outcome support
+- It is applied lightly in:
+  - approval candidate preparation
+  - final review
+  - weekly execution and safe staging paths
+  - insights as a compact risk summary
+- Policy behavior stays bounded:
+  - low risk stays allowed
+  - medium risk suggests a fix
+  - high risk can block auto-staging and execution until reviewed
+- Limitations:
+  - heuristic only
+  - strongest when outcome and repetition signals are current
+  - advisory-first rather than restrictive by default
+
+## Distribution Priority Engine
+- Distribution priority is centralized in `lib/distribution-priority.ts`.
+- This layer stays intentionally bounded:
+  - no auto-posting
+  - no scheduling system
+  - no platform API integration
+  - no hidden distribution changes
+- Each candidate can now carry a compact distribution recommendation with:
+  - primary platform
+  - secondary platforms
+  - strategy: `single`, `multi`, or `experimental`
+  - a short reason
+- Inputs stay grounded in current system state, including:
+  - platform and destination performance
+  - attribution and revenue memory
+  - audience memory
+  - CTA and destination posture
+  - editorial mode and funnel stage
+  - fatigue and repetition pressure
+- The output is surfaced lightly in:
+  - review and final review
+  - weekly pack
+  - weekly execution
+  - insights
+- Limitations:
+  - heuristic only
+  - bounded cross-platform guidance rather than scheduling
+  - strongest when attribution, revenue, audience, and fatigue state are current

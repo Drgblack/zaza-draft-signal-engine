@@ -65,6 +65,11 @@ export interface InfluencerGraphSummary {
   collaboratorCount: number;
 }
 
+export interface InfluencerGraphState {
+  rows: InfluencerGraphRow[];
+  summary: InfluencerGraphSummary;
+}
+
 function normalizeText(value: string | null | undefined) {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
@@ -270,7 +275,7 @@ export async function getInfluencerById(influencerId: string) {
   return influencers.find((influencer) => influencer.influencerId === influencerId) ?? null;
 }
 
-export async function buildInfluencerGraphState() {
+export async function buildInfluencerGraphState(): Promise<InfluencerGraphState> {
   const store = await readStore();
   const interactionIndex = buildInteractionIndex(store.interactions);
   const rows: InfluencerGraphRow[] = sortInfluencers(store.influencers).map((influencer) => {

@@ -33,6 +33,7 @@ import type { PlaybookPackMatch } from "@/lib/playbook-packs";
 import type { PatternCandidateAssessment } from "@/lib/pattern-discovery";
 import { PATTERN_TYPE_LABELS, type PatternSummary, type SignalPattern } from "@/lib/pattern-definitions";
 import { PLATFORM_INTENT_PROFILE_VERSION, getPlatformIntentProfile } from "@/lib/platform-profiles";
+import type { RevenueAmplifierMatch } from "@/lib/revenue-amplifier";
 import {
   EDITORIAL_MODES,
   FOUNDER_VOICE_MODES,
@@ -78,6 +79,8 @@ export function GenerationWorkbench({
   campaigns,
   pillars,
   audienceSegments,
+  founderOverrideHints,
+  revenueAmplifierMatch,
 }: {
   signal: SignalRecord;
   generationInput: SignalGenerationInput | null;
@@ -102,6 +105,8 @@ export function GenerationWorkbench({
   campaigns: Campaign[];
   pillars: ContentPillar[];
   audienceSegments: AudienceSegment[];
+  founderOverrideHints?: string[];
+  revenueAmplifierMatch?: RevenueAmplifierMatch | null;
 }) {
   const [generation, setGeneration] = useState<SignalGenerationResult | null>(initialGeneration);
   const [currentStatus, setCurrentStatus] = useState(signal.status);
@@ -292,6 +297,14 @@ export function GenerationWorkbench({
           suggestedPatternId: selectedPatternId && selectedPatternId === suggestedPatternId ? suggestedPatternId : undefined,
           editorialMode: selectedEditorialMode,
           founderVoiceMode: selectedFounderVoiceMode,
+          founderOverrideHints: founderOverrideHints?.length ? founderOverrideHints : undefined,
+          revenueAmplifierHints: revenueAmplifierMatch
+            ? [
+                revenueAmplifierMatch.recommendation,
+                revenueAmplifierMatch.reason,
+                ...revenueAmplifierMatch.supportingSignals.slice(0, 2),
+              ]
+            : undefined,
         }),
       });
 
@@ -469,6 +482,28 @@ export function GenerationWorkbench({
 
           {generationInput ? (
             <>
+              {revenueAmplifierMatch ? (
+                <div className="rounded-2xl bg-emerald-50/80 px-4 py-4 text-sm text-emerald-900">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="bg-emerald-50 text-emerald-700 ring-emerald-200">
+                      Revenue pattern: {revenueAmplifierMatch.revenueStrength === "high" ? "High-performing" : "Working"}
+                    </Badge>
+                  </div>
+                  <p className="mt-3 font-medium">{revenueAmplifierMatch.label}</p>
+                  <p className="mt-2">{revenueAmplifierMatch.reason}</p>
+                  <p className="mt-2 text-emerald-800">{revenueAmplifierMatch.recommendation}</p>
+                </div>
+              ) : null}
+
+              {(founderOverrideHints ?? []).length > 0 ? (
+                <div className="rounded-2xl bg-sky-50/80 px-4 py-4 text-sm text-sky-900">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="bg-sky-50 text-sky-700 ring-sky-200">Founder override active</Badge>
+                  </div>
+                  <p className="mt-3">{founderOverrideHints?.[0]}</p>
+                </div>
+              ) : null}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-2xl bg-white/75 p-4">
                   <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Interpretation</p>

@@ -10,7 +10,7 @@ import type { SignalGenerationInput } from "@/types/signal";
 import { getScenarioPriority } from "@/lib/scenario-angle";
 import type { EditorialMode, FounderVoiceMode } from "@/types/signal";
 
-export const GENERATION_PROMPT_VERSION = "v1.3.0";
+export const GENERATION_PROMPT_VERSION = "v1.3.2";
 
 export const GENERATION_JSON_SCHEMA = {
   type: "object",
@@ -134,6 +134,8 @@ export function buildGenerationUserPrompt(
     pattern?: SignalPattern | null;
     editorialMode: EditorialMode;
     founderVoiceMode?: FounderVoiceMode;
+    founderOverrideHints?: string[];
+    revenueAmplifierHints?: string[];
   },
 ): string {
   const scenarioPriority = getScenarioPriority({
@@ -206,6 +208,20 @@ export function buildGenerationUserPrompt(
         suggestedFormatPriority: input.suggestedFormatPriority,
       },
       patternGuidance: patternGuidance.guidanceContext,
+      founderOverrides: (options?.founderOverrideHints ?? []).length > 0
+        ? {
+            guidance: options?.founderOverrideHints?.slice(0, 4),
+            rule:
+              "Treat founder overrides as temporary emphasis only. Never break safety, invent unsupported claims, or force a mismatch with the current signal.",
+          }
+        : null,
+      revenueAmplifier: (options?.revenueAmplifierHints ?? []).length > 0
+        ? {
+            guidance: options?.revenueAmplifierHints?.slice(0, 4),
+            rule:
+              "Use these as bounded commercial reuse hints only. Do not turn every draft into the same message or ignore the current signal.",
+          }
+        : null,
       outputRequirements: {
         xDraft: `Short, high-signal, and clearly shaped by ${mode.label} intent through the X profile.`,
         linkedInDraft: `Professional and teacher-relevant, with ${mode.label.toLowerCase()} framing expressed through the LinkedIn profile.`,

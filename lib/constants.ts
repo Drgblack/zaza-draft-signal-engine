@@ -17,6 +17,7 @@ export const NAV_GROUPS = [
     items: [
       { href: "/campaigns", label: "Campaigns" },
       { href: "/plan", label: "Plan" },
+      { href: "/overrides", label: "Overrides" },
       { href: "/recap", label: "Recap" },
       { href: "/insights", label: "Insights" },
     ],
