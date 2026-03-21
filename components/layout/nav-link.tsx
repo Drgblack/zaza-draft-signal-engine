@@ -18,18 +18,19 @@ export function NavLink({
   return (
     <Link
       href={href}
+      aria-current={isActive ? "page" : undefined}
       className={cn(
-        "flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-medium transition",
+        "flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)] focus-visible:ring-offset-2",
         isActive
-          ? "border border-slate-900/90 bg-slate-950 text-slate-50 shadow-[0_10px_24px_rgba(15,23,42,0.16)]"
+          ? "border border-[color:var(--accent)]/35 bg-[color:var(--accent)] text-white shadow-[0_12px_28px_rgba(31,77,61,0.22)] hover:text-white"
           : "border border-transparent text-slate-700 hover:border-black/6 hover:bg-white/88 hover:text-slate-950",
       )}
     >
-      <span>{label}</span>
+      <span className={cn(isActive ? "text-white" : undefined)}>{label}</span>
       <span
         className={cn(
           "h-2.5 w-2.5 rounded-full transition",
-          isActive ? "bg-white/95 shadow-[0_0_0_4px_rgba(255,255,255,0.14)]" : "bg-slate-300",
+          isActive ? "bg-white shadow-[0_0_0_4px_rgba(255,255,255,0.18)]" : "bg-slate-300",
         )}
       />
     </Link>
