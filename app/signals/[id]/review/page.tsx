@@ -32,6 +32,7 @@ import { getPostingLogEntries, listPostingLogEntries } from "@/lib/posting-log";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { getOperatorTuning } from "@/lib/tuning";
 import { applyApprovalPackageAutofill } from "@/lib/package-filler";
+import { applyPreReviewRepairs } from "@/lib/review-repair";
 import { buildRevisionGuidance } from "@/lib/revision-guidance";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanAlignment } from "@/lib/weekly-plan";
@@ -238,6 +239,7 @@ export default async function FinalReviewPage({
       guidanceConfidenceLevel: guidance.confidence.confidenceLevel,
       automationConfidenceLevel: "medium",
       conversionIntent: fallbackConversionIntent,
+      conflicts: conflictAssessment,
       assessment: autonomousAssessment,
       allSignals,
       postingEntries: allPostingEntries,
@@ -245,12 +247,23 @@ export default async function FinalReviewPage({
       strategicOutcomes,
       experiments,
     });
+  const preReviewRepair =
+    rankedCandidate?.preReviewRepair ??
+    applyPreReviewRepairs({
+      signal: packageAutofill.signal,
+      guidanceConfidenceLevel: guidance.confidence.confidenceLevel,
+      automationConfidenceLevel: rankedCandidate?.automationConfidence.level ?? "medium",
+      completeness: packageAutofill.completenessAfter,
+      conflicts: conflictAssessment,
+      conversionIntent: fallbackConversionIntent,
+      experiments,
+    });
   const automationConfidence =
     rankedCandidate?.automationConfidence ??
     assessAutomationConfidence({
       signal,
       guidance,
-      completeness: packageAutofill.completenessAfter,
+      completeness: preReviewRepair.completenessAfter,
       conflicts:
         conflictAssessment ?? {
           highestSeverity: null,
@@ -273,7 +286,7 @@ export default async function FinalReviewPage({
   const conversionIntent =
     rankedCandidate?.conversionIntent ??
     assessConversionIntent({
-      signal: packageAutofill.signal,
+      signal: preReviewRepair.signal,
       strategy,
       conflicts: conflictAssessment,
     });
@@ -328,6 +341,63 @@ export default async function FinalReviewPage({
           },
         ]
       : []),
+    ...(preReviewRepair.decision === "applied" && preReviewRepair.repairs.length > 0
+      ? [
+          {
+            signalId: signal.recordId,
+            eventType: "PRE_REVIEW_REPAIR_APPLIED" as const,
+            actor: "system" as const,
+            summary: preReviewRepair.summary,
+            metadata: {
+              repairTypes: preReviewRepair.repairs.map((repair) => repair.repairType).join(","),
+              completenessBefore: preReviewRepair.completenessBefore.completenessState,
+              completenessAfter: preReviewRepair.completenessAfter.completenessState,
+            },
+          },
+        ]
+      : preReviewRepair.decision === "blocked"
+        ? [
+            {
+              signalId: signal.recordId,
+              eventType: "PRE_REVIEW_REPAIR_BLOCKED" as const,
+              actor: "system" as const,
+              summary: preReviewRepair.summary,
+              metadata: {
+                reason: preReviewRepair.policy.reasons[0] ?? null,
+                policyDecision: preReviewRepair.policy.decision,
+              },
+            },
+          ]
+        : []),
+    ...(preReviewRepair.ctaDestinationHealing.decision === "applied"
+      ? [
+          {
+            signalId: signal.recordId,
+            eventType: "CTA_DESTINATION_SELF_HEAL_APPLIED" as const,
+            actor: "system" as const,
+            summary: preReviewRepair.ctaDestinationHealing.summary,
+            metadata: {
+              healingType: preReviewRepair.ctaDestinationHealing.healingType ?? null,
+              beforeCta: preReviewRepair.ctaDestinationHealing.originalPair.ctaText,
+              beforeDestination: preReviewRepair.ctaDestinationHealing.originalPair.destinationLabel,
+              afterCta: preReviewRepair.ctaDestinationHealing.healedPair.ctaText,
+              afterDestination: preReviewRepair.ctaDestinationHealing.healedPair.destinationLabel,
+            },
+          },
+        ]
+      : preReviewRepair.ctaDestinationHealing.decision === "blocked"
+        ? [
+            {
+              signalId: signal.recordId,
+              eventType: "CTA_DESTINATION_SELF_HEAL_BLOCKED" as const,
+              actor: "system" as const,
+              summary: preReviewRepair.ctaDestinationHealing.summary,
+              metadata: {
+                reason: preReviewRepair.ctaDestinationHealing.blockReasons[0] ?? null,
+              },
+            },
+          ]
+        : []),
   ]);
   if (signal.platformPriority) {
     const platform =
@@ -444,7 +514,7 @@ export default async function FinalReviewPage({
       />
 
       <FinalReviewWorkspace
-        signal={packageAutofill.signal}
+        signal={preReviewRepair.signal}
         source={result.source}
         appliedPatternName={appliedPatternName}
         editSuggestions={editSuggestions}
@@ -454,6 +524,7 @@ export default async function FinalReviewPage({
         hypothesis={hypothesis}
         packageAutofillMode={packageAutofill.mode}
         packageAutofillNotes={packageAutofill.notes}
+        preReviewRepair={preReviewRepair}
         conversionIntent={conversionIntent}
         experimentContexts={experimentContexts}
         initialPostingEntries={postingEntries}

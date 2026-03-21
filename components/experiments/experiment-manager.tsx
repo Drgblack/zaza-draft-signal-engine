@@ -72,6 +72,21 @@ type ExperimentOutcomeSummary = {
   comparisonTarget: string | null;
   source: ExperimentSource;
   proposalId: string | null;
+  autopilotBuilt: boolean;
+  autopilotVersion: "v2" | null;
+  autopilotVariable:
+    | "hook_variant"
+    | "cta_variant"
+    | "destination_variant"
+    | "editorial_mode_variant"
+    | "platform_expression_variant"
+    | "pattern_vs_no_pattern"
+    | null;
+  stopConditions: string[];
+  safetyNotes: string[];
+  controlSummary: string | null;
+  variantSummary: string | null;
+  outcomeSignal: string | null;
   variantCount: number;
   totalPostingCount: number;
   highValueCount: number;
@@ -88,7 +103,11 @@ type ExperimentInsights = {
   draftCount: number;
   completedCount: number;
   systemProposedCount: number;
+  autopilotBuiltCount: number;
+  autopilotCompletedCount: number;
+  autopilotCompletionRate: number;
   byType: Array<{ experimentType: ExperimentType; label: string; count: number }>;
+  byAutopilotVariable: Array<{ variable: NonNullable<ExperimentOutcomeSummary["autopilotVariable"]>; label: string; count: number }>;
   allExperiments: ExperimentOutcomeSummary[];
   activeExperiments: ExperimentOutcomeSummary[];
   completedExperiments: ExperimentOutcomeSummary[];
@@ -176,6 +195,10 @@ function experimentTypeLabel(value: ExperimentType | null): string | null {
     default:
       return null;
   }
+}
+
+function autopilotVariableLabel(value: ExperimentOutcomeSummary["autopilotVariable"]): string | null {
+  return value ? value.replaceAll("_", " ") : null;
 }
 
 function feedbackClasses(tone: "success" | "error"): string {
@@ -378,6 +401,13 @@ export function ExperimentManager({
               <p className="mt-2 text-2xl font-semibold text-slate-950">{experiments.length}</p>
             </div>
             <div className="rounded-2xl bg-white/80 px-4 py-4 md:col-span-2 xl:col-span-1">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Autopilot-built</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{insights.autopilotBuiltCount}</p>
+              <p className="mt-1 text-sm text-slate-600">
+                {Math.round(insights.autopilotCompletionRate * 100)}% completed · bounded one-variable tests only.
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4 md:col-span-2 xl:col-span-1">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Strongest signal</p>
               <p className="mt-2 text-sm font-medium text-slate-950">
                 {insights.summaries[0] ?? "No experiment has enough outcome evidence yet."}
@@ -515,9 +545,17 @@ export function ExperimentManager({
                     {experiment.source === "system_proposal" ? (
                       <Badge className="bg-sky-50 text-sky-700 ring-sky-200">System proposed</Badge>
                     ) : null}
+                    {experiment.autopilotBuilt ? (
+                      <Badge className="bg-emerald-50 text-emerald-700 ring-emerald-200">Autopilot-built</Badge>
+                    ) : null}
                     {experimentTypeLabel(experiment.experimentType) ? (
                       <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
                         {experimentTypeLabel(experiment.experimentType)}
+                      </Badge>
+                    ) : null}
+                    {autopilotVariableLabel(experiment.autopilotVariable) ? (
+                      <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                        {autopilotVariableLabel(experiment.autopilotVariable)}
                       </Badge>
                     ) : null}
                     <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
@@ -535,6 +573,33 @@ export function ExperimentManager({
                     <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
                       {experiment.learningGoal ? <p><span className="font-medium text-slate-900">Learning goal:</span> {experiment.learningGoal}</p> : null}
                       {experiment.comparisonTarget ? <p className="mt-2"><span className="font-medium text-slate-900">Compare:</span> {experiment.comparisonTarget}</p> : null}
+                      {experiment.outcomeSignal ? <p className="mt-2"><span className="font-medium text-slate-900">Outcome signal:</span> {experiment.outcomeSignal}</p> : null}
+                    </div>
+                  ) : null}
+                  {experiment.autopilotBuilt ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {experiment.controlSummary ? (
+                        <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-700">
+                          <p className="font-medium text-slate-900">Control</p>
+                          <p className="mt-2">{experiment.controlSummary}</p>
+                        </div>
+                      ) : null}
+                      {experiment.variantSummary ? (
+                        <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-700">
+                          <p className="font-medium text-slate-900">Variant</p>
+                          <p className="mt-2">{experiment.variantSummary}</p>
+                        </div>
+                      ) : null}
+                      {experiment.stopConditions.length > 0 ? (
+                        <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-700 md:col-span-2">
+                          <p className="font-medium text-slate-900">Stop conditions</p>
+                          <div className="mt-2 space-y-2">
+                            {experiment.stopConditions.map((condition) => (
+                              <p key={condition}>{condition}</p>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

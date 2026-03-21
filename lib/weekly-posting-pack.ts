@@ -675,6 +675,9 @@ export async function buildWeeklyPostingPack(input: {
     if (seenSignals.has(candidate.signal.recordId)) {
       continue;
     }
+    if (candidate.triage.triageState === "suppress" || candidate.triage.triageState === "needs_judgement") {
+      continue;
+    }
 
     seenSignals.add(candidate.signal.recordId);
     pool.push(buildChoiceFromApprovalCandidate(candidate, input.strategy));

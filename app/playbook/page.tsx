@@ -41,8 +41,8 @@ function FilterLink({
       href={href}
       className={
         active
-          ? "rounded-full bg-slate-950 px-3 py-2 text-sm font-medium text-white"
-          : "rounded-full bg-white/80 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-slate-950"
+          ? "rounded-full border border-slate-900 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-50 shadow-[0_8px_18px_rgba(15,23,42,0.14)]"
+          : "rounded-full bg-white/88 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-white hover:text-slate-950"
       }
     >
       {label}
@@ -170,7 +170,7 @@ export default async function PlaybookPage({
               Open bundles
             </Link>
           </div>
-          <CardTitle className="text-3xl">Editorial Playbook</CardTitle>
+          <CardTitle className="text-balance text-3xl">Editorial Playbook</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             Compact operator-facing guidance cards that distill what tends to work, what to avoid, and which patterns or bundles are worth remembering in recurring communication situations.
           </CardDescription>

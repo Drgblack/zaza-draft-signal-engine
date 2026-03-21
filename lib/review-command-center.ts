@@ -103,6 +103,7 @@ export function matchesApprovalCandidateView(
       requiresJudgement: boolean;
       highestSeverity: "low" | "medium" | "high" | null;
     } | null;
+    triage?: { triageState: "approve_ready" | "repairable" | "needs_judgement" | "stale_but_reusable" | "suppress" } | null;
     rankReasons: string[];
   },
   view: ReviewCommandCenterViewId,
@@ -119,15 +120,18 @@ export function matchesApprovalCandidateView(
       return true;
     case "ready_to_approve":
       return (
+        (candidate.triage?.triageState ?? "approve_ready") === "approve_ready" &&
         candidate.completeness.completenessState !== "incomplete" &&
-        candidate.fatigue.warnings.length === 0 &&
-        candidate.expectedOutcome.expectedOutcomeTier !== "low" &&
         (candidate.stale?.state ?? "fresh") === "fresh"
       );
     case "stale":
-      return (candidate.stale?.state ?? "fresh") !== "fresh";
+      return (candidate.stale?.state ?? "fresh") !== "fresh" || candidate.triage?.triageState === "stale_but_reusable";
     case "needs_judgement":
-      return (candidate.conflicts?.requiresJudgement ?? false) || (candidate.automationConfidence?.requiresOperatorJudgement ?? false);
+      return (
+        candidate.triage?.triageState === "needs_judgement" ||
+        (candidate.conflicts?.requiresJudgement ?? false) ||
+        (candidate.automationConfidence?.requiresOperatorJudgement ?? false)
+      );
     case "missing_outcomes":
       return (
         candidate.expectedOutcome.expectedOutcomeTier === "low" ||

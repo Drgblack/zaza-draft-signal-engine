@@ -19,7 +19,7 @@ export default async function CampaignsPage() {
               {activeCampaigns.length} active campaign{activeCampaigns.length === 1 ? "" : "s"}
             </Badge>
           </div>
-          <CardTitle className="text-3xl">Campaign Strategy</CardTitle>
+          <CardTitle className="text-balance text-3xl">Campaign Strategy</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             Lightweight strategic context for the signal engine. Campaigns, pillars, audiences, funnel stages, and CTA goals guide content generation and approval ranking without blocking work when context is still thin.
           </CardDescription>

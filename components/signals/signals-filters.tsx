@@ -73,11 +73,14 @@ export function SignalsFilters({
             </Button>
           </div>
           <div className="flex items-end">
-            <Link href="/signals" className="inline-flex h-10 items-center rounded-xl px-3 text-sm text-slate-600 hover:bg-slate-900/5">
+            <Link href="/signals" className="inline-flex h-10 items-center rounded-xl px-3 text-sm font-medium text-slate-700 hover:bg-slate-900/5">
               Reset
             </Link>
           </div>
         </form>
+        <p className="mt-4 text-sm text-slate-600">
+          Keep the queue narrow: filter for the current decision, then reset back to the full registry.
+        </p>
       </CardContent>
     </Card>
   );

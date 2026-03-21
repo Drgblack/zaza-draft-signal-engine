@@ -10,7 +10,7 @@ export function Label({
   htmlFor?: string;
 }) {
   return (
-    <label htmlFor={htmlFor} className={cn("text-sm font-medium text-slate-700", className)}>
+    <label htmlFor={htmlFor} className={cn("text-sm font-semibold text-slate-800", className)}>
       {children}
     </label>
   );

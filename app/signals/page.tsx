@@ -86,7 +86,7 @@ export default async function SignalsPage({
   ).sort((left, right) => left.localeCompare(right));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <Card>
         <CardHeader>
           <CardTitle className="text-3xl">Signals</CardTitle>
@@ -98,7 +98,7 @@ export default async function SignalsPage({
           <Badge className={source === "airtable" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-200"}>
             {source === "airtable" ? "Airtable" : "Mock mode"}
           </Badge>
-          <span>Showing {filteredSignals.length} of {signals.length} records</span>
+          <span className="font-medium text-slate-700">Showing {filteredSignals.length} of {signals.length} records</span>
           {error ? (
             <span className="text-amber-700">
               {error}{" "}

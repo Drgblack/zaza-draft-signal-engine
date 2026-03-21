@@ -4,27 +4,23 @@ import path from "node:path";
 import { z } from "zod";
 
 import type { ApprovalQueueCandidate } from "@/lib/approval-ranking";
-import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import {
+  buildExperimentAutopilotV2,
+  type ExperimentAutopilotVariable,
+} from "@/lib/experiment-autopilot-v2";
 import {
   assignExperimentVariant,
   createExperiment,
   EXPERIMENT_TYPES,
   getExperimentTypeLabel,
-  listExperimentsForSignal,
   type ExperimentType,
   type ManualExperiment,
 } from "@/lib/experiments";
-import { buildSignalPublishPrepBundle } from "@/lib/publish-prep";
-import { getPostingPlatformLabel } from "@/lib/posting-memory";
-import { buildSignalRepurposingBundle } from "@/lib/repurposing";
-import type { EditorialMode } from "@/types/signal";
 
 const EXPERIMENT_PROPOSAL_STORE_PATH = path.join(process.cwd(), "data", "experiment-proposals.json");
 
 export const EXPERIMENT_PROPOSAL_STATUSES = ["open", "dismissed", "postponed", "confirmed"] as const;
-
 export type ExperimentProposalStatus = (typeof EXPERIMENT_PROPOSAL_STATUSES)[number];
-
 export const experimentProposalStatusSchema = z.enum(EXPERIMENT_PROPOSAL_STATUSES);
 
 export const experimentProposalVariantSchema = z.object({
@@ -41,10 +37,29 @@ export const experimentProposalSchema = z.object({
   sourceTitle: z.string().trim().min(1),
   experimentType: z.enum(EXPERIMENT_TYPES),
   whyProposed: z.string().trim().min(1),
-  candidateVariants: z.array(experimentProposalVariantSchema).min(2).max(4),
+  candidateVariants: z.array(experimentProposalVariantSchema).length(2),
   expectedLearningGoal: z.string().trim().min(1),
   comparisonTarget: z.string().trim().nullable().default(null),
   reviewHref: z.string().trim().min(1),
+  autopilotBuilt: z.boolean().default(false),
+  autopilotVersion: z.enum(["v2"]).nullable().default(null),
+  autopilotVariable: z
+    .enum([
+      "hook_variant",
+      "cta_variant",
+      "destination_variant",
+      "editorial_mode_variant",
+      "platform_expression_variant",
+      "pattern_vs_no_pattern",
+    ])
+    .nullable()
+    .default(null),
+  hypothesis: z.string().trim().nullable().default(null),
+  stopConditions: z.array(z.string().trim().min(1)).max(6).default([]),
+  safetyNotes: z.array(z.string().trim().min(1)).max(6).default([]),
+  outcomeSignal: z.string().trim().nullable().default(null),
+  controlLabel: z.string().trim().nullable().default(null),
+  variantLabel: z.string().trim().nullable().default(null),
   status: experimentProposalStatusSchema.default("open"),
   confirmedExperimentId: z.string().trim().nullable().default(null),
   createdAt: z.string().trim().min(1),
@@ -80,7 +95,10 @@ export interface ExperimentProposalInsights {
   confirmedCount: number;
   postponedCount: number;
   dismissedCount: number;
+  autopilotBuiltCount: number;
+  acceptedAutopilotCount: number;
   byType: Array<{ experimentType: ExperimentType; label: string; count: number }>;
+  byVariable: Array<{ variable: ExperimentAutopilotVariable; label: string; count: number }>;
   openProposals: ExperimentProposal[];
   summaries: string[];
 }
@@ -130,78 +148,13 @@ function slugify(value: string): string {
     .slice(0, 48);
 }
 
-function uniquePush(target: string[], value: string | null | undefined) {
-  const normalized = normalizeText(value);
-  if (!normalized || target.includes(normalized)) {
-    return;
-  }
-
-  target.push(normalized);
-}
-
-function preferredSocialPlatform(candidate: ApprovalQueueCandidate): "x" | "linkedin" | "reddit" {
-  if (candidate.signal.platformPriority === "LinkedIn First") {
-    return "linkedin";
-  }
-
-  if (candidate.signal.platformPriority === "Reddit First") {
-    return "reddit";
-  }
-
-  return "x";
-}
-
-function isSocialPlatform(value: string): value is "x" | "linkedin" | "reddit" {
-  return value === "x" || value === "linkedin" || value === "reddit";
-}
-
-function pickPrimaryDraftPackage(candidate: ApprovalQueueCandidate) {
-  const preferredPlatform = preferredSocialPlatform(candidate);
-  const bundle = buildSignalPublishPrepBundle(candidate.signal);
-  return (
-    bundle?.packages.find(
-      (pkg) => pkg.outputKind === "primary_draft" && pkg.platform === preferredPlatform,
-    ) ??
-    bundle?.packages.find(
-      (pkg) => pkg.outputKind === "primary_draft" && (pkg.platform === "x" || pkg.platform === "linkedin" || pkg.platform === "reddit"),
-    ) ??
-    null
-  );
-}
-
-function getSuggestedComparisonMode(currentMode: EditorialMode): EditorialMode {
-  switch (currentMode) {
-    case "helpful_tip":
-      return "professional_guidance";
-    case "professional_guidance":
-      return "helpful_tip";
-    case "risk_warning":
-      return "calm_insight";
-    case "thought_leadership":
-      return "professional_guidance";
-    case "this_could_happen_to_you":
-      return "reassurance_deescalation";
-    case "reassurance_deescalation":
-      return "risk_warning";
-    case "awareness":
-      return "helpful_tip";
-    case "calm_insight":
-    default:
-      return "risk_warning";
-  }
-}
-
-function hasExperimentConflict(
-  candidate: ApprovalQueueCandidate,
-  experiments: ManualExperiment[],
+function buildProposalId(
+  signalId: string,
   experimentType: ExperimentType,
-): boolean {
-  return listExperimentsForSignal(experiments, candidate.signal.recordId, [])
-    .some((experiment) => experiment.experimentType === experimentType && experiment.status !== "completed");
-}
-
-function buildProposalId(signalId: string, experimentType: ExperimentType, comparisonTarget: string | null): string {
-  return [signalId, experimentType, slugify(comparisonTarget ?? "default")].join(":");
+  variable: ExperimentAutopilotVariable,
+  comparisonTarget: string | null,
+): string {
+  return [signalId, experimentType, variable, slugify(comparisonTarget ?? "default")].join(":");
 }
 
 function buildProposalVariant(
@@ -245,6 +198,76 @@ function mergeWithStoredProposal(proposal: ExperimentProposal, storedProposal: E
   });
 }
 
+function buildAutopilotProposal(
+  candidate: ApprovalQueueCandidate,
+  experiments: ManualExperiment[] | undefined,
+): { proposal: ExperimentProposal; score: number } | null {
+  const autopilot = buildExperimentAutopilotV2({
+    candidate,
+    experiments,
+  });
+  if (autopilot.decision !== "created" || !autopilot.variable || !autopilot.experimentType || !autopilot.controlCandidate || !autopilot.variantCandidate) {
+    return null;
+  }
+
+  const proposalId = buildProposalId(
+    candidate.signal.recordId,
+    autopilot.experimentType,
+    autopilot.variable,
+    autopilot.comparisonTarget,
+  );
+
+  const proposal = buildOpenProposal({
+    proposalId,
+    signalId: candidate.signal.recordId,
+    sourceTitle: candidate.signal.sourceTitle,
+    experimentType: autopilot.experimentType,
+    whyProposed: autopilot.reason ?? "A bounded one-variable experiment is justified here.",
+    candidateVariants: [
+      buildProposalVariant(
+        proposalId,
+        candidate.signal.recordId,
+        autopilot.controlCandidate.label,
+        autopilot.controlCandidate.summary,
+        autopilot.controlCandidate.platform,
+      ),
+      buildProposalVariant(
+        proposalId,
+        candidate.signal.recordId,
+        autopilot.variantCandidate.label,
+        autopilot.variantCandidate.summary,
+        autopilot.variantCandidate.platform,
+      ),
+    ],
+    expectedLearningGoal: autopilot.expectedLearningGoal ?? "Learn which bounded variant is stronger.",
+    comparisonTarget: autopilot.comparisonTarget,
+    reviewHref: `/signals/${candidate.signal.recordId}/review`,
+    autopilotBuilt: true,
+    autopilotVersion: "v2",
+    autopilotVariable: autopilot.variable,
+    hypothesis: autopilot.hypothesis,
+    stopConditions: autopilot.stopConditions,
+    safetyNotes: autopilot.safetyNotes,
+    outcomeSignal: autopilot.outcomeSignal,
+    controlLabel: autopilot.controlCandidate.label,
+    variantLabel: autopilot.variantCandidate.label,
+  });
+
+  const scoreBase = {
+    destination_variant: 9,
+    cta_variant: 8,
+    hook_variant: 6,
+    editorial_mode_variant: 4,
+    platform_expression_variant: 3,
+    pattern_vs_no_pattern: 2,
+  } satisfies Record<ExperimentAutopilotVariable, number>;
+
+  return {
+    proposal,
+    score: scoreBase[autopilot.variable],
+  };
+}
+
 export async function listExperimentProposals(): Promise<ExperimentProposal[]> {
   const store = await readPersistedProposalStore();
   return sortProposals(store.proposals);
@@ -282,7 +305,7 @@ export async function confirmExperimentProposal(
   const firstVariant = proposal.candidateVariants[0];
   const experiment = await createExperiment({
     name: `${proposal.sourceTitle} · ${getExperimentTypeLabel(proposal.experimentType)}`.slice(0, 120),
-    hypothesis: proposal.whyProposed.slice(0, 280),
+    hypothesis: (proposal.hypothesis ?? proposal.whyProposed).slice(0, 280),
     status: "active",
     experimentType: proposal.experimentType,
     learningGoal: proposal.expectedLearningGoal,
@@ -291,6 +314,14 @@ export async function confirmExperimentProposal(
     proposalId: proposal.proposalId,
     variantLabel: firstVariant.variantLabel,
     signalId: proposal.signalId,
+    autopilotBuilt: proposal.autopilotBuilt,
+    autopilotVersion: proposal.autopilotVersion ?? undefined,
+    autopilotVariable: proposal.autopilotVariable ?? undefined,
+    stopConditions: proposal.stopConditions,
+    safetyNotes: proposal.safetyNotes,
+    controlSummary: proposal.candidateVariants[0]?.summary,
+    variantSummary: proposal.candidateVariants[1]?.summary,
+    outcomeSignal: proposal.outcomeSignal ?? undefined,
   });
 
   for (const variant of proposal.candidateVariants.slice(1)) {
@@ -313,285 +344,6 @@ export async function confirmExperimentProposal(
   };
 }
 
-function buildHookVariantProposal(
-  candidate: ApprovalQueueCandidate,
-): { proposal: ExperimentProposal; score: number } | null {
-  if (!candidate.automationConfidence.allowExperimentProposal) {
-    return null;
-  }
-
-  const pkg = pickPrimaryDraftPackage(candidate);
-  if (!pkg || pkg.hookVariants.length < 2) {
-    return null;
-  }
-
-  const variants = pkg.hookVariants.slice(0, 2);
-  const comparisonTarget = `${variants[0].styleLabel} vs ${variants[1].styleLabel}`;
-  const whyProposedReasons: string[] = [];
-
-  if (candidate.automationConfidence.level === "medium") {
-    uniquePush(whyProposedReasons, "automation confidence is still medium");
-  }
-  if (candidate.hypothesis.riskNote) {
-    uniquePush(whyProposedReasons, candidate.hypothesis.riskNote);
-  }
-  if (candidate.fatigue.warnings[0]) {
-    uniquePush(whyProposedReasons, candidate.fatigue.warnings[0].summary);
-  }
-  if (candidate.expectedOutcome.expectedOutcomeTier !== "high") {
-    uniquePush(whyProposedReasons, candidate.expectedOutcome.expectedOutcomeReasons[0]);
-  }
-
-  if (whyProposedReasons.length === 0) {
-    return null;
-  }
-
-  const proposalId = buildProposalId(candidate.signal.recordId, "hook_variant_test", comparisonTarget);
-  return {
-    proposal: buildOpenProposal({
-      proposalId,
-      signalId: candidate.signal.recordId,
-      sourceTitle: candidate.signal.sourceTitle,
-      experimentType: "hook_variant_test",
-      whyProposed: `Two strong hook shapes are available and ${whyProposedReasons[0]}.`,
-      candidateVariants: variants.map((variant) =>
-        buildProposalVariant(
-          proposalId,
-          candidate.signal.recordId,
-          variant.styleLabel,
-          variant.text,
-          pkg.platform === "x" || pkg.platform === "linkedin" || pkg.platform === "reddit" ? pkg.platform : null,
-        ),
-      ),
-      expectedLearningGoal: `Learn which opening shape better supports ${candidate.hypothesis.objective.toLowerCase()} on ${getPostingPlatformLabel(preferredSocialPlatform(candidate))}.`,
-      comparisonTarget,
-      reviewHref: `/signals/${candidate.signal.recordId}/review`,
-    }),
-    score: 6,
-  };
-}
-
-function buildCtaVariantProposal(
-  candidate: ApprovalQueueCandidate,
-): { proposal: ExperimentProposal; score: number } | null {
-  if (!candidate.automationConfidence.allowExperimentProposal) {
-    return null;
-  }
-
-  const pkg = pickPrimaryDraftPackage(candidate);
-  if (!pkg || pkg.ctaVariants.length < 2) {
-    return null;
-  }
-
-  const variants = pkg.ctaVariants.slice(0, 2);
-  const comparisonTarget = `${variants[0].goalLabel} vs ${variants[1].goalLabel}`;
-  const whyProposed =
-    candidate.expectedOutcome.riskSignals.find((signal) => signal.toLowerCase().includes("destination")) ??
-    candidate.expectedOutcome.riskSignals.find((signal) => signal.toLowerCase().includes("cta")) ??
-    (candidate.automationConfidence.level === "medium" ? "the call to action still looks debatable" : null);
-
-  if (!whyProposed) {
-    return null;
-  }
-
-  const proposalId = buildProposalId(candidate.signal.recordId, "cta_variant_test", comparisonTarget);
-  return {
-    proposal: buildOpenProposal({
-      proposalId,
-      signalId: candidate.signal.recordId,
-      sourceTitle: candidate.signal.sourceTitle,
-      experimentType: "cta_variant_test",
-      whyProposed: `Two plausible CTA directions are available and ${whyProposed}.`,
-      candidateVariants: variants.map((variant) =>
-        buildProposalVariant(
-          proposalId,
-          candidate.signal.recordId,
-          variant.goalLabel,
-          variant.text,
-          pkg.platform === "x" || pkg.platform === "linkedin" || pkg.platform === "reddit" ? pkg.platform : null,
-        ),
-      ),
-      expectedLearningGoal: `Learn which CTA style produces stronger ${candidate.signal.ctaGoal?.toLowerCase() ?? "response"} without weakening platform fit.`,
-      comparisonTarget,
-      reviewHref: `/signals/${candidate.signal.recordId}/review`,
-    }),
-    score: 5,
-  };
-}
-
-function buildDestinationProposal(
-  candidate: ApprovalQueueCandidate,
-): { proposal: ExperimentProposal; score: number } | null {
-  if (!candidate.automationConfidence.allowExperimentProposal) {
-    return null;
-  }
-
-  const pkg = pickPrimaryDraftPackage(candidate);
-  const variants = pkg
-    ?.linkVariants.filter(
-      (variant, index, allVariants) =>
-        allVariants.findIndex((entry) => `${entry.label}|${entry.url}` === `${variant.label}|${variant.url}`) === index,
-    )
-    .slice(0, 2);
-  if (!pkg || !variants || variants.length < 2) {
-    return null;
-  }
-
-  const destinationRisk =
-    candidate.expectedOutcome.riskSignals.find((signal) => signal.toLowerCase().includes("destination")) ??
-    candidate.expectedOutcome.riskSignals.find((signal) => signal.toLowerCase().includes("misaligned"));
-  if (!destinationRisk && candidate.expectedOutcome.expectedOutcomeTier === "high") {
-    return null;
-  }
-
-  const comparisonTarget = `${variants[0].destinationLabel ?? variants[0].label} vs ${variants[1].destinationLabel ?? variants[1].label}`;
-  const proposalId = buildProposalId(candidate.signal.recordId, "destination_test", comparisonTarget);
-  return {
-    proposal: buildOpenProposal({
-      proposalId,
-      signalId: candidate.signal.recordId,
-      sourceTitle: candidate.signal.sourceTitle,
-      experimentType: "destination_test",
-      whyProposed: `Two destination paths look plausible and ${destinationRisk ?? "the stronger commercial route is still uncertain"}.`,
-      candidateVariants: variants.map((variant) =>
-        buildProposalVariant(
-          proposalId,
-          candidate.signal.recordId,
-          variant.destinationLabel ?? variant.label,
-          variant.url,
-          pkg.platform === "x" || pkg.platform === "linkedin" || pkg.platform === "reddit" ? pkg.platform : null,
-        ),
-      ),
-      expectedLearningGoal: `Learn which destination best supports ${candidate.signal.ctaGoal?.toLowerCase() ?? "the intended CTA"} for this candidate.`,
-      comparisonTarget,
-      reviewHref: `/signals/${candidate.signal.recordId}/review`,
-    }),
-    score: 7,
-  };
-}
-
-function buildPlatformExpressionProposal(
-  candidate: ApprovalQueueCandidate,
-): { proposal: ExperimentProposal; score: number } | null {
-  if (!candidate.automationConfidence.allowExperimentProposal) {
-    return null;
-  }
-
-  const outputs = buildSignalRepurposingBundle(candidate.signal)?.outputs ?? [];
-  const platformVariants = outputs
-    .filter((output): output is typeof output & { platform: "x" | "linkedin" | "reddit" } => isSocialPlatform(output.platform))
-    .filter(
-      (output, index, allOutputs) =>
-        allOutputs.findIndex((entry) => entry.platform === output.platform) === index,
-    )
-    .slice(0, 2);
-  if (platformVariants.length < 2) {
-    return null;
-  }
-
-  const comparisonTarget = `${getPostingPlatformLabel(platformVariants[0].platform)} vs ${getPostingPlatformLabel(platformVariants[1].platform)}`;
-  const proposalId = buildProposalId(candidate.signal.recordId, "platform_expression_test", comparisonTarget);
-  return {
-    proposal: buildOpenProposal({
-      proposalId,
-      signalId: candidate.signal.recordId,
-      sourceTitle: candidate.signal.sourceTitle,
-      experimentType: "platform_expression_test",
-      whyProposed: `More than one platform expression looks viable and the strongest expression path is not obvious yet.`,
-      candidateVariants: platformVariants.map((variant) =>
-        buildProposalVariant(
-          proposalId,
-          candidate.signal.recordId,
-          getPostingPlatformLabel(variant.platform),
-          variant.title ?? variant.content.slice(0, 96),
-          variant.platform,
-        ),
-      ),
-      expectedLearningGoal: `Learn which platform expression best advances ${candidate.hypothesis.objective.toLowerCase()} without diluting the idea.`,
-      comparisonTarget,
-      reviewHref: `/signals/${candidate.signal.recordId}/review`,
-    }),
-    score: 4,
-  };
-}
-
-function buildEditorialModeProposal(
-  candidate: ApprovalQueueCandidate,
-): { proposal: ExperimentProposal; score: number } | null {
-  if (!candidate.automationConfidence.allowExperimentProposal) {
-    return null;
-  }
-
-  if (!candidate.signal.editorialMode) {
-    return null;
-  }
-
-  const hasModeFatigue = candidate.fatigue.warnings.some((warning) => warning.dimension === "editorial_mode");
-  if (!hasModeFatigue && !candidate.hypothesis.riskNote && candidate.expectedOutcome.expectedOutcomeTier === "high") {
-    return null;
-  }
-
-  const comparisonMode = getSuggestedComparisonMode(candidate.signal.editorialMode);
-  const currentLabel = getEditorialModeDefinition(candidate.signal.editorialMode).label;
-  const comparisonLabel = getEditorialModeDefinition(comparisonMode).label;
-  const comparisonTarget = `${currentLabel} vs ${comparisonLabel}`;
-  const proposalId = buildProposalId(candidate.signal.recordId, "editorial_mode_test", comparisonTarget);
-  return {
-    proposal: buildOpenProposal({
-      proposalId,
-      signalId: candidate.signal.recordId,
-      sourceTitle: candidate.signal.sourceTitle,
-      experimentType: "editorial_mode_test",
-      whyProposed: `The current mode is useful, but ${hasModeFatigue ? "recent mode fatigue is visible" : "the framing still carries some uncertainty"}.`,
-      candidateVariants: [
-        buildProposalVariant(proposalId, candidate.signal.recordId, currentLabel, "Keep the current editorial mode framing."),
-        buildProposalVariant(proposalId, candidate.signal.recordId, comparisonLabel, "Test a bounded alternate editorial mode framing."),
-      ],
-      expectedLearningGoal: `Learn whether ${comparisonLabel.toLowerCase()} or ${currentLabel.toLowerCase()} is the stronger wrapper for this idea.`,
-      comparisonTarget,
-      reviewHref: `/signals/${candidate.signal.recordId}/review`,
-    }),
-    score: hasModeFatigue ? 6 : 3,
-  };
-}
-
-function buildPatternProposal(
-  candidate: ApprovalQueueCandidate,
-): { proposal: ExperimentProposal; score: number } | null {
-  if (!candidate.automationConfidence.allowExperimentProposal) {
-    return null;
-  }
-
-  const pattern = candidate.guidance.relatedPatterns[0];
-  if (!pattern) {
-    return null;
-  }
-
-  if (candidate.assessment.draftQuality?.label === "Strong" && candidate.expectedOutcome.expectedOutcomeTier === "high") {
-    return null;
-  }
-
-  const comparisonTarget = `${pattern.title} vs no pattern`;
-  const proposalId = buildProposalId(candidate.signal.recordId, "pattern_vs_no_pattern_test", comparisonTarget);
-  return {
-    proposal: buildOpenProposal({
-      proposalId,
-      signalId: candidate.signal.recordId,
-      sourceTitle: candidate.signal.sourceTitle,
-      experimentType: "pattern_vs_no_pattern_test",
-      whyProposed: `Pattern support exists, but the system still cannot tell whether the pattern is helping enough to keep.`,
-      candidateVariants: [
-        buildProposalVariant(proposalId, candidate.signal.recordId, "Pattern-guided", `Use ${pattern.title} as the framing support.`),
-        buildProposalVariant(proposalId, candidate.signal.recordId, "No-pattern simplification", "Test the same idea without explicit pattern framing."),
-      ],
-      expectedLearningGoal: `Learn whether pattern support materially improves clarity or outcome quality for this candidate.`,
-      comparisonTarget,
-      reviewHref: `/signals/${candidate.signal.recordId}/review`,
-    }),
-    score: 4,
-  };
-}
-
 export function buildAutonomousExperimentProposals(input: {
   candidates: ApprovalQueueCandidate[];
   experiments: ManualExperiment[];
@@ -602,25 +354,14 @@ export function buildAutonomousExperimentProposals(input: {
   const scoredProposals: Array<{ proposal: ExperimentProposal; score: number }> = [];
 
   for (const candidate of input.candidates) {
-    const proposals = [
-      buildDestinationProposal(candidate),
-      buildHookVariantProposal(candidate),
-      buildCtaVariantProposal(candidate),
-      buildEditorialModeProposal(candidate),
-      buildPlatformExpressionProposal(candidate),
-      buildPatternProposal(candidate),
-    ]
-      .filter((proposal): proposal is { proposal: ExperimentProposal; score: number } => Boolean(proposal))
-      .filter(({ proposal }) => !hasExperimentConflict(candidate, input.experiments, proposal.experimentType));
-
-    const strongest = proposals.sort((left, right) => right.score - left.score || left.proposal.proposalId.localeCompare(right.proposal.proposalId))[0];
-    if (!strongest) {
+    const proposal = buildAutopilotProposal(candidate, input.experiments);
+    if (!proposal) {
       continue;
     }
 
     scoredProposals.push({
-      proposal: mergeWithStoredProposal(strongest.proposal, storedById.get(strongest.proposal.proposalId)),
-      score: strongest.score,
+      proposal: mergeWithStoredProposal(proposal.proposal, storedById.get(proposal.proposal.proposalId)),
+      score: proposal.score,
     });
   }
 
@@ -632,6 +373,10 @@ export function buildAutonomousExperimentProposals(input: {
     )
     .slice(0, input.maxProposals ?? 6)
     .map((entry) => entry.proposal);
+}
+
+function variableLabel(value: ExperimentAutopilotVariable): string {
+  return value.replaceAll("_", " ");
 }
 
 export function buildExperimentProposalInsights(proposals: ExperimentProposal[]): ExperimentProposalInsights {
@@ -648,16 +393,31 @@ export function buildExperimentProposalInsights(proposals: ExperimentProposal[])
       count,
     }))
     .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+  const byVariable = Array.from(
+    openProposals.reduce((map, proposal) => {
+      if (!proposal.autopilotVariable) {
+        return map;
+      }
+      map.set(proposal.autopilotVariable, (map.get(proposal.autopilotVariable) ?? 0) + 1);
+      return map;
+    }, new Map<ExperimentAutopilotVariable, number>()),
+  )
+    .map(([variable, count]) => ({
+      variable,
+      label: variableLabel(variable),
+      count,
+    }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
 
   const summaries: string[] = [];
   if (openProposals[0]) {
     summaries.push(openProposals[0].whyProposed);
   }
-  if (openProposals[1] && summaries.length < 3) {
-    summaries.push(openProposals[1].expectedLearningGoal);
+  if (openProposals[0]?.hypothesis && summaries.length < 3) {
+    summaries.push(openProposals[0].hypothesis);
   }
-  if (byType[0] && summaries.length < 3) {
-    summaries.push(`${byType[0].label} is the most common open proposal type right now.`);
+  if (byVariable[0] && summaries.length < 3) {
+    summaries.push(`${byVariable[0].label} is the most common autopilot-built variable right now.`);
   }
 
   return {
@@ -665,8 +425,12 @@ export function buildExperimentProposalInsights(proposals: ExperimentProposal[])
     confirmedCount: proposals.filter((proposal) => proposal.status === "confirmed").length,
     postponedCount: proposals.filter((proposal) => proposal.status === "postponed").length,
     dismissedCount: proposals.filter((proposal) => proposal.status === "dismissed").length,
+    autopilotBuiltCount: proposals.filter((proposal) => proposal.autopilotBuilt).length,
+    acceptedAutopilotCount: proposals.filter((proposal) => proposal.autopilotBuilt && proposal.status === "confirmed").length,
     byType,
+    byVariable,
     openProposals: openProposals.slice(0, 4),
     summaries: summaries.slice(0, 3),
   };
 }
+

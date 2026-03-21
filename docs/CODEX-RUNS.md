@@ -1,6 +1,182 @@
 # Codex Runs
 
 ## Current Run
+Run 105 adds Strategic Decision Proposals:
+- added a centralized strategic decision helper in `lib/strategic-decisions.ts`
+- the system can now synthesize bounded higher-level recommendations across:
+  - campaign focus
+  - platform mix
+  - funnel mix
+  - evergreen balance
+  - experiment pacing
+  - source quality
+  - outreach focus
+  - conversion pressure
+- `/director` now shows a compact strategic decision panel with top bounded decisions, reasons, expected benefit, and workflow links
+- `/digest` now surfaces the top 1–3 strategic decisions for fast founder-level scanning
+- added audit coverage for:
+  - `STRATEGIC_DECISION_PROPOSED`
+- kept the layer intentionally bounded:
+  - no auto-applied strategy changes
+  - no forecasting model
+  - no giant strategy dashboard
+
+## Previous Run
+Run 104 adds Safe Multi-Step Execution Chains:
+- added a centralized execution-chain helper in `lib/execution-chains.ts`
+- the system can now model and surface bounded multi-step chains such as:
+  - `repair_chain`
+  - `completion_chain`
+  - `promotion_chain`
+- supported chain steps stay intentionally small:
+  - `autofill_package`
+  - `repair_package`
+  - `refresh_package`
+  - `re_evaluate_readiness`
+  - `stage_for_posting`
+- approval-ready candidates now surface compact chain summaries in review when bounded upstream automation has already fired
+- weekly execution autopilot now uses the chain helper to promote safe candidates through a visible repair-or-completion -> re-evaluate -> stage path
+- added audit coverage for:
+  - `EXECUTION_CHAIN_STARTED`
+  - `EXECUTION_CHAIN_COMPLETED`
+  - `EXECUTION_CHAIN_ABORTED`
+- `/digest` and `/execution` now surface chain notes on execution items
+- kept the layer intentionally bounded:
+  - no long chain graphs
+  - no low-confidence chain execution
+  - no auto-posting
+  - no hidden multi-step mutations on experiment-linked or conflicted items
+
+## Previous Run
+Run 103 adds Operator Exception Inbox:
+- added a centralized operator exception inbox in `lib/exception-inbox.ts`
+- the inbox aggregates only items that still need operator attention and classifies them into:
+  - `needs_judgement`
+  - `blocked_by_policy`
+  - `conflict_detected`
+  - `missing_outcome`
+  - `incomplete_package`
+  - `experiment_unresolved`
+  - `duplicate_unresolved`
+- added `/exceptions` as a compact operator-only queue with:
+  - grouped sections by issue type
+  - compact cards
+  - clear why-it-matters copy
+  - recommended next actions
+  - low-risk duplicate-resolution quick action
+  - resolve and dismiss controls where appropriate
+- `/digest` now surfaces:
+  - exception count
+  - top issue cluster
+  - top 3 exception items
+- added audit coverage for:
+  - `EXCEPTION_ITEM_CREATED`
+  - `EXCEPTION_ITEM_RESOLVED`
+- kept the layer intentionally bounded:
+  - no duplicate full review workflow
+  - no hidden deletion
+  - no autonomous resolution of ambiguous issues
+
+## Previous Run
+Run 102 adds Autonomy Scorecard:
+- added a centralized autonomy scorecard helper in `lib/autonomy-scorecard.ts`
+- the system can now summarize current workflow autonomy using existing queue, repair, healing, staging, execution, and audit state
+- current scorecard metrics include:
+  - total candidates
+  - auto-advanced count
+  - auto-repaired count
+  - auto-healed count
+  - staged without manual edit
+  - approval-ready without changes
+  - operator interventions required
+  - blocked by policy
+  - blocked by conflict
+  - blocked by missing data
+- current derived rates include:
+  - autonomy rate
+  - partial autonomy rate
+  - blocked rate
+- `/digest` now shows a compact Autonomy Scorecard card for quick operational awareness
+- `/insights` now shows a fuller Autonomy Scorecard section with:
+  - autonomy rate
+  - partial autonomy rate
+  - blocked rate
+  - top blockers
+  - operator effort concentration
+  - short autonomy summaries
+- added low-noise audit coverage for:
+  - `AUTONOMY_SCORECARD_COMPUTED`
+- kept the layer intentionally bounded:
+  - compact snapshot only
+  - no BI dashboard
+  - no heavy new tracking system
+  - deterministic from existing workflow state
+
+Run 101 adds Weekly Execution Autopilot:
+- finished the centralized weekly execution helper in `lib/weekly-execution.ts`
+- the system can now prepare one bounded weekly execution flow from the current weekly pack by:
+  - staging safe items automatically when autonomy policy allows
+  - keeping review-required and blocked items visible
+  - preparing distribution readiness from staged packages
+  - assigning a practical operator execution order
+- added a dedicated `/execution` page that shows:
+  - staged items
+  - ready-to-stage items
+  - review-required items
+  - blocked items
+  - sequence notes and top execution reasons
+- `/digest` now surfaces a compact weekly execution block and links directly into `/execution`
+- `/insights` now includes a lightweight Weekly Execution Autopilot section with:
+  - run count
+  - staged vs blocked ratio
+  - execution-ready rate
+  - common block reasons
+- added low-noise audit coverage for:
+  - `WEEKLY_EXECUTION_AUTOPILOT_RUN`
+  - `WEEKLY_EXECUTION_ITEM_STAGED`
+  - `WEEKLY_EXECUTION_ITEM_BLOCKED`
+  - `WEEKLY_EXECUTION_ORDER_ASSIGNED`
+- kept the layer intentionally bounded:
+  - no auto-posting
+  - no scheduling or calendar logic
+  - no hidden execution queue
+  - only policy-allowed staging
+
+Run 100 adds Experiment Autopilot V2:
+- added a centralized bounded experiment-construction helper in `lib/experiment-autopilot-v2.ts`
+- the system can now auto-build one-variable experiment packages when:
+  - confidence is high
+  - the package is stable enough
+  - no unresolved conflict blocks the test
+  - autonomy policy still allows bounded experiment construction
+- supported autopilot-built experiment variables are:
+  - `hook_variant`
+  - `cta_variant`
+  - `destination_variant`
+  - `editorial_mode_variant`
+  - `platform_expression_variant`
+  - `pattern_vs_no_pattern`
+- each autopilot-built experiment now carries explicit:
+  - hypothesis
+  - control vs variant summary
+  - outcome signal
+  - stop conditions
+  - safety notes
+- the existing proposal flow now uses this shared builder instead of emitting generic experiment suggestions
+- confirming an autopilot-built proposal now creates a normal tracked experiment with the same metadata preserved in the experiment manager
+- `/review`, `/experiments`, `/weekly-pack`, `/digest`, and `/insights` now surface the bounded autopilot-built experiment state lightly
+- added low-noise audit coverage for:
+  - `EXPERIMENT_AUTOPILOT_V2_CREATED`
+  - `EXPERIMENT_AUTOPILOT_V2_BLOCKED`
+  - `EXPERIMENT_AUTOPILOT_V2_DISMISSED`
+  - `EXPERIMENT_AUTOPILOT_V2_ACCEPTED`
+- kept the layer intentionally bounded:
+  - one variable only
+  - no multivariate tests
+  - no auto-posting
+  - no hidden experiment creation
+  - operator confirmation still required
+
 Run 95 adds Growth Scorecard:
 - added a centralized scorecard helper in `lib/growth-scorecard.ts`
 - the system can now compute one compact growth-health snapshot from existing structured state such as:
@@ -2402,3 +2578,142 @@ Run 5 refines the V1 workflow into a more coherent operator tool:
   - no multi-touch attribution
   - no revenue dashboard
   - heuristic internal memory only
+
+## Run 96
+- added a centralized autonomy policy engine in `lib/autonomy-policy.ts`
+- the policy resolves supported autonomous actions to one explicit decision:
+  - `allow`
+  - `suggest_only`
+  - `block`
+- current policy action types include:
+  - `autofill_package`
+  - `safe_post`
+  - `suggest_reply`
+  - `create_experiment_variant`
+  - `auto_route_to_queue_bucket`
+  - plus bounded support for related low-risk actions
+- key autonomous subsystems now consult the shared policy layer:
+  - package autofill
+  - strict safe-mode posting
+  - safe reply handling
+  - experiment proposal generation
+  - batch approval prep
+- `/settings` now includes a compact autonomy policy summary
+- `/insights` now shows:
+  - allowed frequency
+  - suggest-only frequency
+  - blocked frequency
+  - common block reasons
+- added audit coverage for:
+  - `AUTONOMY_POLICY_EVALUATED`
+  - `AUTONOMY_POLICY_BLOCKED_ACTION`
+  - `AUTONOMY_POLICY_ALLOWED_ACTION`
+  - `AUTONOMY_POLICY_SUGGESTED_ONLY`
+- kept the layer intentionally bounded:
+  - heuristic only
+  - no hidden overrides
+  - no universal policy language
+
+## Run 97
+- added a centralized pre-review repair layer in `lib/review-repair.ts`
+- the system can now apply bounded low-risk cleanup before final review for eligible candidates, including:
+  - `add_missing_utm`
+  - `improve_destination_choice`
+  - `soften_cta`
+  - `add_alt_text`
+  - `add_comment_prompt`
+  - `founder_voice_cleanup`
+  - `fill_publish_prep_gap`
+- repair eligibility is intentionally strict:
+  - high guidance confidence
+  - high automation confidence through the autonomy policy engine
+  - mostly complete or complete package
+  - no unresolved conflicts
+  - no experiment-sensitive CTA or destination changes
+- approval ranking now runs the repair pass after bounded package autofill, so stronger candidates can arrive in final review with fewer cleanup tasks
+- approval queue, final review, and batch approval now surface compact repair notes so the operator can inspect what changed
+- `/insights` now includes a compact pre-review repair section with:
+  - applied count
+  - blocked count
+  - top repair types
+  - repaired-then-posted count
+- added audit coverage for:
+  - `PRE_REVIEW_REPAIR_APPLIED`
+  - `PRE_REVIEW_REPAIR_SKIPPED`
+  - `PRE_REVIEW_REPAIR_BLOCKED`
+- kept the layer intentionally bounded:
+  - low-risk only
+  - no core reframing
+  - no risky silent destination or CTA changes
+  - no override of explicit operator choices
+
+## Run 98
+- added a centralized autonomous queue-triage layer in `lib/queue-triage.ts`
+- approval candidates are now classified into one explicit operational bucket:
+  - `approve_ready`
+  - `repairable`
+  - `needs_judgement`
+  - `stale_but_reusable`
+  - `suppress`
+- triage uses existing structured state instead of a new hidden score, including:
+  - automation confidence
+  - completeness and autofill state
+  - conflict state
+  - stale queue state
+  - expected-outcome strength
+  - experiment linkage
+  - pre-review repair state
+- `/review` now uses triage more directly for:
+  - ready-to-approve counts
+  - needs-judgement routing
+  - queue summary visibility
+  - per-card triage labels and suggested next actions
+- `/digest` and `/insights` now surface compact triage distribution summaries
+- operator-task generation now respects triage more directly:
+  - repairable items can generate bounded package-fix tasks
+  - needs-judgement items stay routed into review work
+  - suppressed items avoid noisy task creation
+- weekly posting pack selection now excludes judgement-first and suppressed candidates
+- added audit coverage for:
+  - `QUEUE_TRIAGE_ASSIGNED`
+  - `QUEUE_TRIAGE_CHANGED`
+  - `QUEUE_TRIAGE_SUPPRESSED`
+- kept the layer intentionally bounded:
+  - advisory only
+  - no auto-approval
+  - no auto-deletion
+  - suppression is visible and reversible
+
+## Run 99
+- added a centralized CTA/destination self-healing helper in `lib/cta-destination-healing.ts`
+- the system can now apply one bounded commercial pair repair when a weak CTA/destination combination is clearly fixable, including:
+  - `soften_cta`
+  - `strengthen_cta`
+  - `switch_destination`
+  - `align_cta_to_destination`
+  - `align_destination_to_conversion_posture`
+  - `commercial_pair_upgrade`
+- self-healing is intentionally strict and evidence-based:
+  - guided by conversion posture
+  - blocked by active CTA or destination experiments
+  - respects explicit operator-owned destination choices
+  - uses attribution, revenue, and audience memory when stronger destination evidence exists
+- bounded self-healing now feeds both:
+  - package autofill
+  - pre-review repair
+- approval-ready candidates now surface self-healed pair changes through the existing pre-review repair notes before final review
+- `/insights` now includes a compact CTA/destination self-healing section with:
+  - self-heals applied
+  - blocked count
+  - top healing types
+  - healed-then-posted count
+  - strongest healed pairings
+- added audit coverage for:
+  - `CTA_DESTINATION_SELF_HEAL_APPLIED`
+  - `CTA_DESTINATION_SELF_HEAL_SKIPPED`
+  - `CTA_DESTINATION_SELF_HEAL_BLOCKED`
+- kept the layer intentionally bounded:
+  - no whole-post rewrites
+  - no aggressive conversion escalation
+  - no experiment-breaking edits
+  - no silent override of explicit operator selections in ambiguous cases

@@ -189,6 +189,7 @@ export function SafeReplyPanel({
                   />
                 </div>
                 <p className="mt-3 text-sm text-slate-500">{reply.toneLabel}</p>
+                <p className="mt-2 text-xs text-slate-500">Autonomy: {reply.policySummary}</p>
                 {reply.followUpSuggestion ? (
                   <p className="mt-2 text-xs text-slate-500">{reply.followUpSuggestion}</p>
                 ) : null}
@@ -265,6 +266,7 @@ export function SafeReplyPanel({
                     </Badge>
                   ))}
                 </div>
+                <p className="mt-3 text-xs text-slate-500">Autonomy: {reply.policySummary}</p>
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   <Button
                     variant="ghost"

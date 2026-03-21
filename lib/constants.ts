@@ -1,18 +1,40 @@
 import type { SignalCategory, SignalStatus } from "@/types/signal";
 
-export const NAV_ITEMS = [
-  { href: "/", label: "Dashboard" },
-  { href: "/signals", label: "Signals" },
-  { href: "/patterns", label: "Patterns" },
-  { href: "/playbook", label: "Playbook" },
-  { href: "/campaigns", label: "Campaigns" },
-  { href: "/plan", label: "Plan" },
-  { href: "/recap", label: "Recap" },
-  { href: "/insights", label: "Insights" },
-  { href: "/settings", label: "Settings" },
-  { href: "/ingestion", label: "Ingestion" },
-  { href: "/signals/new", label: "New Signal" },
-  { href: "/review", label: "Review" },
+export const NAV_GROUPS = [
+  {
+    label: "Core",
+    items: [
+      { href: "/", label: "Dashboard" },
+      { href: "/signals", label: "Signals" },
+      { href: "/signals/new", label: "New Signal" },
+      { href: "/review", label: "Review" },
+      { href: "/exceptions", label: "Exceptions" },
+      { href: "/execution", label: "Execution" },
+    ],
+  },
+  {
+    label: "Strategy",
+    items: [
+      { href: "/campaigns", label: "Campaigns" },
+      { href: "/plan", label: "Plan" },
+      { href: "/recap", label: "Recap" },
+      { href: "/insights", label: "Insights" },
+    ],
+  },
+  {
+    label: "Knowledge",
+    items: [
+      { href: "/patterns", label: "Patterns" },
+      { href: "/playbook", label: "Playbook" },
+    ],
+  },
+  {
+    label: "Ops",
+    items: [
+      { href: "/ingestion", label: "Ingestion" },
+      { href: "/settings", label: "Settings" },
+    ],
+  },
 ] as const;
 
 export const SOURCE_TYPE_OPTIONS = [

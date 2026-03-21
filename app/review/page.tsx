@@ -22,6 +22,7 @@ import { buildCampaignCadenceSummary, getCampaignStrategy, getSignalContentConte
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { buildEvergreenSummary } from "@/lib/evergreen";
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import { buildExperimentAutopilotV2 } from "@/lib/experiment-autopilot-v2";
 import { buildAutonomousExperimentProposals, listExperimentProposals } from "@/lib/experiment-proposals";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { listFollowUpTasks } from "@/lib/follow-up";
@@ -210,10 +211,21 @@ export default async function ReviewPage({
     storedProposals: storedExperimentProposals,
     maxProposals: 5,
   }).filter((proposal) => proposal.status === "open");
+  const experimentAutopilotEvaluations = approvalReadyCandidates.map((candidate) => ({
+    candidate,
+    autopilot: buildExperimentAutopilotV2({
+      candidate,
+      experiments,
+    }),
+  }));
   const staleOverview = buildStaleQueueOverview(approvalReadyCandidates.map((candidate) => candidate.stale));
-  const highConflictApprovalCandidates = approvalReadyCandidates.filter(
-    (candidate) => candidate.conflicts.requiresJudgement || candidate.automationConfidence.requiresOperatorJudgement,
-  );
+  const triageCounts = {
+    approveReady: approvalReadyCandidates.filter((candidate) => candidate.triage.triageState === "approve_ready").length,
+    repairable: approvalReadyCandidates.filter((candidate) => candidate.triage.triageState === "repairable").length,
+    needsJudgement: approvalReadyCandidates.filter((candidate) => candidate.triage.triageState === "needs_judgement").length,
+    staleButReusable: approvalReadyCandidates.filter((candidate) => candidate.triage.triageState === "stale_but_reusable").length,
+    suppress: approvalReadyCandidates.filter((candidate) => candidate.triage.triageState === "suppress").length,
+  };
   const evergreenLaterCandidates = approvalReadyCandidates.filter(
     (candidate) => candidate.stale.operatorAction === "move_to_evergreen_later",
   );
@@ -328,9 +340,80 @@ export default async function ReviewPage({
             ),
           ]
         : [];
+      const preReviewRepairEvents: AuditEventInput[] =
+        candidate.preReviewRepair.decision === "applied" && candidate.preReviewRepair.repairs.length > 0
+          ? [
+              {
+                signalId: candidate.signal.recordId,
+                eventType: "PRE_REVIEW_REPAIR_APPLIED",
+                actor: "system",
+                summary: candidate.preReviewRepair.summary,
+                metadata: {
+                  repairTypes: candidate.preReviewRepair.repairs.map((repair) => repair.repairType).join(","),
+                  completenessBefore: candidate.preReviewRepair.completenessBefore.completenessState,
+                  completenessAfter: candidate.preReviewRepair.completenessAfter.completenessState,
+                },
+              },
+            ]
+          : candidate.preReviewRepair.decision === "blocked"
+            ? [
+                {
+                  signalId: candidate.signal.recordId,
+                  eventType: "PRE_REVIEW_REPAIR_BLOCKED",
+                  actor: "system",
+                  summary: candidate.preReviewRepair.summary,
+                  metadata: {
+                    reason: candidate.preReviewRepair.policy.reasons[0] ?? null,
+                    policyDecision: candidate.preReviewRepair.policy.decision,
+                  },
+                },
+              ]
+            : candidate.preReviewRepair.decision === "skipped"
+              ? [
+                  {
+                    signalId: candidate.signal.recordId,
+                    eventType: "PRE_REVIEW_REPAIR_SKIPPED",
+                    actor: "system",
+                    summary: candidate.preReviewRepair.summary,
+                    metadata: {
+                      policyDecision: candidate.preReviewRepair.policy.decision,
+                    },
+                  },
+                ]
+              : [];
+      const ctaDestinationHealingEvents: AuditEventInput[] =
+        candidate.preReviewRepair.ctaDestinationHealing.decision === "applied"
+          ? [
+              {
+                signalId: candidate.signal.recordId,
+                eventType: "CTA_DESTINATION_SELF_HEAL_APPLIED",
+                actor: "system",
+                summary: candidate.preReviewRepair.ctaDestinationHealing.summary,
+                metadata: {
+                  healingType: candidate.preReviewRepair.ctaDestinationHealing.healingType ?? null,
+                  beforeCta: candidate.preReviewRepair.ctaDestinationHealing.originalPair.ctaText,
+                  beforeDestination: candidate.preReviewRepair.ctaDestinationHealing.originalPair.destinationLabel,
+                  afterCta: candidate.preReviewRepair.ctaDestinationHealing.healedPair.ctaText,
+                  afterDestination: candidate.preReviewRepair.ctaDestinationHealing.healedPair.destinationLabel,
+                },
+                },
+              ]
+            : candidate.preReviewRepair.ctaDestinationHealing.decision === "blocked"
+              ? [
+                  {
+                  signalId: candidate.signal.recordId,
+                  eventType: "CTA_DESTINATION_SELF_HEAL_BLOCKED",
+                  actor: "system",
+                  summary: candidate.preReviewRepair.ctaDestinationHealing.summary,
+                  metadata: {
+                      reason: candidate.preReviewRepair.ctaDestinationHealing.blockReasons[0] ?? null,
+                    },
+                  },
+                ]
+              : [];
 
       if (!candidate.fatigue.warnings[0]) {
-        return [...events, ...autofillEvents];
+        return [...events, ...autofillEvents, ...preReviewRepairEvents, ...ctaDestinationHealingEvents];
       }
 
       return [
@@ -347,9 +430,37 @@ export default async function ReviewPage({
           },
         },
         ...autofillEvents,
+        ...preReviewRepairEvents,
+        ...ctaDestinationHealingEvents,
       ];
     }),
   );
+  await appendAuditEventsSafe([
+    ...experimentProposals.slice(0, 3).map((proposal) => ({
+      signalId: proposal.signalId,
+      eventType: "EXPERIMENT_AUTOPILOT_V2_CREATED" as const,
+      actor: "system" as const,
+      summary: `Prepared autopilot-built ${proposal.autopilotVariable?.replaceAll("_", " ") ?? "experiment"} test for ${proposal.sourceTitle}.`,
+      metadata: {
+        proposalId: proposal.proposalId,
+        experimentType: proposal.experimentType,
+        variable: proposal.autopilotVariable,
+      },
+    })),
+    ...experimentAutopilotEvaluations
+      .filter((entry) => entry.autopilot.decision === "blocked")
+      .slice(0, 3)
+      .map((entry) => ({
+        signalId: entry.candidate.signal.recordId,
+        eventType: "EXPERIMENT_AUTOPILOT_V2_BLOCKED" as const,
+        actor: "system" as const,
+        summary: entry.autopilot.blockReasons[0] ?? "Experiment autopilot v2 was blocked.",
+        metadata: {
+          sourceTitle: entry.candidate.signal.sourceTitle,
+          topReason: entry.autopilot.blockReasons[0] ?? null,
+        },
+      })),
+  ]);
   await appendAuditEventsSafe(
     approvalReadyCandidates.flatMap((candidate): AuditEventInput[] => {
       if (
@@ -384,6 +495,63 @@ export default async function ReviewPage({
           },
         },
       ];
+    }),
+  );
+  await appendAuditEventsSafe(
+    approvalReadyCandidates.flatMap((candidate): AuditEventInput[] => {
+      const lastTriageEvent = [...(staleAuditEventsBySignalId[candidate.signal.recordId] ?? [])]
+        .reverse()
+        .find(
+          (event) =>
+            event.eventType === "QUEUE_TRIAGE_ASSIGNED" ||
+            event.eventType === "QUEUE_TRIAGE_CHANGED" ||
+            event.eventType === "QUEUE_TRIAGE_SUPPRESSED",
+        );
+      const previousState =
+        typeof lastTriageEvent?.metadata?.triageState === "string" ? lastTriageEvent.metadata.triageState : null;
+      const nextEvents: AuditEventInput[] = [];
+
+      if (!previousState) {
+        nextEvents.push({
+          signalId: candidate.signal.recordId,
+          eventType: "QUEUE_TRIAGE_ASSIGNED",
+          actor: "system",
+          summary: `${candidate.signal.sourceTitle} was triaged as ${candidate.triage.triageState.replaceAll("_", " ")}.`,
+          metadata: {
+            triageState: candidate.triage.triageState,
+            reason: candidate.triage.reason,
+            suggestedNextAction: candidate.triage.suggestedNextAction,
+          },
+        });
+      } else if (previousState !== candidate.triage.triageState) {
+        nextEvents.push({
+          signalId: candidate.signal.recordId,
+          eventType: "QUEUE_TRIAGE_CHANGED",
+          actor: "system",
+          summary: `${candidate.signal.sourceTitle} moved from ${previousState.replaceAll("_", " ")} to ${candidate.triage.triageState.replaceAll("_", " ")}.`,
+          metadata: {
+            previousState,
+            triageState: candidate.triage.triageState,
+            reason: candidate.triage.reason,
+            suggestedNextAction: candidate.triage.suggestedNextAction,
+          },
+        });
+      }
+
+      if (candidate.triage.triageState === "suppress" && previousState !== "suppress") {
+        nextEvents.push({
+          signalId: candidate.signal.recordId,
+          eventType: "QUEUE_TRIAGE_SUPPRESSED",
+          actor: "system",
+          summary: `${candidate.signal.sourceTitle} is suppressed for now.`,
+          metadata: {
+            triageState: candidate.triage.triageState,
+            reason: candidate.triage.reason,
+          },
+        });
+      }
+
+      return nextEvents;
     }),
   );
   await appendAuditEventsSafe(
@@ -582,7 +750,7 @@ export default async function ReviewPage({
       return (experimentContextsBySignalId[candidate.signal.recordId] ?? []).length > 0;
     }
     if (selectedView === "needs_judgement") {
-      return candidate.conflicts.requiresJudgement || candidate.automationConfidence.requiresOperatorJudgement;
+      return candidate.triage.triageState === "needs_judgement";
     }
     if (selectedView === "stale") {
       return candidate.stale.state !== "fresh";
@@ -594,21 +762,27 @@ export default async function ReviewPage({
       return candidate.rankReasons.some((reason) => reason.toLowerCase().includes("campaign"));
     }
     if (selectedView === "auto_repaired") {
-      return Boolean(getLatestAutoRepairEntry(candidate.signal));
+      return Boolean(getLatestAutoRepairEntry(candidate.signal)) || candidate.preReviewRepair.decision === "applied";
     }
     return true;
   });
   const viewLinks: Array<{ value: ReviewView; label: string; count: number }> = [
     { value: "command_center", label: "Command center", count: approvalReadyCandidates.length + borderlineRows.length + followUpTasks.length },
-    { value: "ready_to_approve", label: "Ready to approve", count: approvalReadyCandidates.length },
+    { value: "ready_to_approve", label: "Ready to approve", count: triageCounts.approveReady },
     { value: "stale", label: "Stale queue", count: approvalReadyCandidates.filter((candidate) => candidate.stale.state !== "fresh").length },
-    { value: "needs_judgement", label: "Needs judgement", count: borderlineRows.length + suggestedDuplicateClusterRows.length + experimentProposals.length + highConflictApprovalCandidates.length },
+    { value: "needs_judgement", label: "Needs judgement", count: borderlineRows.length + suggestedDuplicateClusterRows.length + experimentProposals.length + triageCounts.needsJudgement },
     { value: "missing_outcomes", label: "Missing outcomes", count: followUpTasks.length },
     { value: "experiment_linked", label: "Experiment-linked", count: approvalReadyCandidates.filter((candidate) => (experimentContextsBySignalId[candidate.signal.recordId] ?? []).length > 0).length },
     { value: "fatigued", label: "Fatigued", count: approvalReadyCandidates.filter((candidate) => candidate.fatigue.warnings.length > 0).length },
     { value: "campaign_critical", label: "Campaign-critical", count: approvalReadyCandidates.filter((candidate) => candidate.rankReasons.some((reason) => reason.toLowerCase().includes("campaign"))).length },
     { value: "evergreen", label: "Evergreen", count: evergreenSummary.surfacedCount },
-    { value: "auto_repaired", label: "Auto-repaired", count: approvalReadyCandidates.filter((candidate) => Boolean(getLatestAutoRepairEntry(candidate.signal))).length },
+    {
+      value: "auto_repaired",
+      label: "Auto-repaired",
+      count: approvalReadyCandidates.filter(
+        (candidate) => Boolean(getLatestAutoRepairEntry(candidate.signal)) || candidate.preReviewRepair.decision === "applied",
+      ).length,
+    },
     { value: "full_queue", label: "Full queue", count: visibleSignals.length },
   ];
   const commandCenterStats = [
@@ -616,7 +790,7 @@ export default async function ReviewPage({
       label: "Scan now",
       value:
         selectedView === "needs_judgement"
-          ? `${borderlineRows.length + highConflictApprovalCandidates.length} judgement calls`
+          ? `${borderlineRows.length + triageCounts.needsJudgement} judgement calls`
           : selectedView === "stale"
             ? `${approvalCandidatesForView.length} aging or stale`
           : selectedView === "missing_outcomes"
@@ -626,8 +800,8 @@ export default async function ReviewPage({
         selectedView === "campaign_critical"
           ? "Campaign-weighted view"
           : selectedView === "needs_judgement"
-            ? highConflictApprovalCandidates.length > 0
-              ? `${highConflictApprovalCandidates.length} approval-ready items also have package conflicts`
+            ? triageCounts.needsJudgement > 0
+              ? `${triageCounts.needsJudgement} approval-ready items are triaged into a judgement-first lane`
               : "Held items and edge cases needing operator judgement"
           : selectedView === "stale"
             ? "Queue drift and refresh calls"
@@ -658,9 +832,11 @@ export default async function ReviewPage({
   ];
 
   const queueSummary = [
-    { label: "Approval-ready", count: approvalReadyCandidates.length, href: "#approval-ready" },
+    { label: "Approval-ready", count: triageCounts.approveReady, href: "#approval-ready" },
+    { label: "Repairable", count: triageCounts.repairable, href: "#approval-ready" },
+    { label: "Suppressed", count: triageCounts.suppress, href: "#approval-ready" },
     { label: "Stale queue", count: staleOverview.staleCount, href: "#approval-ready" },
-    { label: "Evergreen later", count: evergreenLaterCandidates.length, href: "#evergreen-later" },
+    { label: "Evergreen later", count: Math.max(evergreenLaterCandidates.length, triageCounts.staleButReusable), href: "#evergreen-later" },
     { label: "Batch review", count: batchPrep.items.length, href: "/review/batch" },
     { label: "Experiment proposals", count: experimentProposals.length, href: "#experiment-proposals" },
     { label: "Duplicate clusters", count: duplicateClusterRows.length + suggestedDuplicateClusterRows.length, href: "#duplicate-clusters" },

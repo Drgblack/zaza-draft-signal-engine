@@ -589,6 +589,45 @@ export async function safePostPostingAssistantPackage(input: {
         eligibility: eligibility.postingEligibility,
       },
     },
+    {
+      signalId: pkg.signalId,
+      eventType: "AUTONOMY_POLICY_EVALUATED",
+      actor: "operator",
+      summary: `Evaluated autonomy policy for ${getPostingPlatformLabel(pkg.platform)} safe-posting.`,
+      metadata: {
+        actionType: "safe_post",
+        decision:
+          eligibility.postingEligibility === "eligible_safe_post"
+            ? "allow"
+            : eligibility.postingEligibility === "manual_only"
+              ? "suggest_only"
+              : "block",
+      },
+    },
+    {
+      signalId: pkg.signalId,
+      eventType:
+        eligibility.postingEligibility === "eligible_safe_post"
+          ? "AUTONOMY_POLICY_ALLOWED_ACTION"
+          : eligibility.postingEligibility === "manual_only"
+            ? "AUTONOMY_POLICY_SUGGESTED_ONLY"
+            : "AUTONOMY_POLICY_BLOCKED_ACTION",
+      actor: "operator",
+      summary: `Autonomy policy resolved ${getPostingPlatformLabel(pkg.platform)} safe-posting as ${eligibility.postingEligibility === "eligible_safe_post" ? "allow" : eligibility.postingEligibility === "manual_only" ? "suggest only" : "block"}.`,
+      metadata: {
+        actionType: "safe_post",
+        decision:
+          eligibility.postingEligibility === "eligible_safe_post"
+            ? "allow"
+            : eligibility.postingEligibility === "manual_only"
+              ? "suggest_only"
+              : "block",
+        reason:
+          eligibility.blockReasons[0] ??
+          eligibility.manualOnlyReason ??
+          eligibility.summary,
+      },
+    },
   ]);
 
   if (eligibility.postingEligibility === "blocked") {

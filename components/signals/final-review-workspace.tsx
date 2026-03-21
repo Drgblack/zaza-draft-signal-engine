@@ -78,6 +78,7 @@ import {
 } from "@/lib/posting-memory";
 import type { PackageAutofillNote } from "@/lib/package-filler";
 import { getPlatformIntentProfile } from "@/lib/platform-profiles";
+import type { PreReviewRepairResult } from "@/lib/review-repair";
 import { formatDateTime } from "@/lib/utils";
 import type { PostingAssistantActionResponse } from "@/types/api";
 import type { FounderVoiceMode, SignalDataSource, SignalRecord } from "@/types/signal";
@@ -418,6 +419,7 @@ export function FinalReviewWorkspace({
   hypothesis,
   packageAutofillMode,
   packageAutofillNotes,
+  preReviewRepair,
   conversionIntent,
   experimentContexts,
   initialPostingEntries,
@@ -439,6 +441,7 @@ export function FinalReviewWorkspace({
   hypothesis: CandidateHypothesis;
   packageAutofillMode?: "applied" | "suggested" | "blocked";
   packageAutofillNotes?: PackageAutofillNote[];
+  preReviewRepair?: PreReviewRepairResult | null;
   conversionIntent?: ConversionIntentAssessment | null;
   experimentContexts?: Array<{
     name: string;
@@ -1740,6 +1743,25 @@ export function FinalReviewWorkspace({
                       {note.label}: {note.value}
                     </p>
                     <p className="mt-2 text-slate-500">{note.reason}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {preReviewRepair?.decision === "applied" && preReviewRepair.repairs.length > 0 ? (
+            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Pre-review repair</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Low-risk cleanup ran before final review because this package stayed high-confidence, near-complete, and conflict-safe.
+              </p>
+              <div className="mt-3 space-y-2">
+                {preReviewRepair.repairs.slice(0, 4).map((repair) => (
+                  <div key={`${repair.repairType}:${repair.after}`} className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                    <p className="font-medium text-slate-900">
+                      {repair.repairType.replaceAll("_", " ")}: {repair.after}
+                    </p>
+                    <p className="mt-2 text-slate-500">{repair.reason}</p>
                   </div>
                 ))}
               </div>

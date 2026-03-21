@@ -8,6 +8,7 @@ import { assessCandidateConflicts, type ConflictAssessment } from "@/lib/conflic
 import { buildAttributionRecordsFromInputs } from "@/lib/attribution";
 import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { assessExpectedOutcome, type ExpectedOutcomeAssessment } from "@/lib/expected-outcome-ranking";
+import { assessExecutionChain, type ExecutionChainAssessment } from "@/lib/execution-chains";
 import type { ManualExperiment } from "@/lib/experiments";
 import { buildFatigueModel, type FatigueAssessment } from "@/lib/fatigue";
 import type { UnifiedGuidance } from "@/lib/guidance";
@@ -15,6 +16,8 @@ import { buildCandidateHypothesis, type CandidateHypothesis } from "@/lib/hypoth
 import type { PostingOutcome } from "@/lib/outcomes";
 import { applyApprovalPackageAutofill, type PackageAutofillResult } from "@/lib/package-filler";
 import type { PostingLogEntry } from "@/lib/posting-memory";
+import { applyPreReviewRepairs, type PreReviewRepairResult } from "@/lib/review-repair";
+import { assessQueueTriage, type QueueTriageAssessment } from "@/lib/queue-triage";
 import { buildSignalRepurposingBundle } from "@/lib/repurposing";
 import {
   assessStaleQueueCandidate,
@@ -40,6 +43,9 @@ export interface ApprovalQueueCandidate {
   conversionIntent: ConversionIntentAssessment;
   automationConfidence: AutomationConfidenceAssessment;
   packageAutofill: PackageAutofillResult;
+  preReviewRepair: PreReviewRepairResult;
+  executionChain: ExecutionChainAssessment;
+  triage: QueueTriageAssessment;
   stale: StaleQueueAssessment;
   rankScore: number;
   rankReasons: string[];
@@ -198,6 +204,10 @@ export function rankApprovalCandidates(
         guidanceConfidenceLevel: candidate.guidance.confidence.confidenceLevel,
         automationConfidenceLevel: automationConfidence.level,
         conversionIntent: baseConversionIntent,
+        conflicts: baseConflicts,
+        attributionRecords,
+        revenueSignals,
+        audienceMemory,
         assessment: candidate.assessment,
         allSignals: options?.allSignals ?? candidates.map((item) => item.signal),
         postingEntries: options?.postingEntries ?? [],
@@ -205,15 +215,86 @@ export function rankApprovalCandidates(
         strategicOutcomes: options?.strategicOutcomes ?? [],
         experiments: options?.experiments ?? [],
       });
-      const rankedSignal = packageAutofill.signal;
+      const autofilledSignal = packageAutofill.signal;
       const resolvedContext =
-        options?.strategy ? getSignalContentContextSummary(rankedSignal, options.strategy) : null;
-      const completeness =
+        options?.strategy ? getSignalContentContextSummary(autofilledSignal, options.strategy) : null;
+      const autofillCompleteness =
         packageAutofill.mode === "applied"
           ? packageAutofill.completenessAfter
           : baseCompleteness;
-      const hypothesis =
+      const autofillHypothesis =
         packageAutofill.mode === "applied"
+          ? buildCandidateHypothesis({
+              signal: autofilledSignal,
+              guidance: candidate.guidance,
+              assessment: candidate.assessment,
+              strategy: options?.strategy,
+              weeklyBoosts: planAlignment?.boosts,
+              weeklyCautions: planAlignment?.cautions,
+            })
+          : baseHypothesis;
+      const autofillExpectedOutcome =
+        packageAutofill.mode === "applied"
+          ? assessExpectedOutcome({
+              signal: autofilledSignal,
+              guidance: candidate.guidance,
+              assessment: candidate.assessment,
+              completeness: autofillCompleteness,
+              fatigue,
+              hypothesis: autofillHypothesis,
+              allSignals: options?.allSignals ?? candidates.map((item) => item.signal),
+              postingEntries: options?.postingEntries ?? [],
+              postingOutcomes: options?.postingOutcomes ?? [],
+              strategicOutcomes: options?.strategicOutcomes ?? [],
+              attributionRecords,
+              revenueSignals,
+              audienceMemory,
+              experiments: options?.experiments ?? [],
+              strategy: options?.strategy,
+              cadence: options?.cadence,
+            })
+          : baseExpectedOutcome;
+      const autofillConflicts =
+        packageAutofill.mode === "applied"
+          ? assessCandidateConflicts({
+              signal: autofilledSignal,
+              hypothesis: autofillHypothesis,
+              expectedOutcome: autofillExpectedOutcome,
+              fatigue,
+              strategy: options?.strategy,
+              experiments: options?.experiments ?? [],
+            })
+          : baseConflicts;
+      const autofillConversionIntent =
+        packageAutofill.mode === "applied"
+          ? assessConversionIntent({
+              signal: autofilledSignal,
+              strategy: options?.strategy,
+              conflicts: autofillConflicts,
+              attributionRecords,
+              revenueSignals,
+              audienceMemory,
+            })
+          : baseConversionIntent;
+      const preReviewRepair = applyPreReviewRepairs({
+        signal: autofilledSignal,
+        guidanceConfidenceLevel: candidate.guidance.confidence.confidenceLevel,
+        automationConfidenceLevel: automationConfidence.level,
+        completeness: autofillCompleteness,
+        conflicts: autofillConflicts,
+        conversionIntent: autofillConversionIntent,
+        attributionRecords,
+        revenueSignals,
+        audienceMemory,
+        experiments: options?.experiments ?? [],
+      });
+      const rankedSignal = preReviewRepair.signal;
+      const completeness =
+        preReviewRepair.decision === "applied"
+          ? preReviewRepair.completenessAfter
+          : autofillCompleteness;
+      const hypothesis =
+        preReviewRepair.decision === "applied"
           ? buildCandidateHypothesis({
               signal: rankedSignal,
               guidance: candidate.guidance,
@@ -222,9 +303,9 @@ export function rankApprovalCandidates(
               weeklyBoosts: planAlignment?.boosts,
               weeklyCautions: planAlignment?.cautions,
             })
-          : baseHypothesis;
+          : autofillHypothesis;
       const expectedOutcome =
-        packageAutofill.mode === "applied"
+        preReviewRepair.decision === "applied"
           ? assessExpectedOutcome({
               signal: rankedSignal,
               guidance: candidate.guidance,
@@ -243,9 +324,9 @@ export function rankApprovalCandidates(
               strategy: options?.strategy,
               cadence: options?.cadence,
             })
-          : baseExpectedOutcome;
+          : autofillExpectedOutcome;
       const conflicts =
-        packageAutofill.mode === "applied"
+        preReviewRepair.decision === "applied"
           ? assessCandidateConflicts({
               signal: rankedSignal,
               hypothesis,
@@ -254,9 +335,9 @@ export function rankApprovalCandidates(
               strategy: options?.strategy,
               experiments: options?.experiments ?? [],
             })
-          : baseConflicts;
+          : autofillConflicts;
       const conversionIntent =
-        packageAutofill.mode === "applied"
+        preReviewRepair.decision === "applied"
           ? assessConversionIntent({
               signal: rankedSignal,
               strategy: options?.strategy,
@@ -265,7 +346,7 @@ export function rankApprovalCandidates(
               revenueSignals,
               audienceMemory,
             })
-          : baseConversionIntent;
+          : autofillConversionIntent;
 
       rankScore += scoreConfidence(candidate.guidance.confidence.confidenceLevel);
       if (candidate.guidance.confidence.confidenceLevel === "high") {
@@ -342,6 +423,17 @@ export function rankApprovalCandidates(
         uniquePush(rankReasons, `Approval autopilot filled ${packageAutofill.notes.slice(0, 2).map((note) => note.field.replaceAll("_", " ")).join(" and ")}`);
       } else if (packageAutofill.mode === "suggested" && packageAutofill.notes.length > 0) {
         uniquePush(rankReasons, `Approval autopilot suggests ${packageAutofill.notes[0]?.field.replaceAll("_", " ") ?? "package fixes"}`);
+      }
+
+      if (preReviewRepair.decision === "applied" && preReviewRepair.repairs.length > 0) {
+        rankScore += 1;
+        uniquePush(
+          rankReasons,
+          `Pre-review repair applied ${preReviewRepair.repairs
+            .slice(0, 2)
+            .map((repair) => repair.repairType.replaceAll("_", " "))
+            .join(" and ")}`,
+        );
       }
 
       rankScore += expectedOutcome.expectedOutcomeScore;
@@ -424,9 +516,37 @@ export function rankApprovalCandidates(
         operatorState: staleOperatorStatesBySignalId[rankedSignal.recordId] ?? null,
         now,
       });
+      const experimentLinked = (options?.experiments ?? []).some(
+        (experiment) =>
+          experiment.status !== "completed" &&
+          experiment.variants.some((variant) => variant.linkedSignalIds.includes(rankedSignal.recordId)),
+      );
+      const triage = assessQueueTriage({
+        automationConfidence,
+        completeness,
+        conflicts,
+        expectedOutcome,
+        stale,
+        packageAutofill,
+        preReviewRepair,
+        experimentLinked,
+      });
+      const executionChain = assessExecutionChain({
+        candidate: {
+          signal: rankedSignal,
+          packageAutofill,
+          preReviewRepair,
+          automationConfidence,
+          conflicts,
+          completeness,
+          triage,
+        },
+        experimentLinked,
+      });
 
       rankScore -= conflicts.rankPenalty;
       rankScore -= stale.rankPenalty;
+      uniquePush(rankReasons, `Queue triage: ${triage.summary.toLowerCase()}`);
 
       return {
         ...candidate,
@@ -439,6 +559,9 @@ export function rankApprovalCandidates(
         conversionIntent,
         automationConfidence,
         packageAutofill,
+        preReviewRepair,
+        executionChain,
+        triage,
         stale,
         rankScore,
         rankReasons: rankReasons.slice(0, 4),

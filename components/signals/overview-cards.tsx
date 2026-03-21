@@ -47,17 +47,17 @@ export function OverviewCards({
         const Icon = card.icon;
         return (
           <Card key={card.label}>
-            <CardHeader className="flex-row items-start justify-between gap-4">
+            <CardHeader className="flex-row items-start justify-between gap-4 pb-3">
               <div>
-                <p className="text-sm text-slate-500">{card.label}</p>
-                <CardTitle className="mt-3 text-3xl">{card.value}</CardTitle>
+                <p className="text-sm font-medium text-slate-600">{card.label}</p>
+                <CardTitle className="mt-2 text-3xl">{card.value}</CardTitle>
               </div>
               <div className={`rounded-2xl p-3 ${card.accent}`}>
                 <Icon className="h-5 w-5" />
               </div>
             </CardHeader>
-            <CardContent className="pt-0 text-sm text-slate-500">
-              Calm overview for operator use. No automation or analytics weighting in V1.
+            <CardContent className="pt-0 text-sm leading-6 text-slate-600">
+              Quick queue pulse for operator scan speed. No hidden weighting or auto-action here.
             </CardContent>
           </Card>
         );

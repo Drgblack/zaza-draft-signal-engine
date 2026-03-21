@@ -376,6 +376,27 @@ function buildRefreshTask(candidate: ApprovalQueueCandidate, now: Date): Operato
   });
 }
 
+function buildRepairableTask(candidate: ApprovalQueueCandidate): OperatorTask {
+  return normalizeTask({
+    id: buildSignalTaskId("finish_incomplete_package", candidate.signal.recordId),
+    taskType: "finish_incomplete_package",
+    linkedEntityType: "signal",
+    linkedEntityId: candidate.signal.recordId,
+    signalId: candidate.signal.recordId,
+    title: "Finish repairable package",
+    href: `/signals/${candidate.signal.recordId}/review`,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    dueAt: null,
+    priority: buildSignalTaskPriority(candidate.signal, "medium", candidate.rankReasons),
+    reason:
+      candidate.triage.reason ??
+      `${candidate.signal.sourceTitle} is close to approval-ready but still needs one bounded package fix.`,
+    status: "open",
+    quickAction: null,
+  });
+}
+
 function buildBorderlineTask(
   signal: SignalRecord,
   assessment: ReturnType<typeof assessAutonomousSignal>,
@@ -580,8 +601,20 @@ async function buildGeneratedTasks(input: {
   }
 
   for (const candidate of approvalReadyCandidates) {
-    if (candidate.conflicts.highestSeverity === "high") {
+    if (candidate.triage.triageState === "suppress") {
+      continue;
+    }
+
+    if (candidate.triage.triageState === "needs_judgement") {
       maybeSetSignalTask(candidate.signal.recordId, 2, buildConflictTask(candidate));
+      continue;
+    }
+
+    if (
+      candidate.triage.triageState === "repairable" &&
+      candidate.preReviewRepair.decision !== "applied"
+    ) {
+      maybeSetSignalTask(candidate.signal.recordId, 3, buildRepairableTask(candidate));
       continue;
     }
 

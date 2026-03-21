@@ -983,6 +983,12 @@ export interface OperatorTaskActionResponse {
   error?: string;
 }
 
+export interface ExceptionInboxActionResponse {
+  success: boolean;
+  message: string;
+  error?: string;
+}
+
 export interface WeeklyPostingPackActionResponse {
   success: boolean;
   persisted: boolean;

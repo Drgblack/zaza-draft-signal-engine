@@ -237,7 +237,7 @@ export default async function ScorecardPage() {
             </Badge>
             <Badge className="bg-slate-100 text-slate-700 ring-slate-200">Generated {formatDateTime(renderNow.toISOString())}</Badge>
           </div>
-          <CardTitle className="text-3xl">Growth Scorecard</CardTitle>
+          <CardTitle className="text-balance text-3xl">Growth Scorecard</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             Compact growth health snapshot for content quality, execution readiness, outcome memory, commercial learning, queue health, experiments, and campaign support.
           </CardDescription>

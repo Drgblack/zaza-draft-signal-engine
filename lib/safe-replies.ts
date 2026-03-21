@@ -4,6 +4,10 @@ import path from "node:path";
 import { z } from "zod";
 
 import { appendAuditEventsSafe } from "@/lib/audit";
+import {
+  evaluateAutonomyPolicy,
+  type AutonomyPolicyDecisionType,
+} from "@/lib/autonomy-policy";
 import { applyFounderVoiceToText } from "@/lib/founder-voice";
 import {
   buildInfluencerGraphState,
@@ -93,6 +97,8 @@ export interface SafeReplyItem {
   replyEligibility: SafeReplyEligibility;
   replyRiskLevel: SafeReplyRiskLevel;
   blockReasons: string[];
+  policyDecision: AutonomyPolicyDecisionType;
+  policySummary: string;
   suggestedReply: string | null;
   toneLabel: string;
   followUpSuggestion: string | null;
@@ -200,28 +206,38 @@ function analyzeReply(row: InfluencerGraphRow): Omit<SafeReplyItem,
 
   let replyType: SafeReplyType = "manual_review_required";
   let replyRiskLevel: SafeReplyRiskLevel = "medium";
-  let replyEligibility: SafeReplyEligibility = "review_required";
 
-  if (blockReasons.length > 0) {
-    replyRiskLevel = "high";
-    replyEligibility = "blocked";
-  } else if (wantsNextStep) {
+  if (blockReasons.length === 0 && wantsNextStep) {
     replyType = "soft_follow_up";
     replyRiskLevel = "low";
-    replyEligibility = "safe_to_stage";
-  } else if (hasQuestion) {
+  } else if (blockReasons.length === 0 && hasQuestion) {
     replyType = "clarification";
     replyRiskLevel = "low";
-    replyEligibility = "safe_to_stage";
-  } else if (isThanks) {
+  } else if (blockReasons.length === 0 && isThanks) {
     replyType = "thank_you";
     replyRiskLevel = "low";
-    replyEligibility = "safe_to_stage";
-  } else if (isAcknowledgement) {
+  } else if (blockReasons.length === 0 && isAcknowledgement) {
     replyType = "simple_acknowledgement";
     replyRiskLevel = "low";
-    replyEligibility = "safe_to_stage";
   }
+
+  const policy = evaluateAutonomyPolicy({
+    actionType: "suggest_reply",
+    ambiguityRisk: replyRiskLevel,
+    relationshipKnown: Boolean(row.latestInteraction?.interactionId),
+  });
+  const replyEligibility: SafeReplyEligibility =
+    policy.decision === "allow"
+      ? "safe_to_stage"
+      : policy.decision === "suggest_only"
+        ? "review_required"
+        : "blocked";
+  const combinedBlockReasons =
+    replyEligibility === "blocked"
+      ? [...new Set([...blockReasons, ...policy.reasons])]
+      : replyEligibility === "review_required"
+        ? policy.reasons
+        : [];
 
   const name = firstName(row.influencer.name);
   const topicHint = buildTopicHint(row);
@@ -255,7 +271,9 @@ function analyzeReply(row: InfluencerGraphRow): Omit<SafeReplyItem,
     replyType,
     replyEligibility,
     replyRiskLevel,
-    blockReasons,
+    blockReasons: combinedBlockReasons,
+    policyDecision: policy.decision,
+    policySummary: policy.summary,
     suggestedReply: suggestedReply ? applyFounderVoiceToText(suggestedReply, "founder_voice_on") : null,
     toneLabel: replyEligibility === "safe_to_stage" ? "Founder voice · calm and low-pressure" : "Manual review required",
     followUpSuggestion,
@@ -346,6 +364,32 @@ async function ensureClassificationAudit(rows: SafeReplyItem[], storeEntries: Sa
         replyType: row.replyType,
         riskLevel: row.replyRiskLevel,
         blockCount: row.blockReasons.length,
+      },
+    });
+    events.push({
+      signalId: row.signalId ?? `influencer:${row.influencerId}`,
+      eventType: "AUTONOMY_POLICY_EVALUATED",
+      actor: "system",
+      summary: `Evaluated autonomy policy for ${row.influencerName} reply handling.`,
+      metadata: {
+        actionType: "suggest_reply",
+        decision: row.policyDecision,
+      },
+    });
+    events.push({
+      signalId: row.signalId ?? `influencer:${row.influencerId}`,
+      eventType:
+        row.policyDecision === "allow"
+          ? "AUTONOMY_POLICY_ALLOWED_ACTION"
+          : row.policyDecision === "suggest_only"
+            ? "AUTONOMY_POLICY_SUGGESTED_ONLY"
+            : "AUTONOMY_POLICY_BLOCKED_ACTION",
+      actor: "system",
+      summary: `Reply handling is ${row.policyDecision.replaceAll("_", " ")} for ${row.influencerName}.`,
+      metadata: {
+        actionType: "suggest_reply",
+        decision: row.policyDecision,
+        reason: row.policySummary,
       },
     });
   }

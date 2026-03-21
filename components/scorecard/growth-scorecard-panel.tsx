@@ -50,7 +50,7 @@ export function GrowthScorecardPanel({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="rounded-2xl bg-white/80 px-4 py-4">
+          <div className="rounded-2xl bg-[color:var(--panel-strong)] px-4 py-4 shadow-[0_8px_22px_rgba(15,23,42,0.04)]">
             <div className="flex flex-wrap items-center gap-2">
               <Badge className={healthBadgeClasses(scorecard.overallHealth)}>
                 {scorecard.overallHealth === "strong" ? "Strong" : scorecard.overallHealth === "watch" ? "Watch" : "Steady"}
@@ -60,7 +60,7 @@ export function GrowthScorecardPanel({
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             {scorecard.metrics.slice(0, 4).map((metric) => (
-              <Link key={metric.key} href={metric.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+              <Link key={metric.key} href={metric.href} className="block rounded-2xl bg-white/84 px-4 py-4 transition hover:bg-white">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{metric.label}</p>
                   <Badge className={trendBadgeClasses(metric.trend)}>{metric.trend}</Badge>
@@ -97,7 +97,7 @@ export function GrowthScorecardPanel({
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {scorecard.metrics.map((metric) => (
-          <Link key={metric.key} href={metric.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <Link key={metric.key} href={metric.href} className="block rounded-2xl bg-white/84 px-4 py-4 transition hover:bg-white">
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{metric.label}</p>
               <Badge className={trendBadgeClasses(metric.trend)}>{metric.trend}</Badge>
@@ -123,7 +123,7 @@ export function GrowthScorecardPanel({
               </div>
             ) : (
               scorecard.topConcerns.map((item) => (
-                <Link key={item.id} href={item.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+                <Link key={item.id} href={item.href} className="block rounded-2xl bg-white/84 px-4 py-4 transition hover:bg-white">
                   <p className="font-medium text-slate-950">{item.label}</p>
                   <p className="mt-2 text-sm text-slate-600">{item.reason}</p>
                 </Link>
@@ -146,7 +146,7 @@ export function GrowthScorecardPanel({
               </div>
             ) : (
               scorecard.topPositives.map((item) => (
-                <Link key={item.id} href={item.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+                <Link key={item.id} href={item.href} className="block rounded-2xl bg-white/84 px-4 py-4 transition hover:bg-white">
                   <p className="font-medium text-slate-950">{item.label}</p>
                   <p className="mt-2 text-sm text-slate-600">{item.reason}</p>
                 </Link>

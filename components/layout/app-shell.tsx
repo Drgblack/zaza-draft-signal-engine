@@ -4,7 +4,7 @@ import { PanelLeftClose } from "lucide-react";
 
 import { EnvStatus } from "@/components/layout/env-status";
 import { NavLink } from "@/components/layout/nav-link";
-import { NAV_ITEMS } from "@/lib/constants";
+import { NAV_GROUPS } from "@/lib/constants";
 
 export function AppShell({
   appName,
@@ -32,25 +32,37 @@ export function AppShell({
                 />
               </div>
               <div>
-                <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Internal Tool</p>
+                <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Internal Tool</p>
                 <h1 className="mt-2 text-xl font-semibold text-slate-950">{appName}</h1>
+                <p className="mt-2 max-w-[14rem] text-sm leading-6 text-slate-600">
+                  Signal intake, review, planning, and publishing memory in one calm operator workspace.
+                </p>
               </div>
             </div>
             <PanelLeftClose className="h-5 w-5 text-slate-300 lg:hidden" />
           </div>
 
-          <nav className="mt-8 grid gap-2">
-            {NAV_ITEMS.map((item) => (
-              <NavLink key={item.href} href={item.href} label={item.label} />
+          <nav className="mt-8 space-y-6">
+            {NAV_GROUPS.map((group) => (
+              <div key={group.label}>
+                <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  {group.label}
+                </p>
+                <div className="mt-3 grid gap-1.5">
+                  {group.items.map((item) => (
+                    <NavLink key={item.href} href={item.href} label={item.label} />
+                  ))}
+                </div>
+              </div>
             ))}
           </nav>
 
-          <div className="mt-8 rounded-3xl border border-black/6 bg-white/85 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Environment</p>
+          <div className="mt-8 rounded-3xl border border-black/6 bg-white/88 p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Environment</p>
             <div className="mt-3">
               <EnvStatus isAirtableConfigured={isAirtableConfigured} />
             </div>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
+            <p className="mt-3 text-sm leading-6 text-slate-700">
               V1 is intentionally constrained to intake, classification, draft preparation, and clean review.
             </p>
           </div>
@@ -70,13 +82,13 @@ export function AppShell({
                   />
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Editorial Workflow</p>
-                  <p className="mt-1 text-sm text-slate-600">Human-in-the-loop signal interpretation and draft prep.</p>
+                  <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Editorial Workflow</p>
+                  <p className="mt-1 text-sm text-slate-700">Human-in-the-loop signal interpretation and draft prep.</p>
                 </div>
               </div>
               <Link
                 href="/signals/new"
-                className="rounded-full border border-black/6 bg-white/85 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-white"
+                className="rounded-full border border-black/6 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-white"
               >
                 New intake
               </Link>

@@ -1,6 +1,7 @@
 import { TuningForm } from "@/components/settings/tuning-form";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildAutonomyPolicyTuningSummary } from "@/lib/autonomy-policy";
 import {
   TUNING_CONTROL_DEFINITIONS,
   TUNING_PRESETS,
@@ -16,6 +17,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const tuning = await getOperatorTuning();
+  const autonomyPolicySummary = buildAutonomyPolicyTuningSummary(tuning);
   const tuningRows = getOperatorTuningRows(tuning);
   const presetOptions = TUNING_PRESETS.map((preset) => ({
     value: preset,
@@ -41,7 +43,7 @@ export default async function SettingsPage() {
               Current mode: {tuning.preset === "custom" ? "Custom" : TUNING_PRESET_LABELS[tuning.preset]}
             </Badge>
           </div>
-          <CardTitle className="text-3xl">Operator Tuning</CardTitle>
+          <CardTitle className="text-balance text-3xl">Operator Tuning</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             Small operator controls for how strict or permissive the system should feel. These settings shift bounded heuristics only. They do not expose formulas, replace judgement, or rewrite the workflow.
           </CardDescription>
@@ -57,6 +59,41 @@ export default async function SettingsPage() {
                 <p className="mt-2 text-lg font-semibold text-slate-950">{row.valueLabel}</p>
               </div>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl">Autonomy policy</CardTitle>
+          <CardDescription>
+            One shared guardrail layer now governs what the engine may apply, what stays suggest-only, and what remains blocked.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Allowed</p>
+            <div className="mt-3 space-y-2 text-sm text-slate-700">
+              {autonomyPolicySummary.allowed.map((item) => (
+                <p key={item}>{item}</p>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Suggest only</p>
+            <div className="mt-3 space-y-2 text-sm text-slate-700">
+              {autonomyPolicySummary.suggestOnly.map((item) => (
+                <p key={item}>{item}</p>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Blocked</p>
+            <div className="mt-3 space-y-2 text-sm text-slate-700">
+              {autonomyPolicySummary.blocked.map((item) => (
+                <p key={item}>{item}</p>
+              ))}
+            </div>
           </div>
         </CardContent>
       </Card>

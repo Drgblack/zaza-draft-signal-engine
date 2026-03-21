@@ -46,6 +46,24 @@ export const experimentSchema = z.object({
   comparisonTarget: z.string().trim().nullable().default(null),
   source: experimentSourceSchema.default("operator"),
   proposalId: z.string().trim().nullable().default(null),
+  autopilotBuilt: z.boolean().default(false),
+  autopilotVersion: z.enum(["v2"]).nullable().default(null),
+  autopilotVariable: z
+    .enum([
+      "hook_variant",
+      "cta_variant",
+      "destination_variant",
+      "editorial_mode_variant",
+      "platform_expression_variant",
+      "pattern_vs_no_pattern",
+    ])
+    .nullable()
+    .default(null),
+  stopConditions: z.array(z.string().trim().min(1)).max(6).default([]),
+  safetyNotes: z.array(z.string().trim().min(1)).max(6).default([]),
+  controlSummary: z.string().trim().nullable().default(null),
+  variantSummary: z.string().trim().nullable().default(null),
+  outcomeSignal: z.string().trim().nullable().default(null),
   variants: z.array(experimentVariantSchema).max(12).default([]),
   createdAt: z.string().trim().min(1),
   updatedAt: z.string().trim().min(1),
@@ -66,6 +84,23 @@ export const experimentCreateRequestSchema = z.object({
   comparisonTarget: z.string().trim().min(1).max(160).optional(),
   source: experimentSourceSchema.default("operator"),
   proposalId: z.string().trim().min(1).max(160).optional(),
+  autopilotBuilt: z.boolean().optional(),
+  autopilotVersion: z.enum(["v2"]).optional(),
+  autopilotVariable: z
+    .enum([
+      "hook_variant",
+      "cta_variant",
+      "destination_variant",
+      "editorial_mode_variant",
+      "platform_expression_variant",
+      "pattern_vs_no_pattern",
+    ])
+    .optional(),
+  stopConditions: z.array(z.string().trim().min(1).max(220)).max(6).optional(),
+  safetyNotes: z.array(z.string().trim().min(1).max(220)).max(6).optional(),
+  controlSummary: z.string().trim().min(1).max(240).optional(),
+  variantSummary: z.string().trim().min(1).max(240).optional(),
+  outcomeSignal: z.string().trim().min(1).max(160).optional(),
   variantLabel: z.string().trim().min(1).max(80).optional(),
   signalId: z.string().trim().min(1).optional(),
   postingId: z.string().trim().min(1).optional(),
@@ -138,6 +173,21 @@ export interface ExperimentOutcomeSummary {
   comparisonTarget: string | null;
   source: ExperimentSource;
   proposalId: string | null;
+  autopilotBuilt: boolean;
+  autopilotVersion: "v2" | null;
+  autopilotVariable:
+    | "hook_variant"
+    | "cta_variant"
+    | "destination_variant"
+    | "editorial_mode_variant"
+    | "platform_expression_variant"
+    | "pattern_vs_no_pattern"
+    | null;
+  stopConditions: string[];
+  safetyNotes: string[];
+  controlSummary: string | null;
+  variantSummary: string | null;
+  outcomeSignal: string | null;
   variantCount: number;
   totalPostingCount: number;
   highValueCount: number;
@@ -157,7 +207,21 @@ export interface ExperimentInsights {
   draftCount: number;
   completedCount: number;
   systemProposedCount: number;
+  autopilotBuiltCount: number;
+  autopilotCompletedCount: number;
+  autopilotCompletionRate: number;
   byType: Array<{ experimentType: ExperimentType; label: string; count: number }>;
+  byAutopilotVariable: Array<{
+    variable:
+      | "hook_variant"
+      | "cta_variant"
+      | "destination_variant"
+      | "editorial_mode_variant"
+      | "platform_expression_variant"
+      | "pattern_vs_no_pattern";
+    label: string;
+    count: number;
+  }>;
   allExperiments: ExperimentOutcomeSummary[];
   activeExperiments: ExperimentOutcomeSummary[];
   completedExperiments: ExperimentOutcomeSummary[];
@@ -264,6 +328,14 @@ export async function createExperiment(input: z.infer<typeof experimentCreateReq
     comparisonTarget: input.comparisonTarget?.trim() ?? null,
     source: input.source,
     proposalId: input.proposalId?.trim() ?? null,
+    autopilotBuilt: input.autopilotBuilt ?? false,
+    autopilotVersion: input.autopilotVersion ?? null,
+    autopilotVariable: input.autopilotVariable ?? null,
+    stopConditions: input.stopConditions ?? [],
+    safetyNotes: input.safetyNotes ?? [],
+    controlSummary: input.controlSummary?.trim() ?? null,
+    variantSummary: input.variantSummary?.trim() ?? null,
+    outcomeSignal: input.outcomeSignal?.trim() ?? null,
     variants,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -540,6 +612,14 @@ function buildExperimentOutcomeSummary(
     comparisonTarget: experiment.comparisonTarget,
     source: experiment.source,
     proposalId: experiment.proposalId,
+    autopilotBuilt: experiment.autopilotBuilt,
+    autopilotVersion: experiment.autopilotVersion,
+    autopilotVariable: experiment.autopilotVariable,
+    stopConditions: experiment.stopConditions,
+    safetyNotes: experiment.safetyNotes,
+    controlSummary: experiment.controlSummary,
+    variantSummary: experiment.variantSummary,
+    outcomeSignal: experiment.outcomeSignal,
     variantCount: experiment.variants.length,
     totalPostingCount: variants.reduce((sum, variant) => sum + variant.postingCount, 0),
     highValueCount: variants.reduce((sum, variant) => sum + variant.highValueCount, 0),
@@ -604,6 +684,22 @@ export function buildExperimentInsights(input: {
       count,
     }))
     .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+  const byAutopilotVariable = Array.from(
+    summaries.reduce((map, experiment) => {
+      if (!experiment.autopilotVariable) {
+        return map;
+      }
+
+      map.set(experiment.autopilotVariable, (map.get(experiment.autopilotVariable) ?? 0) + 1);
+      return map;
+    }, new Map<NonNullable<ExperimentOutcomeSummary["autopilotVariable"]>, number>()),
+  )
+    .map(([variable, count]) => ({
+      variable,
+      label: variable.replaceAll("_", " "),
+      count,
+    }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
 
   if (activeExperiments[0]?.comparisonSummary) {
     summariesCopy.push(activeExperiments[0].comparisonSummary);
@@ -617,13 +713,25 @@ export function buildExperimentInsights(input: {
   if (mostCommercial && summariesCopy.length < 3) {
     summariesCopy.push(`${mostCommercial.name} is currently the experiment with the strongest lead signal.`);
   }
+  const autopilotBuiltCount = summaries.filter((experiment) => experiment.autopilotBuilt).length;
+  const autopilotCompletedCount = summaries.filter(
+    (experiment) => experiment.autopilotBuilt && experiment.status === "completed",
+  ).length;
+  if (byAutopilotVariable[0] && summariesCopy.length < 3) {
+    summariesCopy.push(`${byAutopilotVariable[0].label} is the most common autopilot-built experiment variable so far.`);
+  }
 
   return {
     activeCount: activeExperiments.length,
     draftCount: summaries.filter((experiment) => experiment.status === "draft").length,
     completedCount: completedExperiments.length,
     systemProposedCount: summaries.filter((experiment) => experiment.source === "system_proposal").length,
+    autopilotBuiltCount,
+    autopilotCompletedCount,
+    autopilotCompletionRate:
+      autopilotBuiltCount === 0 ? 0 : autopilotCompletedCount / autopilotBuiltCount,
     byType,
+    byAutopilotVariable,
     allExperiments: summaries,
     activeExperiments: activeExperiments.slice(0, 4),
     completedExperiments: completedExperiments.slice(0, 4),

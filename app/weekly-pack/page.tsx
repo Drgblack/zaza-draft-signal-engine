@@ -15,6 +15,7 @@ import {
   listDuplicateClusters,
 } from "@/lib/duplicate-clusters";
 import { buildEvergreenSummary } from "@/lib/evergreen";
+import { buildAutonomousExperimentProposals, listExperimentProposals } from "@/lib/experiment-proposals";
 import { listExperiments } from "@/lib/experiments";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
@@ -51,6 +52,7 @@ export default async function WeeklyPackPage() {
     strategicOutcomes,
     duplicateClusters,
     experiments,
+    storedExperimentProposals,
     strategy,
     tuning,
   ] = await Promise.all([
@@ -64,6 +66,7 @@ export default async function WeeklyPackPage() {
     listStrategicOutcomes(),
     listDuplicateClusters(),
     listExperiments(),
+    listExperimentProposals(),
     getCampaignStrategy(),
     getOperatorTuning(),
   ]);
@@ -153,6 +156,15 @@ export default async function WeeklyPackPage() {
     postingEntries,
     now: renderNow,
   });
+  const experimentProposals = buildAutonomousExperimentProposals({
+    candidates: approvalReadyCandidates,
+    experiments,
+    storedProposals: storedExperimentProposals,
+    maxProposals: 4,
+  }).filter((proposal) => proposal.status === "open");
+  const packExperimentCount = pack.items.filter((item) =>
+    experimentProposals.some((proposal) => proposal.signalId === item.signalId),
+  ).length;
   const packInsights = buildWeeklyPostingPackInsights(pack);
 
   await appendAuditEventsSafe([
@@ -278,7 +290,43 @@ export default async function WeeklyPackPage() {
           <p className="mt-2 text-2xl font-semibold text-slate-950">{stagedPostingPackages.length}</p>
           <p className="mt-1 text-sm text-slate-600">Weekly-pack items can be pushed straight into the ready-to-post surface.</p>
         </div>
+        <div className="rounded-2xl bg-white/80 px-4 py-4">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Experiment slots</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{packExperimentCount}</p>
+          <p className="mt-1 text-sm text-slate-600">Weekly-pack items that also have an autopilot-built bounded test ready for operator review.</p>
+        </div>
       </div>
+
+      {packExperimentCount > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Experiment Slot This Week</CardTitle>
+            <CardDescription>
+              Some weekly-pack items also carry a bounded one-variable experiment suggestion. Keep them clearly marked and optional.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {experimentProposals
+              .filter((proposal) => pack.items.some((item) => item.signalId === proposal.signalId))
+              .slice(0, 2)
+              .map((proposal) => (
+                <div key={proposal.proposalId} className="rounded-2xl bg-white/80 px-4 py-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="bg-emerald-50 text-emerald-700 ring-emerald-200">Autopilot-built experiment</Badge>
+                    {proposal.autopilotVariable ? (
+                      <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{proposal.autopilotVariable.replaceAll("_", " ")}</Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-3 font-medium text-slate-950">{proposal.sourceTitle}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">{proposal.hypothesis ?? proposal.whyProposed}</p>
+                  <Link href={proposal.reviewHref} className="mt-3 inline-flex text-sm text-[color:var(--accent)] underline underline-offset-4">
+                    Open in review
+                  </Link>
+                </div>
+              ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {pack.sequences.length > 0 ? (
         <Card>

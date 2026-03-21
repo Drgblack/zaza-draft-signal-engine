@@ -97,6 +97,22 @@ export async function POST(request: Request) {
             comparisonTarget: proposal.comparisonTarget,
           },
         },
+        ...(proposal.autopilotBuilt
+          ? [
+              {
+                signalId: proposal.signalId,
+                eventType: "EXPERIMENT_AUTOPILOT_V2_ACCEPTED" as const,
+                actor: "operator" as const,
+                summary: `Accepted autopilot-built ${proposal.autopilotVariable?.replaceAll("_", " ") ?? "experiment"} test for ${proposal.sourceTitle}.`,
+                metadata: {
+                  proposalId: proposal.proposalId,
+                  experimentId: experiment.experimentId,
+                  experimentType: proposal.experimentType,
+                  variable: proposal.autopilotVariable,
+                },
+              },
+            ]
+          : []),
         {
           signalId: `experiment:${experiment.experimentId}`,
           eventType: "EXPERIMENT_CREATED",
@@ -107,6 +123,8 @@ export async function POST(request: Request) {
             experimentType: proposal.experimentType,
             learningGoal: proposal.expectedLearningGoal,
             variantCount: experiment.variants.length,
+            autopilotBuilt: proposal.autopilotBuilt,
+            autopilotVariable: proposal.autopilotVariable,
           },
         },
       ]);
@@ -134,6 +152,21 @@ export async function POST(request: Request) {
             comparisonTarget: proposal.comparisonTarget,
           },
         },
+        ...(proposal.autopilotBuilt
+          ? [
+              {
+                signalId: proposal.signalId,
+                eventType: "EXPERIMENT_AUTOPILOT_V2_DISMISSED" as const,
+                actor: "operator" as const,
+                summary: `Dismissed autopilot-built ${proposal.autopilotVariable?.replaceAll("_", " ") ?? "experiment"} test for ${proposal.sourceTitle}.`,
+                metadata: {
+                  proposalId: proposal.proposalId,
+                  experimentType: proposal.experimentType,
+                  variable: proposal.autopilotVariable,
+                },
+              },
+            ]
+          : []),
       ]);
     }
 

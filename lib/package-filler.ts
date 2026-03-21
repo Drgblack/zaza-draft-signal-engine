@@ -1,12 +1,19 @@
 import type { AutoAdvanceAssessment } from "@/lib/auto-advance";
+import {
+  evaluateAutonomyPolicy,
+  type AutonomyPolicyDecision,
+} from "@/lib/autonomy-policy";
+import type { AttributionRecord } from "@/lib/attribution";
+import type { AudienceMemoryState } from "@/lib/audience-memory";
 import { buildSignalAssetBundle } from "@/lib/assets";
 import { evaluateApprovalPackageCompleteness, type ApprovalPackageCompleteness } from "@/lib/completeness";
+import type { ConflictAssessment } from "@/lib/conflicts";
 import { buildEditPatternSuggestions, inferEditPatternHistory } from "@/lib/edit-patterns";
 import type { ConversionIntentAssessment } from "@/lib/conversion-intent";
+import { applyCtaDestinationSelfHealing } from "@/lib/cta-destination-healing";
 import type { ManualExperiment } from "@/lib/experiments";
 import {
   buildSignalPublishPrepBundle,
-  getPrimaryLinkVariant,
   getPublishPrepPackageForPlatform,
   getSelectedCtaText,
   getSelectedHookText,
@@ -18,8 +25,8 @@ import {
 } from "@/lib/publish-prep";
 import type { PostingOutcome } from "@/lib/outcomes";
 import type { PostingLogEntry } from "@/lib/posting-memory";
+import type { RevenueSignal } from "@/lib/revenue-signals";
 import { buildRevisionGuidance } from "@/lib/revision-guidance";
-import { getSiteLinkById } from "@/lib/site-links";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import type { SignalRecord } from "@/types/signal";
 
@@ -46,6 +53,7 @@ export interface PackageAutofillNote {
 export interface PackageAutofillResult {
   eligible: boolean;
   mode: "applied" | "suggested" | "blocked";
+  policy: AutonomyPolicyDecision;
   signal: SignalRecord;
   notes: PackageAutofillNote[];
   appliedFields: PackageAutofillField[];
@@ -105,6 +113,10 @@ function patchPrimaryPackage(
   notes: PackageAutofillNote[],
   conversionIntent: ConversionIntentAssessment | null | undefined,
   experiments?: ManualExperiment[],
+  conflicts?: Pick<ConflictAssessment, "topConflicts" | "summary"> | null,
+  attributionRecords?: AttributionRecord[],
+  revenueSignals?: RevenueSignal[],
+  audienceMemory?: AudienceMemoryState | null,
 ): PublishPrepBundle {
   const primaryPlatform = currentBundle.primaryPlatform ?? defaultBundle.primaryPlatform ?? getPrimaryPlatform(signal);
   if (primaryPlatform !== "x" && primaryPlatform !== "linkedin" && primaryPlatform !== "reddit") {
@@ -133,28 +145,6 @@ function patchPrimaryPackage(
     });
   }
 
-  const preferredCtaVariant =
-    conversionIntent?.preferredCtaVariant === "soft"
-      ? defaultPackage.ctaVariants[1] ?? defaultPackage.ctaVariants[0] ?? null
-      : defaultPackage.ctaVariants[0] ?? defaultPackage.ctaVariants[1] ?? null;
-
-  if (
-    !ctaBlocked &&
-    preferredCtaVariant &&
-    trimOrNull(nextPrimaryPackage.selectedCtaId) !== preferredCtaVariant.id
-  ) {
-    nextPrimaryPackage.selectedCtaId = preferredCtaVariant.id;
-    uniqueNote(notes, {
-      field: "cta",
-      label: "Auto-filled CTA",
-      value: getSelectedCtaText(nextPrimaryPackage) ?? nextPrimaryPackage.primaryCta ?? "Selected primary CTA",
-      reason:
-        conversionIntent?.preferredCtaVariant === "soft"
-          ? "Conversion posture kept the CTA trust-first instead of escalating pressure."
-          : "Conversion posture supports a clearer conversion-oriented CTA.",
-    });
-  }
-
   if (!trimOrNull(nextPrimaryPackage.suggestedPostingTime) && trimOrNull(defaultPackage.suggestedPostingTime)) {
     nextPrimaryPackage.suggestedPostingTime = defaultPackage.suggestedPostingTime;
     uniqueNote(notes, {
@@ -165,48 +155,47 @@ function patchPrimaryPackage(
     });
   }
 
-  if (!destinationBlocked) {
-    const defaultPrimaryLink = getPrimaryLinkVariant(defaultPackage);
-    const currentPrimaryLink = getPrimaryLinkVariant(nextPrimaryPackage);
-    const postureDestinationId = conversionIntent?.preferredDestinationIds.find((id) => getSiteLinkById(id));
-    const postureLink =
-      postureDestinationId && defaultPackage.linkVariants.find((variant) => variant.siteLinkId === postureDestinationId);
-    const targetPrimaryLink = postureLink ?? defaultPrimaryLink;
-    const shouldAdoptLinkFields =
-      (!trimOrNull(nextPrimaryPackage.siteLinkId) && !trimOrNull(nextPrimaryPackage.siteLinkLabel)) ||
-      !currentPrimaryLink ||
-      Boolean(
-        postureDestinationId &&
-          trimOrNull(nextPrimaryPackage.siteLinkId) &&
-          !conversionIntent?.preferredDestinationIds.includes(trimOrNull(nextPrimaryPackage.siteLinkId) ?? ""),
-      );
-    if (shouldAdoptLinkFields && targetPrimaryLink) {
-      nextPrimaryPackage.siteLinkId = targetPrimaryLink.siteLinkId ?? trimOrNull(defaultPackage.siteLinkId);
-      nextPrimaryPackage.siteLinkLabel = targetPrimaryLink.destinationLabel ?? trimOrNull(defaultPackage.siteLinkLabel) ?? targetPrimaryLink.label;
-      nextPrimaryPackage.siteLinkReason =
-        postureLink && conversionIntent
-          ? `Conversion posture ${conversionIntent.posture.replaceAll("_", " ")} fits this destination better.`
-          : trimOrNull(nextPrimaryPackage.siteLinkReason) ?? trimOrNull(defaultPackage.siteLinkReason);
-      nextPrimaryPackage.siteLinkUsedFallback = postureLink ? false : nextPrimaryPackage.siteLinkUsedFallback ?? defaultPackage.siteLinkUsedFallback;
-      nextPrimaryPackage.linkVariants =
-        postureLink
-          ? [
-              targetPrimaryLink,
-              ...defaultPackage.linkVariants.filter((variant) => variant.siteLinkId !== targetPrimaryLink.siteLinkId),
-            ]
-          : nextPrimaryPackage.linkVariants.length > 0
-            ? nextPrimaryPackage.linkVariants
-            : defaultPackage.linkVariants;
+  const healing = applyCtaDestinationSelfHealing({
+    signal,
+    currentPackage: nextPrimaryPackage,
+    defaultPackage,
+    conversionIntent,
+    conflicts,
+    attributionRecords,
+    revenueSignals,
+    audienceMemory,
+    ctaBlocked,
+    destinationBlocked,
+  });
+
+  if (healing.decision === "applied") {
+    const healedPackage = healing.package;
+    const ctaChanged = trimOrNull(getSelectedCtaText(nextPrimaryPackage)) !== trimOrNull(getSelectedCtaText(healedPackage));
+    const destinationChanged =
+      trimOrNull(nextPrimaryPackage.siteLinkId) !== trimOrNull(healedPackage.siteLinkId) ||
+      trimOrNull(nextPrimaryPackage.siteLinkLabel) !== trimOrNull(healedPackage.siteLinkLabel);
+    const nextField =
+      ctaChanged && destinationChanged ? "destination" : ctaChanged ? "cta" : "destination";
+
+    if (ctaChanged) {
       uniqueNote(notes, {
-        field: "destination",
-        label: "Auto-selected destination",
-        value: targetPrimaryLink.label,
-        reason:
-          postureLink && conversionIntent
-            ? `Conversion posture ${conversionIntent.posture.replaceAll("_", " ")} is a better fit for this destination.`
-            : "The default destination already matched the current CTA and publish-prep context.",
+        field: "cta",
+        label: "Self-healed CTA",
+        value: getSelectedCtaText(healedPackage) ?? healedPackage.primaryCta ?? "Selected CTA",
+        reason: healing.reason ?? healing.summary,
       });
     }
+
+    if (destinationChanged) {
+      uniqueNote(notes, {
+        field: nextField,
+        label: "Self-healed destination",
+        value: healedPackage.siteLinkLabel ?? healedPackage.linkVariants[0]?.label ?? "Selected destination",
+        reason: healing.reason ?? healing.summary,
+      });
+    }
+
+    Object.assign(nextPrimaryPackage, healedPackage);
   }
 
   if (JSON.stringify(nextPrimaryPackage) === JSON.stringify(currentPackage)) {
@@ -341,6 +330,10 @@ export function applyApprovalPackageAutofill(input: {
   guidanceConfidenceLevel: "high" | "moderate" | "low";
   automationConfidenceLevel: "high" | "medium" | "low";
   conversionIntent?: ConversionIntentAssessment | null;
+  conflicts?: Pick<ConflictAssessment, "topConflicts" | "summary"> | null;
+  attributionRecords?: AttributionRecord[];
+  revenueSignals?: RevenueSignal[];
+  audienceMemory?: AudienceMemoryState | null;
   assessment?: Pick<AutoAdvanceAssessment, "decision" | "draftQuality"> | null;
   allSignals: SignalRecord[];
   postingEntries: PostingLogEntry[];
@@ -365,10 +358,24 @@ export function applyApprovalPackageAutofill(input: {
     input.assessment?.draftQuality?.label !== "Weak" &&
     (input.assessment ? input.assessment.decision === "approval_ready" : true);
 
-  if (!eligible) {
+  const policy = evaluateAutonomyPolicy({
+    actionType: "autofill_package",
+    confidenceLevel: input.automationConfidenceLevel,
+    completenessState:
+      completenessBefore.completenessState === "mostly_complete" || completenessBefore.completenessState === "complete"
+        ? completenessBefore.completenessState
+        : "incomplete",
+    approvalReady: input.assessment ? input.assessment.decision === "approval_ready" : true,
+    hasDrafts,
+    nearComplete,
+    draftQualityLabel: input.assessment?.draftQuality?.label ?? null,
+  });
+
+  if (!eligible || policy.decision === "block") {
     return {
       eligible: false,
       mode: "blocked",
+      policy,
       signal: input.signal,
       notes: [],
       appliedFields: [],
@@ -389,6 +396,10 @@ export function applyApprovalPackageAutofill(input: {
       notes,
       input.conversionIntent,
       input.experiments,
+      input.conflicts,
+      input.attributionRecords,
+      input.revenueSignals,
+      input.audienceMemory,
     );
 
     if (JSON.stringify(nextPublishPrepBundle) !== JSON.stringify(currentPublishPrepBundle) || !nextSignal.publishPrepBundleJson) {
@@ -412,6 +423,7 @@ export function applyApprovalPackageAutofill(input: {
     return {
       eligible: true,
       mode: "suggested",
+      policy,
       signal: input.signal,
       notes,
       appliedFields: [],
@@ -422,10 +434,11 @@ export function applyApprovalPackageAutofill(input: {
 
   return {
     eligible: true,
-    mode: "applied",
-    signal: nextSignal,
+    mode: policy.decision === "suggest_only" ? "suggested" : "applied",
+    policy,
+    signal: policy.decision === "allow" ? nextSignal : input.signal,
     notes,
-    appliedFields: notes.map((note) => note.field),
+    appliedFields: policy.decision === "allow" ? notes.map((note) => note.field) : [],
     completenessBefore,
     completenessAfter,
   };

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { listSignalsWithFallback } from "@/lib/airtable";
+import { evaluateAutonomyPolicy } from "@/lib/autonomy-policy";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import {
   rankApprovalCandidates,
@@ -116,15 +117,6 @@ export interface SafePostingInsights {
   manualPostedCount: number;
   failedCount: number;
   topBlockReasons: Array<{ label: string; count: number }>;
-}
-
-function uniquePush(target: string[], value: string | null | undefined) {
-  const normalized = value?.trim();
-  if (!normalized || target.includes(normalized)) {
-    return;
-  }
-
-  target.push(normalized);
 }
 
 function isActiveExperimentLinked(
@@ -305,64 +297,32 @@ export function buildSafePostingEligibilityMap(input: {
   const entries = input.packages.map((pkg) => {
     const candidate = input.candidateBySignalId.get(pkg.signalId) ?? null;
     const supportedExecutionPath = SAFE_POSTING_EXECUTION_PATHS[pkg.platform] ?? null;
-    const blockReasons: string[] = [];
     const safeModeEnabled = isSafeModePostingEnabled(input.tuning);
     const confirmationRequired = requiresSafePostingConfirmation(input.tuning);
+    const policy = evaluateAutonomyPolicy({
+      actionType: "safe_post",
+      confidenceLevel: candidate?.automationConfidence.level ?? "low",
+      completenessState:
+        candidate?.completeness.completenessState === "complete" ? "complete" : "incomplete",
+      hasUnresolvedConflicts: (candidate?.conflicts.conflicts.length ?? 0) > 0,
+      experimentLinked: isActiveExperimentLinked(pkg.signalId, input.experiments),
+      workflowState: pkg.status,
+      safeModePostingEnabled: safeModeEnabled,
+      supportedExecutionPath,
+      reviewContextKnown: Boolean(candidate),
+    });
 
-    if (pkg.status !== "staged_for_posting") {
-      uniquePush(blockReasons, "Only staged packages can use safe-mode posting.");
-    }
-
-    if (!safeModeEnabled) {
-      uniquePush(blockReasons, "Safe-mode posting is disabled in operator settings.");
-    }
-
-    if (!candidate) {
-      uniquePush(
-        blockReasons,
-        "This item is outside the active review context, so safe-mode posting cannot verify it.",
-      );
-    } else {
-      if (candidate.automationConfidence.level !== "high") {
-        uniquePush(
-          blockReasons,
-          `${candidate.automationConfidence.label}. Only high-confidence items can use safe mode.`,
-        );
-      }
-
-      if (candidate.completeness.completenessState !== "complete") {
-        uniquePush(
-          blockReasons,
-          `Package completeness is ${candidate.completeness.completenessState.replaceAll("_", " ")}.`,
-        );
-      }
-
-      if (candidate.conflicts.conflicts.length > 0) {
-        uniquePush(
-          blockReasons,
-          candidate.conflicts.topConflicts[0]?.reason ??
-            "Unresolved conflicts remain in the posting package.",
-        );
-      }
-    }
-
-    if (isActiveExperimentLinked(pkg.signalId, input.experiments)) {
-      uniquePush(
-        blockReasons,
-        "Experiment-linked content stays manual-only in strict safe mode.",
-      );
-    }
-
-    const manualOnlyReason =
-      blockReasons.length === 0 && !supportedExecutionPath
-        ? `${pkg.platform === "reddit" ? "Reddit" : "This platform"} remains manual-only in strict safe mode.`
-        : null;
     const postingEligibility: SafePostingEligibilityState =
-      blockReasons.length > 0
-        ? "blocked"
-        : manualOnlyReason
+      policy.decision === "allow"
+        ? "eligible_safe_post"
+        : policy.decision === "suggest_only"
           ? "manual_only"
-          : "eligible_safe_post";
+          : "blocked";
+    const blockReasons = postingEligibility === "blocked" ? policy.reasons : [];
+    const manualOnlyReason =
+      postingEligibility === "manual_only"
+        ? policy.reasons[0] ?? `${pkg.platform === "reddit" ? "Reddit" : "This platform"} remains manual-only in strict safe mode.`
+        : null;
 
     return [
       pkg.packageId,

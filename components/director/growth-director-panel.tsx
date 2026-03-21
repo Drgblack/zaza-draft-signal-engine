@@ -84,7 +84,7 @@ export function GrowthDirectorPanel({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="rounded-2xl bg-white/80 px-4 py-4">
+          <div className="rounded-2xl bg-[color:var(--panel-strong)] px-4 py-4 shadow-[0_8px_22px_rgba(15,23,42,0.04)]">
             <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current focus</p>
             <p className="mt-2 font-medium text-slate-950">{director.currentFocus.label}</p>
             <p className="mt-2 text-sm text-slate-600">{director.currentFocus.reason}</p>
@@ -93,7 +93,7 @@ export function GrowthDirectorPanel({
             <Link
               key={item.id}
               href={item.href}
-              className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white"
+              className="block rounded-2xl bg-white/84 px-4 py-4 transition hover:bg-white"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <PriorityBadge priority={item.priority} />
@@ -117,28 +117,25 @@ export function GrowthDirectorPanel({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Link
-            href={director.currentFocus.href}
-            className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white"
-          >
+          <Link href={director.currentFocus.href} className="block rounded-2xl bg-[color:var(--panel-strong)] px-4 py-4 transition hover:bg-white">
             <p className="font-medium text-slate-950">{director.currentFocus.label}</p>
             <p className="mt-2 text-sm text-slate-600">{director.currentFocus.reason}</p>
           </Link>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <div className="rounded-2xl bg-white/84 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Planning</p>
               <p className="mt-2 text-sm text-slate-700">{director.planningSummary}</p>
             </div>
-            <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <div className="rounded-2xl bg-white/84 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Content</p>
               <p className="mt-2 text-sm text-slate-700">{director.contentSummary}</p>
             </div>
-            <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <div className="rounded-2xl bg-white/84 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Distribution</p>
               <p className="mt-2 text-sm text-slate-700">{director.distributionSummary}</p>
             </div>
-            <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <div className="rounded-2xl bg-white/84 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Revenue</p>
               <p className="mt-2 text-sm text-slate-700">{director.revenueSummary}</p>
             </div>
@@ -185,7 +182,7 @@ export function GrowthDirectorPanel({
         </CardHeader>
         <CardContent className="space-y-3">
           {director.supportingSignals.map((item) => (
-            <div key={item} className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+            <div key={item} className="rounded-2xl bg-white/84 px-4 py-4 text-sm text-slate-600">
               {item}
             </div>
           ))}

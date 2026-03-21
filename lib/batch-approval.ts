@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { ApprovalQueueCandidate } from "@/lib/approval-ranking";
+import { evaluateAutonomyPolicy } from "@/lib/autonomy-policy";
 import type { CampaignStrategy } from "@/lib/campaigns";
 import { getSignalContentContextSummary } from "@/lib/campaigns";
 import { buildAssetBundleSummary, buildSignalAssetBundle } from "@/lib/assets";
@@ -66,6 +67,7 @@ export interface BatchApprovalItem {
   repurposingSummary: string | null;
   publishPrepSummary: string | null;
   packageAutofillNotes: string[];
+  preReviewRepairNotes: string[];
   rationale: string[];
   primaryPackageId: string;
   selectedHookId: string | null;
@@ -205,6 +207,9 @@ function toBatchItem(candidate: ApprovalQueueCandidate, strategy: CampaignStrate
     repurposingSummary: repurposingSummary ? `${repurposingSummary.count} variants · ${repurposingSummary.primaryPlatformLabel ?? "mixed"}` : null,
     publishPrepSummary: publishPrepSummary ? `${publishPrepSummary.packageCount} packages ready` : null,
     packageAutofillNotes: candidate.packageAutofill.notes.map((note) => `${note.label}: ${note.value}`),
+    preReviewRepairNotes: candidate.preReviewRepair.repairs.map(
+      (repair) => `${repair.repairType.replaceAll("_", " ")}: ${repair.after}`,
+    ),
     rationale: [
       ...candidate.rankReasons,
       ...(context.campaignName ? [`Campaign: ${context.campaignName}`] : []),
@@ -277,7 +282,21 @@ export function buildBatchApprovalPrep(input: {
   const ranked = [...input.candidates].sort(
     (left, right) => right.rankScore - left.rankScore || left.signal.sourceTitle.localeCompare(right.signal.sourceTitle),
   );
-  const eligibleCandidates = ranked.filter((candidate) => candidate.automationConfidence.allowBatchInclusion);
+  const eligibleCandidates = ranked.filter((candidate) => {
+    const policy = evaluateAutonomyPolicy({
+      actionType: "auto_route_to_queue_bucket",
+      confidenceLevel: candidate.automationConfidence.level,
+      completenessState:
+        candidate.completeness.completenessState === "complete"
+          ? "complete"
+          : candidate.completeness.completenessState === "mostly_complete"
+            ? "mostly_complete"
+            : "incomplete",
+      hasUnresolvedConflicts: candidate.conflicts.conflicts.length > 0,
+    });
+
+    return candidate.automationConfidence.allowBatchInclusion && policy.decision === "allow";
+  });
   const selected: ApprovalQueueCandidate[] = [];
   const selectedItems: BatchApprovalItem[] = [];
 

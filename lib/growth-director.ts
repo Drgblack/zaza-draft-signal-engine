@@ -107,7 +107,7 @@ function pickCurrentFocus(input: {
     return {
       label: "Turn this week’s pack into execution-ready posts",
       reason: `${input.weeklyPostingPack.items.length} recommended pack item${input.weeklyPostingPack.items.length === 1 ? "" : "s"} exist, but nothing is staged for posting yet.`,
-      href: "/weekly-pack",
+      href: "/execution",
     } satisfies GrowthDirectorFocus;
   }
 
@@ -183,7 +183,7 @@ export function buildGrowthDirector(input: {
         id: "priority-stage-pack",
         label: "Stage the weekly posting pack for execution",
         reason: `${input.weeklyPostingPack.items.length} recommended item${input.weeklyPostingPack.items.length === 1 ? "" : "s"} are ready, but only ${input.distributionSummary.readyCount} staged package${input.distributionSummary.readyCount === 1 ? "" : "s"} exist.`,
-        href: "/weekly-pack",
+        href: "/execution",
         priority: "high",
         supportingSignals: [
           input.weeklyPostingPack.coverageSummary.summary,

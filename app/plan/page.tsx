@@ -199,7 +199,7 @@ export default async function WeeklyPlanPage() {
             <Badge className="bg-slate-100 text-slate-700 ring-slate-200">Planning layer</Badge>
             <Badge className="bg-sky-50 text-sky-700 ring-sky-200">{plan.weekStartDate}</Badge>
           </div>
-          <CardTitle className="text-3xl">Weekly Plan</CardTitle>
+          <CardTitle className="text-balance text-3xl">Weekly Plan</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             Lightweight weekly intent for balancing fresh signals, evergreen content, campaigns, funnel coverage, platforms, and editorial modes. This guides ranking and review without turning the product into a scheduler.
           </CardDescription>

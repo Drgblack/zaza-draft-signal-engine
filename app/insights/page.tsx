@@ -7,7 +7,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { listSignalsWithFallback } from "@/lib/airtable";
 import { buildAudienceMemoryInsights, syncAudienceMemory } from "@/lib/audience-memory";
 import { buildAttributionInsights, syncAttributionMemory } from "@/lib/attribution";
+import { buildAutonomyPolicyInsights, evaluateAutonomyPolicy } from "@/lib/autonomy-policy";
 import { appendAuditEventsSafe, listAuditEvents } from "@/lib/audit";
+import { buildAutonomyScorecard } from "@/lib/autonomy-scorecard";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { buildBatchApprovalPrep } from "@/lib/batch-approval";
@@ -23,6 +25,7 @@ import {
 import { buildExpectedOutcomeInsights } from "@/lib/expected-outcome-ranking";
 import { buildEvergreenSummary } from "@/lib/evergreen";
 import { buildExperimentInsights, listExperiments } from "@/lib/experiments";
+import { buildExperimentAutopilotV2 } from "@/lib/experiment-autopilot-v2";
 import { buildAutonomousExperimentProposals, buildExperimentProposalInsights, listExperimentProposals } from "@/lib/experiment-proposals";
 import { buildFatigueModel } from "@/lib/fatigue";
 import { listFeedbackEntries } from "@/lib/feedback";
@@ -41,16 +44,20 @@ import { listPatternFeedbackEntries } from "@/lib/pattern-feedback";
 import { buildPatternEffectivenessSummaries, listPatterns } from "@/lib/patterns";
 import { listPostingAssistantPackages } from "@/lib/posting-assistant";
 import { listPostingLogEntries } from "@/lib/posting-log";
+import { buildQueueTriageInsights } from "@/lib/queue-triage";
 import { buildRevenueSignalInsights, syncRevenueSignals } from "@/lib/revenue-signals";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { syncPlaybookPacks } from "@/lib/playbook-packs";
+import { buildPreReviewHealingInsights, buildPreReviewRepairInsights } from "@/lib/review-repair";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { buildSafePostingEligibilityMap, buildSafePostingInsights } from "@/lib/safe-posting";
+import { buildSafeReplyState } from "@/lib/safe-replies";
 import { listIngestionSources } from "@/lib/ingestion/sources";
 import { buildStaleQueueOverview } from "@/lib/stale-queue";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { buildSourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import { getOperatorTuning } from "@/lib/tuning";
+import { buildWeeklyExecutionInsights, listStoredWeeklyExecutionFlows, prepareWeeklyExecutionFlow } from "@/lib/weekly-execution";
 import { buildWeeklyPostingPack, buildWeeklyPostingPackInsights } from "@/lib/weekly-posting-pack";
 import { buildWeeklyPlanInsights, buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanStore } from "@/lib/weekly-plan";
 import { buildWeeklyRecap } from "@/lib/weekly-recap";
@@ -156,8 +163,8 @@ function WindowLink({
       href={href}
       className={
         active
-          ? "rounded-full bg-slate-950 px-3 py-2 text-sm font-medium text-white"
-          : "rounded-full bg-white/80 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-slate-950"
+          ? "rounded-full border border-slate-900 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-50 shadow-[0_8px_18px_rgba(15,23,42,0.14)]"
+          : "rounded-full bg-white/88 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-white hover:text-slate-950"
       }
     >
       {label}
@@ -175,10 +182,10 @@ function MetricCard({
   detail: string;
 }) {
   return (
-    <div className="rounded-2xl bg-white/80 px-4 py-4">
-      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{label}</p>
+    <div className="rounded-2xl bg-white/84 px-4 py-4">
+      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</p>
       <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-      <p className="mt-1 text-sm text-slate-500">{detail}</p>
+      <p className="mt-1 text-sm text-slate-600">{detail}</p>
     </div>
   );
 }
@@ -188,7 +195,7 @@ function EmptyState({
 }: {
   copy: string;
 }) {
-  return <div className="rounded-2xl bg-white/75 px-4 py-5 text-sm text-slate-500">{copy}</div>;
+  return <div className="rounded-2xl bg-white/80 px-4 py-5 text-sm text-slate-600">{copy}</div>;
 }
 
 export default async function InsightsPage({
@@ -449,6 +456,25 @@ export default async function InsightsPage({
   );
   const stagedPostingPackages = postingAssistantPackages.filter((pkg) => pkg.status === "staged_for_posting");
   const postedPostingPackages = postingAssistantPackages.filter((pkg) => pkg.status === "posted");
+  const storedWeeklyExecutionFlows = await listStoredWeeklyExecutionFlows();
+  const weeklyExecutionPreview =
+    storedWeeklyExecutionFlows.find((flow) => flow.weekStartDate === weeklyPostingPack.weekStartDate) ??
+    prepareWeeklyExecutionFlow({
+      weekStartDate: weeklyPostingPack.weekStartDate,
+      pack: weeklyPostingPack,
+      approvalCandidates: approvalReadyCandidates,
+      stagedPackages: stagedPostingPackages,
+    }).flow;
+  const weeklyExecutionInsights = buildWeeklyExecutionInsights(
+    storedWeeklyExecutionFlows.length > 0 ? storedWeeklyExecutionFlows : [weeklyExecutionPreview],
+  );
+  const autonomyScorecard = buildAutonomyScorecard({
+    approvalCandidates: approvalReadyCandidates,
+    executionFlow: weeklyExecutionPreview,
+    auditEvents,
+    now: renderNow,
+  });
+  const safeReplyState = await buildSafeReplyState();
   const safePostingEligibilityByPackageId = buildSafePostingEligibilityMap({
     packages: postingAssistantPackages,
     candidateBySignalId: safePostingCandidateBySignalId,
@@ -459,6 +485,61 @@ export default async function InsightsPage({
     packages: postingAssistantPackages,
     eligibilityByPackageId: safePostingEligibilityByPackageId,
   });
+  const autonomyPolicyInsights = buildAutonomyPolicyInsights([
+    ...approvalReadyCandidates.map((candidate) => candidate.packageAutofill.policy),
+    ...approvalReadyCandidates.map((candidate) => candidate.preReviewRepair.policy),
+    ...approvalReadyCandidates.map((candidate) =>
+      evaluateAutonomyPolicy({
+        actionType: "auto_route_to_queue_bucket",
+        confidenceLevel: candidate.automationConfidence.level,
+        completenessState:
+          candidate.completeness.completenessState === "complete"
+            ? "complete"
+            : candidate.completeness.completenessState === "mostly_complete"
+              ? "mostly_complete"
+              : "incomplete",
+        hasUnresolvedConflicts: candidate.conflicts.conflicts.length > 0,
+      }),
+    ),
+    ...approvalReadyCandidates.map((candidate) =>
+      evaluateAutonomyPolicy({
+        actionType: "create_experiment_variant",
+        confidenceLevel: candidate.automationConfidence.level,
+        completenessState:
+          candidate.completeness.completenessState === "complete"
+            ? "complete"
+            : candidate.completeness.completenessState === "mostly_complete"
+              ? "mostly_complete"
+              : "incomplete",
+        hasUnresolvedConflicts: candidate.conflicts.conflicts.length > 0,
+      }),
+    ),
+    ...stagedPostingPackages.map((pkg) => {
+      const eligibility = safePostingEligibilityByPackageId[pkg.packageId];
+      const decision =
+        eligibility?.postingEligibility === "eligible_safe_post"
+          ? ("allow" as const)
+          : eligibility?.postingEligibility === "manual_only"
+            ? ("suggest_only" as const)
+            : ("block" as const);
+      return {
+        actionType: "safe_post" as const,
+        decision,
+        reasons: eligibility?.blockReasons ?? [eligibility?.manualOnlyReason ?? eligibility?.summary ?? "Safe posting is blocked."],
+        policyLane: "strict_guardrails",
+        relatedSignals: [],
+        summary: eligibility?.summary ?? "Safe posting is blocked.",
+      };
+    }),
+    ...safeReplyState.rows.map((row) => ({
+      actionType: "suggest_reply" as const,
+      decision: row.policyDecision,
+      reasons: row.blockReasons.length > 0 ? row.blockReasons : [row.policySummary],
+      policyLane: "reply_guardrails",
+      relatedSignals: [`risk:${row.replyRiskLevel}`],
+      summary: row.policySummary,
+    })),
+  ]);
   const stagedPostingPlatformRows = [...new Set(stagedPostingPackages.map((pkg) => pkg.platform))]
     .map((platform) => ({
       platform,
@@ -533,6 +614,7 @@ export default async function InsightsPage({
   for (const entry of postingEntries) {
     postingIdsBySignalId.set(entry.signalId, [...(postingIdsBySignalId.get(entry.signalId) ?? []), entry.id]);
   }
+  const postedSignalIds = new Set(postingEntries.map((entry) => entry.signalId));
   const postingOutcomeById = new Map(postingOutcomes.map((outcome) => [outcome.postingLogId, outcome]));
   const strategicOutcomeById = new Map(strategicOutcomes.map((outcome) => [outcome.postingLogId, outcome]));
   const autofilledPostedCount = autofilledCandidates.filter(
@@ -545,6 +627,17 @@ export default async function InsightsPage({
       return postingOutcome?.outcomeQuality === "strong" || strategicOutcome?.strategicValue === "high";
     }),
   ).length;
+  const preReviewRepairInsights = buildPreReviewRepairInsights(
+    approvalReadyCandidates.map((candidate) => candidate.preReviewRepair),
+    postedSignalIds,
+  );
+  const ctaDestinationHealingInsights = buildPreReviewHealingInsights(
+    approvalReadyCandidates.map((candidate) => candidate.preReviewRepair),
+    postedSignalIds,
+  );
+  const queueTriageInsights = buildQueueTriageInsights(
+    approvalReadyCandidates.map((candidate) => candidate.triage),
+  );
   const experimentProposals = buildAutonomousExperimentProposals({
     candidates: approvalReadyCandidates,
     experiments,
@@ -568,6 +661,42 @@ export default async function InsightsPage({
     ).length,
   }));
   const experimentProposalInsights = buildExperimentProposalInsights(experimentProposals);
+  const experimentAutopilotEvaluations = approvalReadyCandidates.map((candidate) =>
+    buildExperimentAutopilotV2({
+      candidate,
+      experiments,
+    }),
+  );
+  const experimentAutopilotBlocked = experimentAutopilotEvaluations.filter((entry) => entry.decision === "blocked");
+  const experimentAutopilotCreated = experimentAutopilotEvaluations.filter((entry) => entry.decision === "created");
+  const experimentAutopilotTypeRows = Array.from(
+    experimentAutopilotCreated.reduce((map, entry) => {
+      if (!entry.variable) {
+        return map;
+      }
+
+      map.set(entry.variable, (map.get(entry.variable) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>()),
+  )
+    .map(([label, count]) => ({
+      label: label.replaceAll("_", " "),
+      count,
+    }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+  const experimentAutopilotBlockRows = Array.from(
+    experimentAutopilotBlocked.reduce((map, entry) => {
+      const label = entry.blockReasons[0] ?? "Experiment autopilot stayed blocked.";
+      map.set(label, (map.get(label) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>()),
+  )
+    .map(([label, count]) => ({
+      label,
+      count,
+    }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+    .slice(0, 4);
   const flywheelOptimisation = buildFlywheelOptimisation({
     weeklyRecap,
     sourceAutopilotState: sourceAutopilot,
@@ -715,7 +844,7 @@ export default async function InsightsPage({
             </Badge>
             <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{insights.windowLabel}</Badge>
           </div>
-          <CardTitle className="text-3xl">Insights</CardTitle>
+          <CardTitle className="text-balance text-3xl">Insights</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             A compact operating summary derived from current record state and the audit trail. It stays descriptive on purpose: the goal is to show what is moving, what is stalling, and where operator judgement is stepping in.
           </CardDescription>
@@ -1069,6 +1198,216 @@ export default async function InsightsPage({
 
       <Card>
         <CardHeader>
+          <CardTitle>Pre-Review Repair Autopilot</CardTitle>
+          <CardDescription>
+            Low-risk package cleanup that runs before final review for high-confidence, non-conflicted candidates.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Repairs applied"
+              value={String(preReviewRepairInsights.appliedCount)}
+              detail="Approval-ready candidates that reached review with bounded cleanup already applied."
+            />
+            <MetricCard
+              label="Top repair"
+              value={preReviewRepairInsights.topRepairTypes[0]?.label.replaceAll("_", " ") ?? "None yet"}
+              detail={
+                preReviewRepairInsights.topRepairTypes[0]
+                  ? `${preReviewRepairInsights.topRepairTypes[0].count} candidates used this repair most often.`
+                  : "No repair pattern is stable enough yet."
+              }
+            />
+            <MetricCard
+              label="Repairs blocked"
+              value={String(preReviewRepairInsights.blockedCount)}
+              detail="Candidates kept out of the repair lane because trust guardrails failed."
+            />
+            <MetricCard
+              label="Repaired then posted"
+              value={String(preReviewRepairInsights.repairedPostedCount)}
+              detail="Repaired candidates that later reached the posting log."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Most common repair types</p>
+              <div className="mt-3 space-y-2">
+                {preReviewRepairInsights.topRepairTypes.length === 0 ? (
+                  <p className="text-sm text-slate-500">No pre-review repair pattern is stable enough yet.</p>
+                ) : (
+                  preReviewRepairInsights.topRepairTypes.map((repair) => (
+                    <div key={repair.label} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-slate-600">{repair.label.replaceAll("_", " ")}</span>
+                      <span className="font-medium text-slate-950">{repair.count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Recent repaired candidates</p>
+              <div className="mt-3 space-y-3">
+                {approvalReadyCandidates.filter((candidate) => candidate.preReviewRepair.decision === "applied").length === 0 ? (
+                  <p className="text-sm text-slate-500">No approval-ready candidate needed bounded repair recently.</p>
+                ) : (
+                  approvalReadyCandidates
+                    .filter((candidate) => candidate.preReviewRepair.decision === "applied")
+                    .slice(0, 4)
+                    .map((candidate) => (
+                      <div key={candidate.signal.recordId} className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                        <Link href={`/signals/${candidate.signal.recordId}/review`} className="font-medium text-slate-950 hover:text-[color:var(--accent)]">
+                          {candidate.signal.sourceTitle}
+                        </Link>
+                        <p className="mt-2 text-sm text-slate-600">{candidate.preReviewRepair.summary}</p>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>CTA / Destination Self-Healing</CardTitle>
+          <CardDescription>
+            Bounded commercial pair repair that only adjusts clearly weak CTA and destination combinations when a safer aligned pair already exists.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Self-heals applied"
+              value={String(ctaDestinationHealingInsights.appliedCount)}
+              detail="Candidates where CTA or destination alignment was improved automatically before review."
+            />
+            <MetricCard
+              label="Top self-heal"
+              value={ctaDestinationHealingInsights.topHealingTypes[0]?.label.replaceAll("_", " ") ?? "None yet"}
+              detail={
+                ctaDestinationHealingInsights.topHealingTypes[0]
+                  ? `${ctaDestinationHealingInsights.topHealingTypes[0].count} candidates used this healing pattern most often.`
+                  : "No healing pattern is stable enough yet."
+              }
+            />
+            <MetricCard
+              label="Healing blocked"
+              value={String(ctaDestinationHealingInsights.blockedCount)}
+              detail="Candidates left untouched because policy, experiment locks, or manual ownership blocked the change."
+            />
+            <MetricCard
+              label="Healed then posted"
+              value={String(ctaDestinationHealingInsights.healedPostedCount)}
+              detail="Self-healed candidates that later reached the posting log."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Most common healing types</p>
+              <div className="mt-3 space-y-2">
+                {ctaDestinationHealingInsights.topHealingTypes.length === 0 ? (
+                  <p className="text-sm text-slate-500">No CTA or destination healing pattern is stable enough yet.</p>
+                ) : (
+                  ctaDestinationHealingInsights.topHealingTypes.map((healing) => (
+                    <div key={healing.label} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-slate-600">{healing.label.replaceAll("_", " ")}</span>
+                      <span className="font-medium text-slate-950">{healing.count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Strongest healed pairings</p>
+              <div className="mt-3 space-y-2">
+                {ctaDestinationHealingInsights.strongestPairings.length === 0 ? (
+                  <p className="text-sm text-slate-500">No healed pairing is repeated often enough yet.</p>
+                ) : (
+                  ctaDestinationHealingInsights.strongestPairings.map((pairing) => (
+                    <div key={pairing.label} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-slate-600">{pairing.label}</span>
+                      <span className="font-medium text-slate-950">{pairing.count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Autonomous Queue Triage</CardTitle>
+          <CardDescription>
+            One bounded classifier now routes current queue items into explainable operational buckets instead of leaving the operator to infer the lane manually.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Repairable"
+              value={String(queueTriageInsights.repairableCount)}
+              detail="Near-ready items where bounded cleanup is still the best next step."
+            />
+            <MetricCard
+              label="Needs judgement"
+              value={String(queueTriageInsights.distribution.find((row) => row.triageState === "needs_judgement")?.count ?? 0)}
+              detail="Candidates that still need an explicit operator call."
+            />
+            <MetricCard
+              label="Evergreen later"
+              value={String(queueTriageInsights.staleButReusableCount)}
+              detail="Strong items currently better parked for later reuse."
+            />
+            <MetricCard
+              label="Suppressed"
+              value={String(queueTriageInsights.suppressionCount)}
+              detail="Visible but demoted items that should stay out of the top queue for now."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Triage distribution</p>
+              <div className="mt-3 space-y-2">
+                {queueTriageInsights.distribution.map((row) => (
+                  <div key={row.triageState} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-slate-600">{row.label}</span>
+                    <span className="font-medium text-slate-950">{row.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Common needs-judgement reasons</p>
+              <div className="mt-3 space-y-2">
+                {queueTriageInsights.topNeedsJudgementReasons.length === 0 ? (
+                  <p className="text-sm text-slate-500">No repeated judgement reason is stable enough yet.</p>
+                ) : (
+                  queueTriageInsights.topNeedsJudgementReasons.map((reason) => (
+                    <div key={reason.label} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-slate-600">{reason.label}</span>
+                      <span className="font-medium text-slate-950">{reason.count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Batch Approval Prep</CardTitle>
           <CardDescription>
             Small bounded review sets built from the strongest near-final candidates. This layer is for faster operator throughput, not bulk publishing.
@@ -1228,6 +1567,155 @@ export default async function InsightsPage({
                   <p className="font-medium text-slate-900">Low</p>
                   <p className="mt-1">Hold for operator judgement. Low-confidence candidates remain visible, but autopilot is blocked.</p>
                 </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Autonomy Scorecard</CardTitle>
+          <CardDescription>
+            A compact operational snapshot of how much of the workflow is fully autonomous, partially assisted, or still concentrated in human review and policy blocks.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Autonomy rate"
+              value={formatPercent(autonomyScorecard.autonomyRate)}
+              detail={`${autonomyScorecard.approvalReadyWithoutChanges} approval-ready without extra intervention.`}
+            />
+            <MetricCard
+              label="Partial autonomy"
+              value={formatPercent(autonomyScorecard.partialAutonomyRate)}
+              detail={`${autonomyScorecard.autoRepairedCount} repaired · ${autonomyScorecard.autoHealedCount} healed · ${autonomyScorecard.autoAdvancedCount} auto-advanced.`}
+            />
+            <MetricCard
+              label="Blocked rate"
+              value={formatPercent(autonomyScorecard.blockedRate)}
+              detail={`${autonomyScorecard.blockedByPolicyCount} policy · ${autonomyScorecard.blockedByConflictCount} conflict · ${autonomyScorecard.blockedByMissingData} missing data.`}
+            />
+            <MetricCard
+              label="Operator effort"
+              value={String(autonomyScorecard.operatorInterventionsRequired)}
+              detail="Candidates still concentrating direct human attention."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Operational read</p>
+              {autonomyScorecard.summaries.length === 0 ? (
+                <EmptyState copy="No autonomy scorecard summary is stable enough yet." />
+              ) : (
+                autonomyScorecard.summaries.map((summary) => (
+                  <div key={summary} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                    {summary}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-white/80 px-4 py-4">
+                <p className="font-medium text-slate-950">Top blockers</p>
+                <div className="mt-3 space-y-2">
+                  {autonomyScorecard.topBlockers.length === 0 ? (
+                    <p className="text-sm text-slate-500">No repeated autonomy blocker is stable enough to call out yet.</p>
+                  ) : (
+                    autonomyScorecard.topBlockers.map((row) => (
+                      <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-slate-600">{row.label}</span>
+                        <span className="font-medium text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-white/80 px-4 py-4">
+                <p className="font-medium text-slate-950">Operator effort concentration</p>
+                <div className="mt-3 space-y-2">
+                  {autonomyScorecard.operatorEffortAreas.length === 0 ? (
+                    <p className="text-sm text-slate-500">No operator effort concentration is strong enough to summarize yet.</p>
+                  ) : (
+                    autonomyScorecard.operatorEffortAreas.map((row) => (
+                      <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-slate-600">{row.label}</span>
+                        <span className="font-medium text-slate-950">{row.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Autonomy Policy Engine</CardTitle>
+          <CardDescription>
+            One central guardrail layer now decides when the engine may act, when it should stay suggest-only, and when it must block.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Allowed"
+              value={String(autonomyPolicyInsights.allowedCount)}
+              detail="Low-risk evaluations currently allowed by the shared policy engine."
+            />
+            <MetricCard
+              label="Suggest only"
+              value={String(autonomyPolicyInsights.suggestOnlyCount)}
+              detail="Cases where the engine can help, but should not apply changes silently."
+            />
+            <MetricCard
+              label="Blocked"
+              value={String(autonomyPolicyInsights.blockedCount)}
+              detail="Evaluations blocked because confidence, completeness, conflict, or risk guardrails failed."
+            />
+            <MetricCard
+              label="Top blocker"
+              value={autonomyPolicyInsights.topBlockReasons[0]?.count ? String(autonomyPolicyInsights.topBlockReasons[0].count) : "0"}
+              detail={autonomyPolicyInsights.topBlockReasons[0]?.label ?? "No repeated block reason is stable enough yet."}
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Policy lanes in practice</p>
+              <div className="mt-3 space-y-3">
+                {autonomyPolicyInsights.byAction.slice(0, 5).map((row) => (
+                  <div key={row.actionType} className="rounded-2xl bg-slate-50/80 px-3 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="font-medium text-slate-900">{row.actionType.replaceAll("_", " ")}</p>
+                      <span className="text-sm text-slate-500">
+                        {row.allowedCount} allow · {row.suggestOnlyCount} suggest · {row.blockedCount} block
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="font-medium text-slate-950">Common block reasons</p>
+              <div className="mt-3 space-y-3">
+                {autonomyPolicyInsights.topBlockReasons.length === 0 ? (
+                  <p className="text-sm text-slate-500">No stable block reason is repeated enough to call out yet.</p>
+                ) : (
+                  autonomyPolicyInsights.topBlockReasons.map((row) => (
+                    <div key={row.label} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50/80 px-3 py-3">
+                      <span className="text-sm text-slate-600">{row.label}</span>
+                      <span className="text-lg font-semibold text-slate-950">{row.count}</span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -1454,6 +1942,70 @@ export default async function InsightsPage({
 
       <Card>
         <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Weekly Execution Autopilot</CardTitle>
+            <Link href="/execution" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open execution
+            </Link>
+          </div>
+          <CardDescription>
+            A bounded weekly preparation layer that stages safe items, keeps blocked work visible, and orders the operator&apos;s execution path without auto-posting.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Autopilot runs"
+              value={String(weeklyExecutionInsights.runCount)}
+              detail="Current and stored weekly execution flow snapshots available for comparison."
+            />
+            <MetricCard
+              label="Staged vs blocked"
+              value={weeklyExecutionInsights.stagedToBlockedRatio}
+              detail="Directional balance between execution-ready work and items still held back."
+            />
+            <MetricCard
+              label="Execution-ready rate"
+              value={formatPercent(weeklyExecutionInsights.executionReadyRate)}
+              detail="Share of visible execution items that are already staged or safe to stage next."
+            />
+            <MetricCard
+              label="Review-required"
+              value={String(weeklyExecutionInsights.readyToReviewCount)}
+              detail="Items still needing explicit operator review before staging."
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current execution read</p>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {weeklyExecutionPreview.executionReasons[0] ?? "No weekly execution summary is stable enough yet."}
+              </div>
+              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                {weeklyExecutionPreview.sequenceNotes[0] ?? "No sequence note is shaping this week&apos;s execution order yet."}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Most common block reasons</p>
+              {weeklyExecutionInsights.commonBlockReasons.length === 0 ? (
+                <EmptyState copy="No recurring weekly execution blocker is stable enough yet." />
+              ) : (
+                weeklyExecutionInsights.commonBlockReasons.map((reason) => (
+                  <div key={reason.label} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+                    <span className="text-sm text-slate-600">{reason.label}</span>
+                    <span className="text-lg font-semibold text-slate-950">{reason.count}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Cross-Platform Narrative Sequencing</CardTitle>
           <CardDescription>
             Compact multi-platform arcs that keep one strong signal moving forward instead of fragmenting into isolated posts.
@@ -1617,13 +2169,17 @@ export default async function InsightsPage({
               detail={experimentProposalInsights.summaries[0] ?? "No open proposal is strong enough to surface right now."}
             />
             <MetricCard
-              label="System proposed"
-              value={String(experimentInsights.systemProposedCount)}
-              detail={experimentInsights.byType[0] ? `${experimentInsights.byType[0].label} is the most common tracked type.` : "No tracked experiment type trend is stable enough yet."}
+              label="Autopilot built"
+              value={String(experimentInsights.autopilotBuiltCount)}
+              detail={
+                experimentAutopilotTypeRows[0]
+                  ? `${experimentAutopilotTypeRows[0].label} is the most common current autopilot variable.`
+                  : "No autopilot-built variable trend is stable enough yet."
+              }
             />
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Open proposals</p>
               <div className="mt-3 space-y-3">
@@ -1664,6 +2220,31 @@ export default async function InsightsPage({
             </div>
 
             <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Autopilot V2</p>
+              <div className="mt-3 space-y-3">
+                <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                  {experimentAutopilotCreated.length === 0
+                    ? "No bounded one-variable autopilot experiment is justified right now."
+                    : `${experimentAutopilotCreated.length} candidate${experimentAutopilotCreated.length === 1 ? "" : "s"} currently qualify for autopilot-built experiment construction.`}
+                </div>
+                <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                  {experimentInsights.autopilotBuiltCount === 0
+                    ? "No autopilot-built experiment has been accepted yet."
+                    : `${experimentInsights.autopilotCompletedCount} of ${experimentInsights.autopilotBuiltCount} accepted autopilot-built experiments are already completed.`}
+                </div>
+                {experimentAutopilotBlockRows.length > 0 ? (
+                  experimentAutopilotBlockRows.map((row) => (
+                    <div key={row.label} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                      Blocked: {row.label} ({row.count})
+                    </div>
+                  ))
+                ) : (
+                  <EmptyState copy="No repeated autopilot block reason is strong enough to call out right now." />
+                )}
+              </div>
+            </div>
+
+            <div>
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Experiment types</p>
               <div className="mt-3 space-y-3">
                 {experimentInsights.byType.length === 0 && experimentProposalInsights.byType.length === 0 ? (
@@ -1673,6 +2254,11 @@ export default async function InsightsPage({
                     {experimentProposalInsights.byType.map((row) => (
                       <div key={`proposal:${row.experimentType}`} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
                         Proposed {row.label}: {row.count}
+                      </div>
+                    ))}
+                    {experimentProposalInsights.byVariable.map((row) => (
+                      <div key={`variable:${row.variable}`} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                        Autopilot variable {row.label}: {row.count}
                       </div>
                     ))}
                     {experimentInsights.byType.map((row) => (

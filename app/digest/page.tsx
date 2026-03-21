@@ -10,7 +10,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listSignalsWithFallback } from "@/lib/airtable";
 import { buildAudienceMemoryState } from "@/lib/audience-memory";
-import { appendAuditEventsSafe } from "@/lib/audit";
+import { appendAuditEventsSafe, listAuditEvents } from "@/lib/audit";
+import { buildAutonomyScorecard } from "@/lib/autonomy-scorecard";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
@@ -21,15 +22,15 @@ import {
   listDuplicateClusters,
 } from "@/lib/duplicate-clusters";
 import { buildEvergreenSummary } from "@/lib/evergreen";
+import { syncExceptionInbox } from "@/lib/exception-inbox";
 import { buildAutonomousExperimentProposals, buildExperimentProposalInsights, listExperimentProposals } from "@/lib/experiment-proposals";
-import { listExperiments } from "@/lib/experiments";
+import { buildExperimentInsights, listExperiments } from "@/lib/experiments";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { listFollowUpTasks } from "@/lib/follow-up";
 import { buildFlywheelOptimisation } from "@/lib/flywheel-optimisation";
 import { buildGrowthDirector } from "@/lib/growth-director";
 import { buildGrowthScorecard } from "@/lib/growth-scorecard";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
-import { buildDistributionBundles, buildDistributionSummary } from "@/lib/distribution";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { buildInfluencerGraphState } from "@/lib/influencer-graph";
 import { getManagedIngestionSourcesWithFallback } from "@/lib/ingestion/source-performance";
@@ -38,8 +39,6 @@ import { buildOperatorTaskSummary, listOperatorTasks } from "@/lib/operator-task
 import {
   buildNarrativeSequenceInsights,
   buildNarrativeSequencesForSignals,
-  buildSignalNarrativeSequence,
-  findNarrativeSequenceStep,
 } from "@/lib/narrative-sequences";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
@@ -50,11 +49,14 @@ import { listPostingAssistantPackages } from "@/lib/posting-assistant";
 import { buildRevenueSignalInsights, syncRevenueSignals } from "@/lib/revenue-signals";
 import { buildSafeReplyState } from "@/lib/safe-replies";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
+import { buildQueueTriageInsights } from "@/lib/queue-triage";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
+import { buildStrategicDecisionState } from "@/lib/strategic-decisions";
 import { buildSourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import { getOperatorTuning } from "@/lib/tuning";
 import { formatDateTime } from "@/lib/utils";
+import { runWeeklyExecutionAutopilot } from "@/lib/weekly-execution";
 import { buildWeeklyRecap } from "@/lib/weekly-recap";
 import { buildWeeklyPostingPack, buildWeeklyPostingPackInsights } from "@/lib/weekly-posting-pack";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan, getWeeklyPlanStore } from "@/lib/weekly-plan";
@@ -81,6 +83,7 @@ export default async function DigestPage() {
     duplicateClusters,
     strategy,
     tuning,
+    auditEvents,
     ingestionSources,
     managedSourceResult,
     influencerGraph,
@@ -101,6 +104,7 @@ export default async function DigestPage() {
     listDuplicateClusters(),
     getCampaignStrategy(),
     getOperatorTuning(),
+    listAuditEvents(),
     listIngestionSources(),
     getManagedIngestionSourcesWithFallback(),
     buildInfluencerGraphState(),
@@ -111,20 +115,7 @@ export default async function DigestPage() {
 
   const weeklyPlanStore = await getWeeklyPlanStore(strategy);
   const weeklyPlan = await getCurrentWeeklyPlan(strategy);
-  const stagedPostingPackages = await listPostingAssistantPackages({ status: "active" });
-  const signalsById = new Map(signalResult.signals.map((signal) => [signal.recordId, signal]));
-  const sequenceByPackageId = Object.fromEntries(
-    stagedPostingPackages.map((pkg) => {
-      const signal = signalsById.get(pkg.signalId);
-      const sequence = signal ? buildSignalNarrativeSequence({ signal, strategy }) : null;
-      return [pkg.packageId, sequence ? findNarrativeSequenceStep(sequence, pkg.platform) : null];
-    }),
-  );
-  const distributionBundles = buildDistributionBundles({
-    packages: stagedPostingPackages,
-    sequenceByPackageId,
-  });
-  const distributionSummary = buildDistributionSummary(distributionBundles);
+  const existingStagedPostingPackages = await listPostingAssistantPackages({ status: "active" });
   const cadence = buildCampaignCadenceSummary(signalResult.signals, strategy, postingEntries);
   const weeklyPlanState = buildWeeklyPlanState(weeklyPlan, strategy, signalResult.signals, postingEntries);
   const followUpTasks = await listFollowUpTasks({
@@ -214,6 +205,9 @@ export default async function DigestPage() {
       experiments,
     },
   );
+  const queueTriageInsights = buildQueueTriageInsights(
+    approvalReadyCandidates.map((candidate) => candidate.triage),
+  );
   const evergreenSummary = buildEvergreenSummary({
     signals: signalResult.signals,
     postingEntries,
@@ -233,6 +227,26 @@ export default async function DigestPage() {
     postingEntries,
   });
   const weeklyPostingPackInsights = buildWeeklyPostingPackInsights(weeklyPostingPack);
+  const weeklyExecution = await runWeeklyExecutionAutopilot({
+    weekStartDate: weeklyPostingPack.weekStartDate,
+    pack: weeklyPostingPack,
+    approvalCandidates: approvalReadyCandidates,
+    stagedPackages: existingStagedPostingPackages,
+    experiments,
+  });
+  const exceptionInbox = await syncExceptionInbox({
+    approvalCandidates: approvalReadyCandidates,
+    operatorTasks,
+    executionFlow: weeklyExecution.flow,
+  });
+  const autonomyScorecard = buildAutonomyScorecard({
+    approvalCandidates: approvalReadyCandidates,
+    executionFlow: weeklyExecution.flow,
+    auditEvents,
+  });
+  const stagedPostingPackages = weeklyExecution.stagedPackages;
+  const distributionBundles = weeklyExecution.distributionBundles;
+  const distributionSummary = weeklyExecution.distributionSummary;
   const digest = buildOperatorDigest({
     signals: signalResult.signals,
     feedbackEntries,
@@ -312,6 +326,12 @@ export default async function DigestPage() {
       maxProposals: 6,
     }),
   );
+  const experimentInsights = buildExperimentInsights({
+    experiments,
+    postingEntries,
+    postingOutcomes,
+    strategicOutcomes,
+  });
   const narrativeSequenceInsights = buildNarrativeSequenceInsights({
     sequences: buildNarrativeSequencesForSignals({
       signals: signalResult.signals,
@@ -355,8 +375,32 @@ export default async function DigestPage() {
     connectBridgeSummary,
     scorecard,
   });
+  const strategicDecisions = buildStrategicDecisionState({
+    growthDirector,
+    weeklyRecap: recap,
+    optimisation,
+    weeklyPostingPack,
+    approvalCandidates: approvalReadyCandidates,
+    sourceAutopilotState,
+    revenueInsights,
+    audienceMemory,
+    influencerGraphSummary: influencerGraph.summary,
+    activeExperimentCount: experiments.filter((experiment) => experiment.status !== "completed").length,
+  });
 
   await appendAuditEventsSafe([
+    {
+      signalId: `autonomy-scorecard:${weeklyExecution.flow.weekStartDate}`,
+      eventType: "AUTONOMY_SCORECARD_COMPUTED",
+      actor: "system",
+      summary: "Computed autonomy scorecard snapshot.",
+      metadata: {
+        totalCandidates: autonomyScorecard.totalCandidates,
+        autonomyRate: Math.round(autonomyScorecard.autonomyRate * 100),
+        partialAutonomyRate: Math.round(autonomyScorecard.partialAutonomyRate * 100),
+        blockedRate: Math.round(autonomyScorecard.blockedRate * 100),
+      },
+    },
     {
       signalId: `digest:${digest.generatedAt.slice(0, 10)}`,
       eventType: "DIGEST_VIEWED",
@@ -373,11 +417,16 @@ export default async function DigestPage() {
         weeklyPostingPackItems: weeklyPostingPack.items.length,
         stagedPostingPackages: stagedPostingPackages.length,
         distributionBundles: distributionSummary.bundleCount,
+        weeklyExecutionStaged: weeklyExecution.flow.stagedCount,
+        weeklyExecutionBlocked: weeklyExecution.flow.blockedCount,
+        weeklyExecutionReview: weeklyExecution.flow.reviewCount,
+        exceptionInboxCount: exceptionInbox.openCount,
         followUpRelationships: influencerGraph.summary.followUpNeededCount,
         optimisationProposals: optimisation.proposalCount,
         connectImports: connectBridgeSummary.importCount,
         connectExports: connectBridgeSummary.exportCount,
         directorPriorities: growthDirector.topPriorities.length,
+        strategicDecisions: strategicDecisions.proposals.length,
       },
     },
   ]);
@@ -428,6 +477,12 @@ export default async function DigestPage() {
           <Link href="/posting" className={buttonVariants({ variant: "secondary", size: "sm" })}>
             Open posting assistant
           </Link>
+          <Link href="/execution" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open execution flow
+          </Link>
+          <Link href="/exceptions" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            Open exception inbox
+          </Link>
           <Link href="/influencers" className={buttonVariants({ variant: "secondary", size: "sm" })}>
             Open influencer graph
           </Link>
@@ -440,7 +495,7 @@ export default async function DigestPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-8">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-10">
         <Link href={digest.batchReview.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
           <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Start Here</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{digest.batchReview.count}</p>
@@ -497,6 +552,24 @@ export default async function DigestPage() {
               : "No staged posting packages are waiting right now."}
           </p>
         </Link>
+        <Link href="/execution" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Execution Flow</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{weeklyExecution.flow.stagedCount}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {weeklyExecution.flow.blockedCount > 0
+              ? `${weeklyExecution.flow.blockedCount} blocked and ${weeklyExecution.flow.reviewCount} still need review.`
+              : `${weeklyExecution.flow.readyToStageCount} additional item${weeklyExecution.flow.readyToStageCount === 1 ? "" : "s"} can be staged next.`}
+          </p>
+        </Link>
+        <Link href="/exceptions" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Exceptions</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{exceptionInbox.openCount}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {exceptionInbox.groups[0]
+              ? `${exceptionInbox.groups[0].count} item${exceptionInbox.groups[0].count === 1 ? "" : "s"} are concentrated in ${exceptionInbox.groups[0].label.toLowerCase()}.`
+              : "No operator-only exception is currently open."}
+          </p>
+        </Link>
         <Link href="/influencers" className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
           <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Relationship Memory</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{influencerGraph.summary.followUpNeededCount}</p>
@@ -525,8 +598,168 @@ export default async function DigestPage() {
         </Link>
       </div>
 
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Queue Triage</CardTitle>
+            <Link href="/review#approval-ready" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open triaged queue
+            </Link>
+          </div>
+          <CardDescription>
+            The current approval queue is continuously routed into bounded operational buckets so it is easier to scan and act on quickly.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          {queueTriageInsights.distribution.map((row) => (
+            <div key={row.triageState} className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{row.label}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{row.count}</p>
+              <p className="mt-1 text-sm text-slate-600">
+                {row.triageState === "approve_ready"
+                  ? "Fastest approval lane."
+                  : row.triageState === "repairable"
+                    ? "Low-risk cleanup still available."
+                    : row.triageState === "needs_judgement"
+                      ? "Operator call still needed."
+                      : row.triageState === "stale_but_reusable"
+                        ? "Preserve for a later reuse moment."
+                        : "Visible, but demoted out of the top queue."}
+              </p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
       <GrowthDirectorPanel director={growthDirector} compact />
       <GrowthScorecardPanel scorecard={scorecard} compact />
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Strategic Decisions</CardTitle>
+            <Link href="/director" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open director
+            </Link>
+          </div>
+          <CardDescription>
+            Short bounded decisions that reduce founder-level strategy drift without changing anything automatically.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {strategicDecisions.proposals.length === 0 ? (
+            <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
+              No strategic decision is strong enough to surface right now.
+            </div>
+          ) : (
+            strategicDecisions.proposals.slice(0, 3).map((proposal) => (
+              <Link key={proposal.proposalId} href={proposal.linkedWorkflow} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={proposal.priority === "high" ? "bg-rose-50 text-rose-700 ring-rose-200" : proposal.priority === "medium" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                    {proposal.priority}
+                  </Badge>
+                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                    {proposal.category.replaceAll("_", " ")}
+                  </Badge>
+                </div>
+                <p className="mt-3 font-medium text-slate-950">{proposal.title}</p>
+                <p className="mt-2 text-sm text-slate-600">{proposal.recommendation}</p>
+              </Link>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Autonomy Scorecard</CardTitle>
+            <Link href="/insights" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open insights
+            </Link>
+          </div>
+          <CardDescription>
+            One compact read on how much of the current workflow is autonomous, where it is only partially assisted, and where humans are still doing the heavy lifting.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Autonomy rate</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{Math.round(autonomyScorecard.autonomyRate * 100)}%</p>
+              <p className="mt-1 text-sm text-slate-600">{autonomyScorecard.approvalReadyWithoutChanges} approval-ready without extra cleanup.</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Partial autonomy</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{Math.round(autonomyScorecard.partialAutonomyRate * 100)}%</p>
+              <p className="mt-1 text-sm text-slate-600">{autonomyScorecard.autoRepairedCount} repaired · {autonomyScorecard.autoHealedCount} healed.</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Blocked rate</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{Math.round(autonomyScorecard.blockedRate * 100)}%</p>
+              <p className="mt-1 text-sm text-slate-600">{autonomyScorecard.blockedByPolicyCount} policy · {autonomyScorecard.blockedByConflictCount} conflict.</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Operator effort</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{autonomyScorecard.operatorInterventionsRequired}</p>
+              <p className="mt-1 text-sm text-slate-600">Candidates still needing direct human attention.</p>
+            </div>
+          </div>
+
+          {autonomyScorecard.summaries.length > 0 ? (
+            <div className="space-y-3">
+              {autonomyScorecard.summaries.slice(0, 3).map((summary) => (
+                <div key={summary} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                  {summary}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Exception Inbox</CardTitle>
+            <Link href="/exceptions" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open exceptions
+            </Link>
+          </div>
+          <CardDescription>
+            One bounded inbox for blocked, unresolved, or judgement-required items so the operator can resolve the top issues without jumping between pages.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Attention needed</p>
+            <p className="mt-2 text-sm text-slate-700">
+              You have {exceptionInbox.openCount} item{exceptionInbox.openCount === 1 ? "" : "s"} needing attention.
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              {exceptionInbox.topSummary[0] ?? "No open exception is stable enough to summarize right now."}
+            </p>
+          </div>
+          {exceptionInbox.topItems.length === 0 ? (
+            <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
+              No operator exception is open right now.
+            </div>
+          ) : (
+            exceptionInbox.topItems.slice(0, 3).map((item) => (
+              <Link key={item.id} href={item.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={item.priority === "high" ? "bg-rose-50 text-rose-700 ring-rose-200" : item.priority === "medium" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
+                    {item.priority === "high" ? "High priority" : item.priority === "medium" ? "Medium priority" : "Low priority"}
+                  </Badge>
+                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{item.issueType.replaceAll("_", " ")}</Badge>
+                </div>
+                <p className="mt-3 font-medium text-slate-950">{item.title}</p>
+                <p className="mt-2 text-sm text-slate-600">{item.recommendedAction}</p>
+              </Link>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       <WeeklyRecapPanel recap={recap} compact />
 
@@ -578,6 +811,96 @@ export default async function DigestPage() {
       </Card>
 
       <FlywheelOptimisationPanel optimisation={optimisation} compact />
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Experiment Autopilot V2</CardTitle>
+            <Link href="/experiments" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open experiments
+            </Link>
+          </div>
+          <CardDescription>
+            Bounded one-variable tests the system can now construct automatically when confidence is high and the package is stable enough.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Open autopilot proposals</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{experimentProposalInsights.openCount}</p>
+              <p className="mt-1 text-sm text-slate-600">{experimentProposalInsights.summaries[0] ?? "No strong autopilot experiment is open right now."}</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Autopilot built</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{experimentInsights.autopilotBuiltCount}</p>
+              <p className="mt-1 text-sm text-slate-600">Accepted bounded tests now tracked in the experiment manager.</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top variable</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">{experimentProposalInsights.byVariable[0]?.label ?? "None yet"}</p>
+              <p className="mt-1 text-sm text-slate-600">Most common current one-variable test family.</p>
+            </div>
+            <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Completion rate</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{Math.round(experimentInsights.autopilotCompletionRate * 100)}%</p>
+              <p className="mt-1 text-sm text-slate-600">Accepted autopilot-built experiments the operator has already closed.</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>This Week&apos;s Execution Flow</CardTitle>
+            <Link href="/execution" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open execution
+            </Link>
+          </div>
+          <CardDescription>
+            The weekly preparation autopilot stages the safest work first, keeps blocked items visible, and orders the rest in practical execution sequence.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Execution summary</p>
+            <p className="mt-2 text-sm text-slate-700">
+              {weeklyExecution.flow.stagedCount} staged · {weeklyExecution.flow.readyToStageCount} ready to stage · {weeklyExecution.flow.reviewCount} needs review · {weeklyExecution.flow.blockedCount} blocked
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              {weeklyExecution.flow.executionReasons[0] ?? "No weekly execution summary is stable enough yet."}
+            </p>
+          </div>
+          {weeklyExecution.flow.executionItems.length === 0 ? (
+            <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
+              No weekly execution item is ready to summarize yet.
+            </div>
+          ) : (
+            weeklyExecution.flow.executionItems.slice(0, 4).map((item) => (
+              <Link key={`${item.signalId}:${item.platform}`} href={item.href} className="block rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">#{item.executionOrder}</Badge>
+                  <Badge className={item.status === "staged_for_posting" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : item.status === "ready_to_stage" ? "bg-sky-50 text-sky-700 ring-sky-200" : item.status === "blocked" ? "bg-rose-50 text-rose-700 ring-rose-200" : "bg-amber-50 text-amber-700 ring-amber-200"}>
+                    {item.status === "staged_for_posting" ? "Staged" : item.status === "ready_to_stage" ? "Ready to stage" : item.status === "blocked" ? "Blocked" : "Needs review"}
+                  </Badge>
+                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{item.platform}</Badge>
+                  {item.sequenceLabel ? (
+                    <Badge className="bg-violet-50 text-violet-700 ring-violet-200">
+                      {item.sequenceStepLabel ? `${item.sequenceStepLabel} · ` : ""}{item.sequenceLabel}
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="mt-3 font-medium text-slate-950">{item.sourceTitle}</p>
+                <p className="mt-2 text-sm text-slate-600">{item.executionReason}</p>
+                {item.executionChainSummary ? (
+                  <p className="mt-2 text-xs text-sky-700">{item.executionChainSummary}</p>
+                ) : null}
+              </Link>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

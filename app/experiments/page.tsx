@@ -65,11 +65,11 @@ export default async function ExperimentsPage() {
             <Badge className={source === "airtable" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-200"}>
               {source === "airtable" ? "Airtable" : "Mock mode"}
             </Badge>
-            <Badge className="bg-slate-100 text-slate-700 ring-slate-200">Manual only</Badge>
+            <Badge className="bg-slate-100 text-slate-700 ring-slate-200">Manual plus autopilot-built</Badge>
           </div>
           <CardTitle className="text-3xl">Experiments</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
-            Deliberate operator-run comparisons for hooks, editorial modes, CTA styles, destinations, or bounded weekly sets.
+            Deliberate operator-run comparisons, plus bounded autopilot-built one-variable tests that still require operator confirmation and never auto-post.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3 pt-0">

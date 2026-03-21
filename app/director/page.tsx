@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { GrowthDirectorPanel } from "@/components/director/growth-director-panel";
+import { StrategicDecisionPanel } from "@/components/director/strategic-decision-panel";
 import { GrowthScorecardPanel } from "@/components/scorecard/growth-scorecard-panel";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -41,6 +42,7 @@ import { listPostingAssistantPackages } from "@/lib/posting-assistant";
 import { buildRevenueSignalInsights, syncRevenueSignals } from "@/lib/revenue-signals";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
+import { buildStrategicDecisionState } from "@/lib/strategic-decisions";
 import { buildSourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import { getOperatorTuning } from "@/lib/tuning";
 import { formatDateTime } from "@/lib/utils";
@@ -327,6 +329,19 @@ export default async function DirectorPage() {
     scorecard,
     now: renderNow,
   });
+  const strategicDecisions = buildStrategicDecisionState({
+    growthDirector: director,
+    weeklyRecap,
+    optimisation,
+    weeklyPostingPack,
+    approvalCandidates: approvalReadyCandidates,
+    sourceAutopilotState,
+    revenueInsights,
+    audienceMemory,
+    influencerGraphSummary: influencerGraph.summary,
+    activeExperimentCount: experiments.filter((experiment) => experiment.status !== "completed").length,
+    now: renderNow,
+  });
 
   await appendAuditEventsSafe([
     {
@@ -341,6 +356,20 @@ export default async function DirectorPage() {
         actions: director.recommendedActions.length,
       },
     },
+    ...(strategicDecisions.proposals.length > 0
+      ? [
+          {
+            signalId: `strategic-decisions:${renderNow.toISOString().slice(0, 10)}`,
+            eventType: "STRATEGIC_DECISION_PROPOSED" as const,
+            actor: "system" as const,
+            summary: `Proposed ${strategicDecisions.proposals.length} bounded strategic decision${strategicDecisions.proposals.length === 1 ? "" : "s"}.`,
+            metadata: {
+              count: strategicDecisions.proposals.length,
+              topCategory: strategicDecisions.proposals[0]?.category ?? null,
+            },
+          },
+        ]
+      : []),
   ]);
 
   return (
@@ -353,7 +382,7 @@ export default async function DirectorPage() {
             </Badge>
             <Badge className="bg-slate-100 text-slate-700 ring-slate-200">Generated {formatDateTime(renderNow.toISOString())}</Badge>
           </div>
-          <CardTitle className="text-3xl">AI Growth Director</CardTitle>
+          <CardTitle className="text-balance text-3xl">AI Growth Director</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             A bounded strategic meta-layer that turns the system&apos;s planning, queue, outcome, distribution, and outreach memory into a short set of grounded next moves.
           </CardDescription>
@@ -384,6 +413,7 @@ export default async function DirectorPage() {
       </Card>
 
       <GrowthScorecardPanel scorecard={scorecard} compact />
+      <StrategicDecisionPanel state={strategicDecisions} />
       <GrowthDirectorPanel director={director} />
     </div>
   );

@@ -123,44 +123,48 @@ export default async function DashboardPage() {
       <section className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
         <Card className="overflow-hidden">
           <CardHeader className="pb-3">
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Dashboard</p>
-            <CardTitle className="max-w-3xl text-3xl leading-tight sm:text-4xl">
+            <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Dashboard</p>
+            <CardTitle className="max-w-3xl text-balance text-3xl leading-tight sm:text-4xl">
               Quiet structure for signal intake, classification, and draft preparation.
             </CardTitle>
             <CardDescription className="max-w-2xl text-base leading-7">
               V1 stays intentionally tight: one signal in, light interpretation, placeholder draft outputs, then review and scheduling visibility.
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-wrap items-center gap-3 pt-2">
-            <Link href="/signals/new" className={buttonVariants({})}>
-              Intake a signal
-            </Link>
-            <Link href="/review" className={buttonVariants({ variant: "secondary" })}>
-              Open review queue
-            </Link>
-            <Link href="/ingestion" className={buttonVariants({ variant: "secondary" })}>
-              Run pipeline
-            </Link>
-            <Link href="/playbook" className={buttonVariants({ variant: "secondary" })}>
-              Open playbook
-            </Link>
-            <Link href="/campaigns" className={buttonVariants({ variant: "secondary" })}>
-              Open campaigns
-            </Link>
-            <Link href="/plan" className={buttonVariants({ variant: "secondary" })}>
-              Open weekly plan
-            </Link>
-            <Link href="/digest" className={buttonVariants({ variant: "secondary" })}>
-              Open digest
-            </Link>
-            <Link href="/experiments" className={buttonVariants({ variant: "secondary" })}>
-              Open experiments
-            </Link>
-            <Link href="/settings" className={buttonVariants({ variant: "secondary" })}>
-              Adjust tuning
-            </Link>
-            <p className="text-sm text-slate-500">
-              Data source: <span className="font-medium text-slate-700">{source === "airtable" ? "Airtable" : "Mock fallback"}</span>
+          <CardContent className="space-y-4 pt-2">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Link href="/signals/new" className={buttonVariants({})}>
+                Intake a signal
+              </Link>
+              <Link href="/review" className={buttonVariants({ variant: "secondary" })}>
+                Open review queue
+              </Link>
+              <Link href="/ingestion" className={buttonVariants({ variant: "secondary" })}>
+                Run pipeline
+              </Link>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href="/playbook" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                Playbook
+              </Link>
+              <Link href="/campaigns" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                Campaigns
+              </Link>
+              <Link href="/plan" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                Weekly plan
+              </Link>
+              <Link href="/digest" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                Digest
+              </Link>
+              <Link href="/experiments" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                Experiments
+              </Link>
+              <Link href="/settings" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                Adjust tuning
+              </Link>
+            </div>
+            <p className="text-sm text-slate-600">
+              Data source: <span className="font-semibold text-slate-800">{source === "airtable" ? "Airtable" : "Mock fallback"}</span>
             </p>
           </CardContent>
         </Card>
@@ -202,7 +206,7 @@ export default async function DashboardPage() {
             <CardTitle>Pipeline Watch</CardTitle>
             <CardDescription>What needs operator attention next and what is scheduled soon.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4">
+          <CardContent className="grid gap-3">
             {[
               {
                 href: "/review#approval-ready",
@@ -247,7 +251,7 @@ export default async function DashboardPage() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="group rounded-3xl border border-black/6 bg-white/82 p-5 transition hover:bg-white"
+                  className="group rounded-3xl border border-black/6 bg-white/84 p-4 transition hover:bg-white"
                 >
                   <div className="flex items-start gap-4">
                     <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
@@ -262,7 +266,7 @@ export default async function DashboardPage() {
               );
             })}
 
-            <div className="rounded-3xl border border-black/6 bg-white/82 p-5">
+            <div className="rounded-3xl border border-black/6 bg-white/84 p-5">
               <p className="text-sm font-medium text-slate-950">Scheduled soon</p>
               <div className="mt-4 space-y-3">
                 {scheduledSoon.length === 0 ? (

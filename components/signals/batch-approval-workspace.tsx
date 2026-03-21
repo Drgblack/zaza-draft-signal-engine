@@ -585,6 +585,12 @@ export function BatchApprovalWorkspace({
                       <p className="mt-2">{item.packageAutofillNotes.slice(0, 3).join(" · ")}</p>
                     </div>
                   ) : null}
+                  {item.preReviewRepairNotes.length > 0 ? (
+                    <div>
+                      <p className="font-medium text-slate-900">Pre-review repair</p>
+                      <p className="mt-2">{item.preReviewRepairNotes.slice(0, 3).join(" · ")}</p>
+                    </div>
+                  ) : null}
                   {item.repurposingSummary ? (
                     <div>
                       <p className="font-medium text-slate-900">Repurposing</p>

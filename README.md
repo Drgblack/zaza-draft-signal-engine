@@ -37,6 +37,11 @@ Convert selected teacher-relevant signals into structured, platform-specific dra
 - Strategic outcome loop that records business-facing post results and ties them back to source, mode, pattern, platform, asset, and campaign context
 - Weekly plan auto-draft assistant that proposes next week's plan from active campaigns, recent mix, queue supply, strategic outcomes, reusable winners, and current planning gaps
 - Recommended weekly posting pack that turns the strongest current candidates into a small balanced manual posting set for this week
+- Weekly Execution Autopilot that refreshes the weekly pack, stages safe items, prepares distribution context, and orders the operator's weekly work without auto-posting
+- Autonomy Scorecard that shows how much of the workflow is fully autonomous, partially assisted, or still blocked by policy, conflict, or missing data
+- Operator Exception Inbox that pulls blocked, unresolved, and judgement-required work into one compact operator-only queue
+- Safe Multi-Step Execution Chains that let bounded repair, re-evaluation, and promotion paths run automatically when confidence and policy both allow it
+- Strategic Decision Proposals that surface the top bounded founder-level calls across campaign focus, platform mix, evergreen balance, source quality, outreach, experiments, and conversion pressure
 - Semi-Autonomous Distribution Engine (Safe Mode) that groups staged platform variants, prompts, and follow-up notes into explicit manual distribution bundles
 - Founder Voice Mode that applies Zaza's calm, grounded, teacher-first identity layer across generation and review when enabled
 - Influencer and outreach content branch for manual relationship-building messages, collaboration prompts, and reply suggestions tied to a signal
@@ -44,13 +49,153 @@ Convert selected teacher-relevant signals into structured, platform-specific dra
 - Cross-app Zaza Connect bridge for exporting content intelligence and importing bounded outreach or relationship context without creating a live runtime dependency
 - AI Growth Director meta-layer for compact top-level weekly focus, bottlenecks, opportunities, and next actions
 - Auto-repair loop that gives promising held candidates one explicit repair pass before leaving them for human intervention
+- Autonomous queue triage that classifies review items into approval-ready, repairable, judgement-first, stale-reusable, or suppressed-for-now lanes
 - Signal interpretation
 - Fixed-template content generation
 - Airtable storage
 - Internal review workflow
 
 ## Status
-Active internal workflow with ingestion, scoring, scenario framing, generation, audit memory, operator-facing insights, a lightweight reusable pattern library, bounded pattern discovery suggestions, heuristic pattern-aware co-pilot assists, inspectable pattern coverage-gap visibility, a manual lifecycle layer for retiring weak or outdated patterns, manual pattern bundles for organising related approaches into small kits, bundle-level coverage visibility for spotting thin or missing kits, a bounded editorial-mode layer for shaping draft intent more explicitly, explicit platform intent profiles for X, LinkedIn, and Reddit, a final review workspace for last-mile manual editing decisions, a manual posting-memory layer for preserving what was actually published externally, a manual qualitative outcome layer for capturing whether those published outputs were worth repeating, a bounded reuse-memory layer that brings those judged outcomes back into new editorial decisions without auto-applying them, a manual editorial playbook-card layer for compact reusable operator guidance, a heuristic playbook-coverage layer that highlights which recurring situations still need clearer playbook support, a unified guidance layer that presents the strongest next action, relevant memory, and support context in one place, a bounded operator-tuning layer for adjusting strictness and guidance posture without code edits, an autonomous approval queue layer that prepares stronger signals for review while still keeping final posting manual, a bounded auto-repair layer that gives held near-miss candidates one inspectable repair pass, a bounded campaign strategy layer that helps the system balance campaigns, pillars, audiences, funnel stages, CTA goals, and recent cadence, a lightweight weekly planning layer that steers queue balance across campaigns, funnels, platforms, modes, and fresh-versus-evergreen mix, a bounded weekly-plan auto-draft assistant that proposes next week priorities from active campaigns, recent output mix, queue quality, reusable winners, and strategic gaps, a structured asset pipeline that packages visual and short-form video execution guidance with approval-ready drafts, a bounded repurposing engine that turns one strong idea into a few differentiated platform-ready variants, a manual publish-prep layer that packages those outputs with hooks, CTAs, timing, alt text, comment prompts, and optional trackable links for faster posting, a safe-mode distribution layer that groups staged posting variants into manual-ready bundles, a lightweight influencer relationship-memory layer for context-aware outreach and follow-up awareness, a strategic outcome layer that records business-facing post results without needing direct platform API integrations, and a bounded Growth Director meta-layer that synthesizes planning, queue, execution, outcome, and outreach state into a short strategic operator brief.
+Active internal workflow with ingestion, scoring, scenario framing, generation, audit memory, operator-facing insights, a lightweight reusable pattern library, bounded pattern discovery suggestions, heuristic pattern-aware co-pilot assists, inspectable pattern coverage-gap visibility, a manual lifecycle layer for retiring weak or outdated patterns, manual pattern bundles for organising related approaches into small kits, bundle-level coverage visibility for spotting thin or missing kits, a bounded editorial-mode layer for shaping draft intent more explicitly, explicit platform intent profiles for X, LinkedIn, and Reddit, a final review workspace for last-mile manual editing decisions, a manual posting-memory layer for preserving what was actually published externally, a manual qualitative outcome layer for capturing whether those published outputs were worth repeating, a bounded reuse-memory layer that brings those judged outcomes back into new editorial decisions without auto-applying them, a manual editorial playbook-card layer for compact reusable operator guidance, a heuristic playbook-coverage layer that highlights which recurring situations still need clearer playbook support, a unified guidance layer that presents the strongest next action, relevant memory, and support context in one place, a bounded operator-tuning layer for adjusting strictness and guidance posture without code edits, an autonomous approval queue layer that prepares stronger signals for review while still keeping final posting manual, a bounded auto-repair layer that gives held near-miss candidates one inspectable repair pass, an autonomous queue-triage layer that continuously routes candidates into explainable operational buckets before review, a bounded campaign strategy layer that helps the system balance campaigns, pillars, audiences, funnel stages, CTA goals, and recent cadence, a lightweight weekly planning layer that steers queue balance across campaigns, funnels, platforms, modes, and fresh-versus-evergreen mix, a bounded weekly-plan auto-draft assistant that proposes next week priorities from active campaigns, recent output mix, queue quality, reusable winners, and strategic gaps, a structured asset pipeline that packages visual and short-form video execution guidance with approval-ready drafts, a bounded repurposing engine that turns one strong idea into a few differentiated platform-ready variants, a manual publish-prep layer that packages those outputs with hooks, CTAs, timing, alt text, comment prompts, and optional trackable links for faster posting, a safe-mode distribution layer that groups staged posting variants into manual-ready bundles, a lightweight influencer relationship-memory layer for context-aware outreach and follow-up awareness, a strategic outcome layer that records business-facing post results without needing direct platform API integrations, and a bounded Growth Director meta-layer that synthesizes planning, queue, execution, outcome, and outreach state into a short strategic operator brief.
+
+## Weekly Execution Autopilot
+- Weekly execution logic is centralized in `lib/weekly-execution.ts`.
+- The layer stays intentionally bounded:
+  - refreshes the weekly pack
+  - stages only safe, policy-allowed items
+  - prepares distribution context
+  - orders the operator's work for the week
+  - never auto-posts
+- Current execution item states are:
+  - `ready_to_review`
+  - `ready_to_stage`
+  - `staged_for_posting`
+  - `blocked`
+- Current operator surfaces:
+  - `/execution`
+  - compact weekly execution summary in `/digest`
+  - lightweight execution metrics in `/insights`
+- What it prepares automatically:
+  - weekly-pack based execution ordering
+  - staged posting packages where autonomy policy allows
+  - distribution-bundle readiness derived from staged packages
+  - visible block reasons for anything left manual
+- Limitations:
+  - no auto-posting
+  - no scheduler or calendar automation
+  - blocked and review-required items remain visible and operator-controlled
+
+## Autonomy Scorecard
+- Scorecard logic is centralized in `lib/autonomy-scorecard.ts`.
+- The layer stays intentionally compact:
+  - no BI dashboard
+  - no new telemetry system
+  - deterministic metrics from existing workflow state
+- Current metrics include:
+  - total candidates
+  - auto-advanced count
+  - auto-repaired count
+  - auto-healed count
+  - staged without manual edit
+  - approval-ready without changes
+  - operator interventions required
+  - blocked by policy, conflict, and missing data
+- Current derived rates include:
+  - autonomy rate
+  - partial autonomy rate
+  - blocked rate
+- Current operator surfaces:
+  - compact scorecard in `/digest`
+  - fuller scorecard section in `/insights`
+- Limitations:
+  - directional operational awareness only
+  - no full analytics or reporting layer
+  - based on current queue, execution, repair, healing, and audit state
+
+## Operator Exception Inbox
+- Exception inbox logic is centralized in `lib/exception-inbox.ts`.
+- The layer stays intentionally bounded:
+  - no duplicate full review UI
+  - no hidden deletion
+  - no autonomous resolution of ambiguous work
+- Current exception types include:
+  - `needs_judgement`
+  - `blocked_by_policy`
+  - `conflict_detected`
+  - `missing_outcome`
+  - `incomplete_package`
+  - `experiment_unresolved`
+  - `duplicate_unresolved`
+- Current operator surfaces:
+  - `/exceptions`
+  - compact summary in `/digest`
+- What it does:
+  - aggregates operator-required work from queue, execution, and operator-task state
+  - groups items by issue type
+  - keeps one recommended next action visible
+  - supports low-risk duplicate-cluster resolution directly from the inbox
+- Limitations:
+  - advisory and bounded
+  - not a replacement for full review
+  - policy-only items can reappear after dismissal if the underlying issue remains
+
+## Safe Multi-Step Execution Chains
+- Execution-chain logic is centralized in `lib/execution-chains.ts`.
+- The layer stays intentionally bounded:
+  - no long chain graphs
+  - no hidden retries
+  - no low-confidence execution
+  - no automatic posting
+- Current chain types include:
+  - `repair_chain`
+  - `completion_chain`
+  - `promotion_chain`
+- Current chain step families include:
+  - `autofill_package`
+  - `repair_package`
+  - `refresh_package`
+  - `re_evaluate_readiness`
+  - `stage_for_posting`
+- Current operator surfaces:
+  - review queue chain note
+  - execution flow chain note
+  - digest execution summary
+- What it does:
+  - recognizes when bounded upstream automation has already improved a candidate
+  - promotes that candidate through a small safe chain
+  - stages only if policy, confidence, completeness, and conflict state all still allow it
+- Limitations:
+  - bounded only
+  - no multi-branch orchestration
+  - no auto-posting
+  - active experiment locks still stop chain execution
+
+## Strategic Decision Proposals
+- Strategic decision logic is centralized in `lib/strategic-decisions.ts`.
+- The layer stays intentionally bounded:
+  - no auto-applied strategy changes
+  - no forecasting engine
+  - no giant strategy document generation
+- Current proposal categories include:
+  - `campaign_focus`
+  - `platform_mix`
+  - `funnel_mix`
+  - `evergreen_balance`
+  - `experiment_pacing`
+  - `source_quality`
+  - `outreach_focus`
+  - `conversion_pressure`
+- Current operator surfaces:
+  - `/director`
+  - compact strategic decision section in `/digest`
+- What it does:
+  - turns existing planning, recap, optimisation, source, revenue, audience, and outreach state into short decision proposals
+  - links each proposal into the most relevant workflow
+  - keeps the list capped and executive instead of operationally noisy
+- Limitations:
+  - advisory only
+  - no automatic strategy control
+  - only as strong as the stored state it is synthesizing
 
 ## AI Growth Director
 - Growth Director logic is centralized in `lib/growth-director.ts`.
@@ -411,6 +556,23 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - proposals trigger only when tradeoffs or uncertainty are visible in current structured state
   - confirming a proposal creates a real experiment with bounded variants attached
   - there is no automatic posting, scheduling, or winner selection
+- Experiment Autopilot V2 now adds bounded automatic experiment construction on top of that proposal layer:
+  - it only builds one-variable tests
+  - it only runs for high-confidence, low-conflict, stable candidates
+  - each autopilot-built experiment now carries:
+    - explicit hypothesis
+    - control vs variant summary
+    - outcome signal
+    - stop conditions
+    - safety notes
+  - current supported variables are:
+    - `hook_variant`
+    - `cta_variant`
+    - `destination_variant`
+    - `editorial_mode_variant`
+    - `platform_expression_variant`
+    - `pattern_vs_no_pattern`
+  - autopilot-built experiments still require operator confirmation and never auto-post
 - Approval autopilot package filler is also bounded and operator-visible:
   - it can fill low-risk missing package elements such as hook, CTA, destination, timing, and asset direction
   - it only runs for near-complete candidates with non-low confidence and usable draft quality
@@ -741,6 +903,8 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - co-pilot conservatism
   - transformability rescue
   - pattern suggestion strictness
+  - safe-mode posting
+  - safe-post confirmation
 - Presets are:
   - Conservative
   - Balanced
@@ -758,6 +922,138 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - no per-source custom tuning in this layer
   - no auto-learning or optimisation
   - bounded heuristics only
+
+## Autonomy Policy Engine
+- Autonomy policy is centralized in `lib/autonomy-policy.ts`.
+- It is a bounded shared decision layer, not a black-box controller and not a replacement for confidence.
+- Supported action types include:
+  - `autofill_package`
+  - `auto_repair`
+  - `auto_stage_for_posting`
+  - `safe_post`
+  - `suggest_reply`
+  - `create_experiment_variant`
+  - `apply_macro`
+  - `auto_promote_to_approval_ready`
+  - `auto_route_to_queue_bucket`
+- Every policy evaluation resolves to one explicit decision:
+  - `allow`
+  - `suggest_only`
+  - `block`
+- The policy uses existing structured state only:
+  - automation confidence
+  - completeness
+  - conflict state
+  - experimental status
+  - workflow state
+  - safe-mode posting settings
+  - platform support
+  - reply ambiguity or risk markers
+- Existing tuning still matters:
+  - safe-mode posting settings directly gate `safe_post`
+  - confidence strictness indirectly changes how often actions reach `allow` vs `suggest_only`
+  - co-pilot conservatism and related bounded heuristics still shape upstream candidate quality
+- Limitations:
+  - heuristic and bounded
+  - not a universal rule engine
+  - does not silently override operator-owned decisions
+
+## Pre-Review Repair Autopilot
+- Pre-review repair is centralized in `lib/review-repair.ts`.
+- This layer only runs bounded cleanup before final review when the package is:
+  - high confidence
+  - mostly complete or complete
+  - non-conflicted
+  - allowed by the autonomy policy engine
+- Supported repair types currently include:
+  - `add_missing_utm`
+  - `improve_destination_choice`
+  - `soften_cta`
+  - `add_alt_text`
+  - `add_comment_prompt`
+  - `founder_voice_cleanup`
+  - `fill_publish_prep_gap`
+- Repairs stay inspectable and reversible:
+  - approval queue cards show an `auto-repaired` summary
+  - final review shows the concrete repair list and reasons
+  - batch approval surfaces compact repair notes
+- The system uses the same existing structured inputs rather than new hidden scoring:
+  - automation confidence
+  - completeness
+  - conflict state
+  - conversion intent
+  - founder voice mode
+  - existing publish-prep defaults
+  - active experiment guards for CTA or destination tests
+- Limitations:
+  - low-risk only
+  - no core reframing
+  - no silent override of explicit operator choices
+  - no risky experiment-breaking edits
+
+## CTA / Destination Self-Healing
+- CTA/destination self-healing is centralized in `lib/cta-destination-healing.ts`.
+- The layer only adjusts clearly weak-but-fixable commercial pairings when a safer aligned alternative already exists.
+- Supported healing types currently include:
+  - `soften_cta`
+  - `strengthen_cta`
+  - `switch_destination`
+  - `align_cta_to_destination`
+  - `align_destination_to_conversion_posture`
+  - `commercial_pair_upgrade`
+- The layer reuses existing structured inputs rather than a separate hidden scoring system:
+  - conversion posture
+  - conflict state
+  - attribution memory
+  - revenue signals
+  - audience memory
+  - site-link registry and existing publish-prep variants
+  - experiment locks for CTA and destination tests
+- Current integration points:
+  - package autofill
+  - pre-review repair
+  - approval queue and final review through repair notes
+  - `/insights`
+- Limitations:
+  - bounded and evidence-based only
+  - no whole-post rewrites
+  - no aggressive sales escalation
+  - no experiment-breaking CTA or destination changes
+  - no silent override of explicit operator-owned destination choices
+
+## Autonomous Queue Triage
+- Queue triage is centralized in `lib/queue-triage.ts`.
+- The layer classifies approval candidates into one explicit operational state:
+  - `approve_ready`
+  - `repairable`
+  - `needs_judgement`
+  - `stale_but_reusable`
+  - `suppress`
+- Triage decisions stay explainable and compact. Each decision includes:
+  - state
+  - reason
+  - supporting signals
+  - suggested next action
+- Triage reuses existing structured signals rather than a separate hidden score:
+  - automation confidence
+  - completeness and autofill state
+  - conflict state
+  - stale queue state
+  - expected-outcome strength
+  - experiment linkage
+  - pre-review repair status
+- Current integration points:
+  - `/review`
+  - `/digest`
+  - `/insights`
+  - operator-task generation
+  - weekly posting pack filtering
+- Limitations:
+  - advisory only
+  - no auto-approval
+  - no deletion
+  - suppression is visible and reversible
+  - ambiguous items stay in judgement-first review
 
 ## Playbook Coverage Gaps
 - Coverage areas are deterministic, compact combinations of existing structured dimensions such as platform, editorial mode, source family, and recurring situation family.

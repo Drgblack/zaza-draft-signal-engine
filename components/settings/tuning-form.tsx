@@ -222,12 +222,12 @@ export function TuningForm({
                 onClick={() => applyPreset(presetOption.value)}
                 className={`rounded-2xl border px-4 py-4 text-left transition ${
                   matchingPreset === presetOption.value
-                    ? "border-slate-950 bg-slate-950 text-white"
-                    : "border-black/6 bg-white/80 text-slate-700 hover:bg-white"
+                    ? "border-slate-900 bg-slate-950 text-slate-50 shadow-[0_10px_24px_rgba(15,23,42,0.14)]"
+                    : "border-black/6 bg-white/88 text-slate-700 hover:bg-white"
                 }`}
               >
-                <p className="font-medium">{presetOption.label}</p>
-                <p className={`mt-2 text-sm leading-6 ${matchingPreset === presetOption.value ? "text-white/80" : "text-slate-500"}`}>
+                <p className="font-semibold">{presetOption.label}</p>
+                <p className={`mt-2 text-sm leading-6 ${matchingPreset === presetOption.value ? "text-slate-100" : "text-slate-600"}`}>
                   {presetOption.description}
                 </p>
               </button>
@@ -245,7 +245,7 @@ export function TuningForm({
         </CardHeader>
         <CardContent className="grid gap-5 md:grid-cols-2">
           {controls.map((control) => (
-            <div key={control.key} className="grid gap-2 rounded-2xl bg-white/80 p-4">
+            <div key={control.key} className="grid gap-2 rounded-2xl border border-black/5 bg-white/84 p-4">
               <Label htmlFor={`tuning-${control.key}`}>{control.label}</Label>
               <Select
                 id={`tuning-${control.key}`}
@@ -258,8 +258,8 @@ export function TuningForm({
                   </option>
                 ))}
               </Select>
-              <p className="text-sm leading-6 text-slate-500">{control.description}</p>
-              <p className="text-xs leading-5 text-slate-400">
+              <p className="text-sm leading-6 text-slate-600">{control.description}</p>
+              <p className="text-xs leading-5 text-slate-500">
                 {control.options.find((option) => option.value === settings[control.key])?.description}
               </p>
             </div>

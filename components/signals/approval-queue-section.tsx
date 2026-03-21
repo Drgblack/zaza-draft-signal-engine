@@ -17,12 +17,15 @@ import {
   REVIEW_COMMAND_CENTER_VIEWS,
   type ReviewCommandCenterViewId,
 } from "@/lib/review-command-center";
+import { getQueueTriageLabel, type QueueTriageState } from "@/lib/queue-triage";
 import { buildRepurposingBundleSummary, buildSignalRepurposingBundle } from "@/lib/repurposing";
 import { getStrategicValueLabel } from "@/lib/strategic-outcome-memory";
 import { formatDate } from "@/lib/utils";
 import type { StaleQueueActionResponse } from "@/types/api";
 import type { SignalRecord } from "@/types/signal";
 import type { AutomationConfidenceLevel } from "@/lib/confidence";
+import type { ExecutionChainAssessment } from "@/lib/execution-chains";
+import type { PreReviewRepairResult } from "@/lib/review-repair";
 import type { StaleQueueOperatorAction } from "@/lib/stale-queue";
 
 type Candidate = {
@@ -103,6 +106,9 @@ type Candidate = {
   packageAutofill: {
     mode: "applied" | "suggested" | "blocked";
     notes: Array<{ label: string; value: string }>;
+    policy: {
+      summary: string;
+    };
   };
   automationConfidence: {
     level: AutomationConfidenceLevel;
@@ -110,6 +116,7 @@ type Candidate = {
     reasons: string[];
     requiresOperatorJudgement: boolean;
   };
+  executionChain: Pick<ExecutionChainAssessment, "status" | "summary" | "chainType">;
   stale: {
     state: "fresh" | "aging" | "stale" | "stale_but_reusable" | "stale_needs_refresh";
     summary: string;
@@ -118,6 +125,14 @@ type Candidate = {
     operatorAction: StaleQueueOperatorAction | null;
     operatorActionNote: string | null;
     isSuppressedFromTopQueue: boolean;
+  };
+  preReviewRepair: Pick<PreReviewRepairResult, "decision" | "summary" | "repairs">;
+  triage: {
+    triageState: QueueTriageState;
+    reason: string;
+    supportingSignals: string[];
+    suggestedNextAction: string;
+    summary: string;
   };
   rankReasons: string[];
 };
@@ -251,6 +266,24 @@ function staleTone(state: Candidate["stale"]["state"]): "aging" | "stale" | "sta
   return "neutral";
 }
 
+function triageTone(
+  state: Candidate["triage"]["triageState"],
+): "high_value" | "autofill" | "aging" | "stale_reusable" | "stale" {
+  switch (state) {
+    case "approve_ready":
+      return "high_value";
+    case "repairable":
+      return "autofill";
+    case "needs_judgement":
+      return "aging";
+    case "stale_but_reusable":
+      return "stale_reusable";
+    case "suppress":
+    default:
+      return "stale";
+  }
+}
+
 function shouldShowStaleActions(candidate: Candidate): boolean {
   return candidate.stale.state !== "fresh" || candidate.stale.operatorAction !== null;
 }
@@ -298,10 +331,10 @@ export function ApprovalQueueSection({
     () =>
       candidates.filter((candidate) =>
         matchesApprovalCandidateView(candidate, activeView, {
-          experimentCount: experimentContextsBySignalId?.[candidate.signal.recordId]?.length ?? 0,
-          hasRepair: Boolean(getLatestAutoRepairEntry(candidate.signal)),
-        }),
-      ),
+              experimentCount: experimentContextsBySignalId?.[candidate.signal.recordId]?.length ?? 0,
+              hasRepair: Boolean(getLatestAutoRepairEntry(candidate.signal)) || candidate.preReviewRepair.decision === "applied",
+            }),
+          ),
     [activeView, candidates, experimentContextsBySignalId],
   );
 
@@ -313,12 +346,22 @@ export function ApprovalQueueSection({
           candidates.filter((candidate) =>
             matchesApprovalCandidateView(candidate, view.id, {
               experimentCount: experimentContextsBySignalId?.[candidate.signal.recordId]?.length ?? 0,
-              hasRepair: Boolean(getLatestAutoRepairEntry(candidate.signal)),
+              hasRepair: Boolean(getLatestAutoRepairEntry(candidate.signal)) || candidate.preReviewRepair.decision === "applied",
             }),
           ).length,
         ]),
       ) as Record<ReviewCommandCenterViewId, number>,
     [candidates, experimentContextsBySignalId],
+  );
+  const triageCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        ["approve_ready", "repairable", "needs_judgement", "stale_but_reusable", "suppress"].map((state) => [
+          state,
+          candidates.filter((candidate) => candidate.triage.triageState === state).length,
+        ]),
+      ) as Record<QueueTriageState, number>,
+    [candidates],
   );
 
   useEffect(() => {
@@ -412,6 +455,24 @@ export function ApprovalQueueSection({
               </button>
             ))}
           </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {(
+              [
+                "approve_ready",
+                "repairable",
+                "needs_judgement",
+                "stale_but_reusable",
+                "suppress",
+              ] as QueueTriageState[]
+            ).map((state) => (
+              <div key={state} className="rounded-2xl bg-slate-50/80 px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <ReviewStateBadge tone={triageTone(state)}>{getQueueTriageLabel(state)}</ReviewStateBadge>
+                  <span className="text-sm font-semibold text-slate-950">{triageCounts[state]}</span>
+                </div>
+              </div>
+            ))}
+          </div>
           {staleFeedback ? (
             <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">{staleFeedback}</div>
           ) : null}
@@ -432,7 +493,8 @@ export function ApprovalQueueSection({
             const repurposingSummary = buildRepurposingBundleSummary(buildSignalRepurposingBundle(candidate.signal));
             const publishPrepSummary = buildPublishPrepBundleSummary(buildSignalPublishPrepBundle(candidate.signal));
             const expanded = expandedById[candidate.signal.recordId] ?? false;
-            const chips = chipLabel(candidate, experimentContexts.length, Boolean(latestRepair));
+            const hasRepair = Boolean(latestRepair) || candidate.preReviewRepair.decision === "applied";
+            const chips = chipLabel(candidate, experimentContexts.length, hasRepair);
 
             return (
               <div key={candidate.signal.recordId} className={`rounded-2xl p-4 transition ${activeIndex === index ? "bg-white ring-2 ring-[color:var(--accent)]/30" : "bg-white/80"}`}>
@@ -443,6 +505,9 @@ export function ApprovalQueueSection({
                       <ReviewStateBadge tone={candidate.expectedOutcome.expectedOutcomeTier === "high" ? "high_value" : candidate.expectedOutcome.expectedOutcomeTier === "medium" ? "medium_value" : "low_value"}>{candidate.expectedOutcome.expectedOutcomeTier} expected value</ReviewStateBadge>
                       <ReviewStateBadge tone={candidate.automationConfidence.level === "high" ? "high_confidence" : candidate.automationConfidence.level === "low" ? "low_confidence" : "medium_confidence"}>
                         {getConfidenceLabel(candidate.automationConfidence.level)} confidence
+                      </ReviewStateBadge>
+                      <ReviewStateBadge tone={triageTone(candidate.triage.triageState)}>
+                        {getQueueTriageLabel(candidate.triage.triageState)}
                       </ReviewStateBadge>
                       <ReviewStateBadge tone={candidate.completeness.completenessState === "complete" ? "complete" : candidate.completeness.completenessState === "mostly_complete" ? "mostly_complete" : "partial"}>{candidate.completeness.completenessState.replaceAll("_", " ")}</ReviewStateBadge>
                       <ReviewStateBadge tone={candidate.conversionIntent.posture === "direct_conversion" ? "high_value" : candidate.conversionIntent.posture === "soft_conversion" ? "medium_value" : "neutral"}>
@@ -498,9 +563,9 @@ export function ApprovalQueueSection({
                     </div>
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-2xl bg-slate-50/80 px-3 py-3 text-sm text-slate-600"><p className="font-medium text-slate-900">Why it matters</p><p className="mt-2">{candidate.expectedOutcome.expectedOutcomeReasons[0] ?? candidate.rankReasons[0] ?? "Strong support surfaced."}</p><p className="mt-2 text-slate-500">Conversion posture: {conversionIntentLabel(candidate.conversionIntent.posture)}.</p></div>
-                      <div className="rounded-2xl bg-slate-50/80 px-3 py-3 text-sm text-slate-600"><p className="font-medium text-slate-900">What is missing</p><p className="mt-2">{candidate.conflicts.topConflicts[0]?.reason ?? (candidate.stale.state !== "fresh" && candidate.stale.reasons[0] ? candidate.stale.reasons[0].summary : candidate.completeness.missingElements.length > 0 ? candidate.completeness.missingElements.slice(0, 2).join(" · ") : "No major package gaps")}</p></div>
-                      <div className="rounded-2xl bg-slate-50/80 px-3 py-3 text-sm text-slate-600"><p className="font-medium text-slate-900">{getAutofillHeading(candidate.packageAutofill.mode)}</p><p className="mt-2">{candidate.packageAutofill.mode === "blocked" ? "Low-confidence items stay in operator judgement. No bounded autofill is applied." : candidate.packageAutofill.notes.length > 0 ? candidate.packageAutofill.notes.slice(0, 2).map((note) => `${note.label}: ${note.value}`).join(" · ") : "No bounded autofill needed"}</p></div>
-                      <div className="rounded-2xl bg-slate-950 px-3 py-3 text-sm text-slate-100"><p className="font-medium text-white">Action now</p><p className="mt-2">{candidate.automationConfidence.level === "low" ? candidate.automationConfidence.summary : candidate.conflicts.topConflicts[0]?.suggestedFix ?? (candidate.stale.state !== "fresh" ? `${candidate.stale.actionSummary}. ${candidate.guidance.primaryAction}` : candidate.guidance.primaryAction)}</p></div>
+                      <div className="rounded-2xl bg-slate-50/80 px-3 py-3 text-sm text-slate-600"><p className="font-medium text-slate-900">What is missing</p><p className="mt-2">{candidate.conflicts.topConflicts[0]?.reason ?? candidate.triage.reason ?? (candidate.stale.state !== "fresh" && candidate.stale.reasons[0] ? candidate.stale.reasons[0].summary : candidate.preReviewRepair.decision === "applied" ? candidate.preReviewRepair.summary : candidate.completeness.missingElements.length > 0 ? candidate.completeness.missingElements.slice(0, 2).join(" · ") : "No major package gaps")}</p></div>
+                      <div className="rounded-2xl bg-slate-50/80 px-3 py-3 text-sm text-slate-600"><p className="font-medium text-slate-900">{getAutofillHeading(candidate.packageAutofill.mode)}</p><p className="mt-2">{candidate.packageAutofill.mode === "blocked" ? candidate.packageAutofill.policy.summary : candidate.packageAutofill.notes.length > 0 ? candidate.packageAutofill.notes.slice(0, 2).map((note) => `${note.label}: ${note.value}`).join(" · ") : "No bounded autofill needed"}</p></div>
+                      <div className="rounded-2xl bg-slate-950 px-3 py-3 text-sm text-slate-100"><p className="font-medium text-white">Action now</p><p className="mt-2">{candidate.automationConfidence.level === "low" ? candidate.automationConfidence.summary : candidate.conflicts.topConflicts[0]?.suggestedFix ?? candidate.triage.suggestedNextAction ?? (candidate.stale.state !== "fresh" ? `${candidate.stale.actionSummary}. ${candidate.guidance.primaryAction}` : candidate.preReviewRepair.decision === "applied" ? candidate.preReviewRepair.summary : candidate.guidance.primaryAction)}</p></div>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Link href={`/signals/${candidate.signal.recordId}/review`} className={buttonVariants({ variant: "secondary", size: "sm" })}>Open final review</Link>
@@ -550,11 +615,13 @@ export function ApprovalQueueSection({
                     <p className="mt-2">Conversion posture: {conversionIntentLabel(candidate.conversionIntent.posture)}</p>
                     <p className="mt-2">{formatContextLabel(candidate.signal.campaignId) ?? "No campaign"}</p>
                     <p className="mt-2">{formatContextLabel(candidate.signal.funnelStage) ?? "Funnel not set"} · {formatContextLabel(candidate.signal.ctaGoal) ?? "CTA not set"}</p>
-                    <p className="mt-2">{candidate.automationConfidence.reasons[0] ?? candidate.conflicts.topConflicts[0]?.reason ?? (candidate.stale.state !== "fresh" ? candidate.stale.reasons[0]?.summary ?? candidate.assessment.strongestCaution ?? candidate.guidance.cautionNotes[0] ?? "No major caution surfaced" : candidate.assessment.strongestCaution ?? candidate.guidance.cautionNotes[0] ?? "No major caution surfaced")}</p>
+                    <p className="mt-2">{candidate.triage.reason ?? candidate.automationConfidence.reasons[0] ?? candidate.conflicts.topConflicts[0]?.reason ?? (candidate.stale.state !== "fresh" ? candidate.stale.reasons[0]?.summary ?? candidate.assessment.strongestCaution ?? candidate.guidance.cautionNotes[0] ?? "No major caution surfaced" : candidate.assessment.strongestCaution ?? candidate.guidance.cautionNotes[0] ?? "No major caution surfaced")}</p>
+                    {candidate.preReviewRepair.decision === "applied" ? <p className="mt-2 text-xs text-slate-500">{candidate.preReviewRepair.summary}</p> : null}
+                    {candidate.executionChain.status === "completed" || candidate.executionChain.status === "available" ? <p className="mt-2 text-xs text-sky-700">{candidate.executionChain.summary}</p> : null}
                     {candidate.stale.operatorActionNote ? <p className="mt-2 text-xs text-slate-500">Note: {candidate.stale.operatorActionNote}</p> : null}
                   </div>
                 </div>
-                {expanded ? <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_0.95fr]"><div className="grid gap-4 md:grid-cols-2"><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Post hypothesis</p><p className="mt-2"><span className="font-medium text-slate-900">Objective:</span> {candidate.hypothesis.objective}</p><p className="mt-2"><span className="font-medium text-slate-900">Why it may work:</span> {candidate.hypothesis.whyItMayWork}</p><p className="mt-2 text-slate-500">Levers: {candidate.hypothesis.keyLevers.join(" · ")}</p></div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Expected outcome detail</p><p className="mt-2">{candidate.expectedOutcome.expectedOutcomeReasons.join(" · ")}</p>{candidate.expectedOutcome.riskSignals.length > 0 ? <p className="mt-2 text-slate-500">Risks: {candidate.expectedOutcome.riskSignals.join(" · ")}</p> : null}</div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Package and supports</p><p className="mt-2">Score {candidate.completeness.completenessScore} · {candidate.completeness.completenessState.replaceAll("_", " ")}</p><p className="mt-2 text-slate-500">Asset: {assetSummary?.summary ?? "Not generated yet"}</p><p className="mt-2 text-slate-500">Repurposing: {repurposingSummary ? `${repurposingSummary.count} variants` : "Not generated yet"}</p><p className="mt-2 text-slate-500">Publish prep: {publishPrepSummary ? `${publishPrepSummary.packageCount} packages ready` : "Not prepared yet"}</p></div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Strategy and fatigue</p><p className="mt-2">{candidate.rankReasons[0] ?? "No strong strategic rebalance note surfaced."}</p>{candidate.expectedOutcome.riskSignals[0] ? <p className="mt-2 text-slate-500">Caution: {candidate.expectedOutcome.riskSignals[0]}</p> : null}{candidate.fatigue.warnings.length > 0 ? <p className="mt-2 text-slate-500">Fatigue: {candidate.fatigue.warnings.map((warning) => warning.summary).join(" · ")}</p> : null}</div></div><div className="space-y-4"><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Support detail</p>{experimentContexts.length > 0 ? <p className="mt-2">Experiments: {experimentContexts.map((experiment) => `${experiment.name} (${experiment.variantLabels.join(" · ")})`).join(" · ")}</p> : <p className="mt-2">No active experiment context attached.</p>}<p className="mt-2 text-slate-500">{candidate.guidance.relatedPlaybookCards[0]?.title ?? candidate.guidance.relatedPatterns[0]?.title ?? "No direct playbook or pattern surfaced."}</p>{latestRepair ? <p className="mt-2 text-slate-500">{getAutoRepairLabel(latestRepair)}</p> : null}</div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Conversion posture</p><p className="mt-2">{conversionIntentLabel(candidate.conversionIntent.posture)}</p><p className="mt-2 text-slate-500">{candidate.conversionIntent.whyChosen[0] ?? "No extra conversion note surfaced."}</p>{candidate.conversionIntent.cautionNotes[0] ? <p className="mt-2 text-slate-500">Caution: {candidate.conversionIntent.cautionNotes[0]}</p> : null}</div>{candidate.conflicts.topConflicts.length > 0 ? <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Conflict detail</p><div className="mt-3 space-y-3">{candidate.conflicts.topConflicts.map((conflict) => <div key={`${candidate.signal.recordId}-detail-${conflict.conflictType}-${conflict.platform ?? "all"}`} className="rounded-2xl bg-white/80 px-3 py-3"><div className="flex flex-wrap items-center gap-2"><ReviewStateBadge tone={conflictTone(conflict.severity)}>{conflict.severity} conflict</ReviewStateBadge><span className="text-sm font-medium text-slate-900">{conflictLabel(conflict.conflictType)}</span></div><p className="mt-2">{conflict.reason}</p>{conflict.suggestedFix ? <p className="mt-2 text-slate-500">Suggested fix: {conflict.suggestedFix}</p> : null}</div>)}</div></div> : null}</div></div> : null}
+                {expanded ? <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_0.95fr]"><div className="grid gap-4 md:grid-cols-2"><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Post hypothesis</p><p className="mt-2"><span className="font-medium text-slate-900">Objective:</span> {candidate.hypothesis.objective}</p><p className="mt-2"><span className="font-medium text-slate-900">Why it may work:</span> {candidate.hypothesis.whyItMayWork}</p><p className="mt-2 text-slate-500">Levers: {candidate.hypothesis.keyLevers.join(" · ")}</p></div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Expected outcome detail</p><p className="mt-2">{candidate.expectedOutcome.expectedOutcomeReasons.join(" · ")}</p>{candidate.expectedOutcome.riskSignals.length > 0 ? <p className="mt-2 text-slate-500">Risks: {candidate.expectedOutcome.riskSignals.join(" · ")}</p> : null}</div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Package and supports</p><p className="mt-2">Score {candidate.completeness.completenessScore} · {candidate.completeness.completenessState.replaceAll("_", " ")}</p><p className="mt-2 text-slate-500">Asset: {assetSummary?.summary ?? "Not generated yet"}</p><p className="mt-2 text-slate-500">Repurposing: {repurposingSummary ? `${repurposingSummary.count} variants` : "Not generated yet"}</p><p className="mt-2 text-slate-500">Publish prep: {publishPrepSummary ? `${publishPrepSummary.packageCount} packages ready` : "Not prepared yet"}</p></div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Strategy and fatigue</p><p className="mt-2">{candidate.rankReasons[0] ?? "No strong strategic rebalance note surfaced."}</p>{candidate.expectedOutcome.riskSignals[0] ? <p className="mt-2 text-slate-500">Caution: {candidate.expectedOutcome.riskSignals[0]}</p> : null}{candidate.fatigue.warnings.length > 0 ? <p className="mt-2 text-slate-500">Fatigue: {candidate.fatigue.warnings.map((warning) => warning.summary).join(" · ")}</p> : null}</div></div><div className="space-y-4"><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Support detail</p>{experimentContexts.length > 0 ? <p className="mt-2">Experiments: {experimentContexts.map((experiment) => `${experiment.name} (${experiment.variantLabels.join(" · ")})`).join(" · ")}</p> : <p className="mt-2">No active experiment context attached.</p>}<p className="mt-2 text-slate-500">{candidate.guidance.relatedPlaybookCards[0]?.title ?? candidate.guidance.relatedPatterns[0]?.title ?? "No direct playbook or pattern surfaced."}</p>{candidate.preReviewRepair.decision === "applied" ? <p className="mt-2 text-slate-500">{candidate.preReviewRepair.summary}</p> : latestRepair ? <p className="mt-2 text-slate-500">{getAutoRepairLabel(latestRepair)}</p> : null}</div><div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Conversion posture</p><p className="mt-2">{conversionIntentLabel(candidate.conversionIntent.posture)}</p><p className="mt-2 text-slate-500">{candidate.conversionIntent.whyChosen[0] ?? "No extra conversion note surfaced."}</p>{candidate.conversionIntent.cautionNotes[0] ? <p className="mt-2 text-slate-500">Caution: {candidate.conversionIntent.cautionNotes[0]}</p> : null}</div>{candidate.preReviewRepair.decision === "applied" ? <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Pre-review repair</p><div className="mt-3 space-y-3">{candidate.preReviewRepair.repairs.slice(0, 4).map((repair) => <div key={`${candidate.signal.recordId}-${repair.repairType}-${repair.after}`} className="rounded-2xl bg-white/80 px-3 py-3"><div className="flex flex-wrap items-center gap-2"><ReviewStateBadge tone="autofill">Auto-repaired</ReviewStateBadge><span className="text-sm font-medium text-slate-900">{repair.repairType.replaceAll("_", " ")}</span></div><p className="mt-2">{repair.reason}</p><p className="mt-2 text-slate-500">{repair.before} → {repair.after}</p></div>)}</div></div> : null}{candidate.conflicts.topConflicts.length > 0 ? <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600"><p className="font-medium text-slate-900">Conflict detail</p><div className="mt-3 space-y-3">{candidate.conflicts.topConflicts.map((conflict) => <div key={`${candidate.signal.recordId}-detail-${conflict.conflictType}-${conflict.platform ?? "all"}`} className="rounded-2xl bg-white/80 px-3 py-3"><div className="flex flex-wrap items-center gap-2"><ReviewStateBadge tone={conflictTone(conflict.severity)}>{conflict.severity} conflict</ReviewStateBadge><span className="text-sm font-medium text-slate-900">{conflictLabel(conflict.conflictType)}</span></div><p className="mt-2">{conflict.reason}</p>{conflict.suggestedFix ? <p className="mt-2 text-slate-500">Suggested fix: {conflict.suggestedFix}</p> : null}</div>)}</div></div> : null}</div></div> : null}
               </div>
             );
           })}

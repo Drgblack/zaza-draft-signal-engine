@@ -32,6 +32,22 @@ type ExperimentProposal = {
   expectedLearningGoal: string;
   comparisonTarget: string | null;
   reviewHref: string;
+  autopilotBuilt: boolean;
+  autopilotVersion: "v2" | null;
+  autopilotVariable:
+    | "hook_variant"
+    | "cta_variant"
+    | "destination_variant"
+    | "editorial_mode_variant"
+    | "platform_expression_variant"
+    | "pattern_vs_no_pattern"
+    | null;
+  hypothesis: string | null;
+  stopConditions: string[];
+  safetyNotes: string[];
+  outcomeSignal: string | null;
+  controlLabel: string | null;
+  variantLabel: string | null;
   status: "open" | "dismissed" | "postponed" | "confirmed";
 };
 
@@ -51,6 +67,10 @@ function experimentTypeLabel(value: ExperimentProposal["experimentType"]): strin
     default:
       return "Pattern vs no-pattern";
   }
+}
+
+function autopilotVariableLabel(value: ExperimentProposal["autopilotVariable"]): string | null {
+  return value ? value.replaceAll("_", " ") : null;
 }
 
 async function postAction(body: {
@@ -157,6 +177,11 @@ export function ExperimentProposalSection({
                       <span className="inline-flex rounded-full bg-slate-950 px-2.5 py-1 text-xs font-medium text-white">
                         {experimentTypeLabel(proposal.experimentType)}
                       </span>
+                      {proposal.autopilotBuilt ? (
+                        <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                          Autopilot-built experiment
+                        </span>
+                      ) : null}
                       <span className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 ring-1 ring-inset ring-sky-200">
                         Operator confirmation required
                       </span>
@@ -174,7 +199,42 @@ export function ExperimentProposalSection({
                       <p>
                         <span className="font-medium text-slate-900">Comparison target:</span> {proposal.comparisonTarget ?? "Bounded variant comparison"}
                       </p>
+                      {proposal.autopilotVariable ? (
+                        <p>
+                          <span className="font-medium text-slate-900">Variable under test:</span> {autopilotVariableLabel(proposal.autopilotVariable)}
+                        </p>
+                      ) : null}
+                      {proposal.outcomeSignal ? (
+                        <p>
+                          <span className="font-medium text-slate-900">Outcome signal:</span> {proposal.outcomeSignal}
+                        </p>
+                      ) : null}
                     </div>
+                    {proposal.hypothesis ? (
+                      <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                        <p className="font-medium text-slate-900">Hypothesis</p>
+                        <p className="mt-2">{proposal.hypothesis}</p>
+                      </div>
+                    ) : null}
+                    {proposal.stopConditions.length > 0 ? (
+                      <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-700">
+                        <p className="font-medium text-slate-900">Stop conditions</p>
+                        <div className="mt-2 space-y-2">
+                          {proposal.stopConditions.map((condition) => (
+                            <p key={condition}>{condition}</p>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {proposal.safetyNotes.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {proposal.safetyNotes.map((note) => (
+                          <span key={note} className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                            {note}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
@@ -207,11 +267,14 @@ export function ExperimentProposalSection({
                   </div>
 
                   <div className="min-w-80 space-y-3 rounded-2xl bg-slate-50/80 p-4 text-sm text-slate-600">
-                    {proposal.candidateVariants.map((variant) => (
+                    {proposal.candidateVariants.map((variant, index) => (
                       <div key={variant.variantId} className="rounded-2xl bg-white/90 p-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
                             {variant.variantLabel}
+                          </span>
+                          <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                            {index === 0 ? "Control" : "Variant"}
                           </span>
                           {variant.platform ? (
                             <span className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">

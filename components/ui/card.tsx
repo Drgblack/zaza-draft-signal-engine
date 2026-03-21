@@ -10,7 +10,7 @@ export function Card({
   return (
     <section
       className={cn(
-        "rounded-3xl border border-[color:var(--border)] bg-[color:var(--panel)] shadow-[0_12px_50px_rgba(15,23,42,0.05)] backdrop-blur",
+        "rounded-[1.75rem] border border-[color:var(--border)] bg-[color:var(--panel)] shadow-[0_14px_40px_rgba(15,23,42,0.045)] backdrop-blur",
         className,
       )}
     >
@@ -26,7 +26,7 @@ export function CardHeader({
   className?: string;
   children: React.ReactNode;
 }) {
-  return <div className={cn("flex flex-col gap-2 px-6 py-5", className)}>{children}</div>;
+  return <div className={cn("flex flex-col gap-3 px-6 py-6", className)}>{children}</div>;
 }
 
 export function CardTitle({
@@ -36,7 +36,7 @@ export function CardTitle({
   className?: string;
   children: React.ReactNode;
 }) {
-  return <h2 className={cn("text-lg font-semibold text-slate-950", className)}>{children}</h2>;
+  return <h2 className={cn("text-xl font-semibold tracking-[-0.02em] text-slate-950", className)}>{children}</h2>;
 }
 
 export function CardDescription({
@@ -46,7 +46,7 @@ export function CardDescription({
   className?: string;
   children: React.ReactNode;
 }) {
-  return <p className={cn("text-sm text-slate-600", className)}>{children}</p>;
+  return <p className={cn("text-[15px] leading-7 text-slate-600", className)}>{children}</p>;
 }
 
 export function CardContent({
