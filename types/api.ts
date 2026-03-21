@@ -431,6 +431,12 @@ export const factoryInputActionRequestSchema = z.discriminatedUnion("action", [
     opportunityId: z.string().trim().min(1),
     notes: z.string(),
   }),
+  z.object({
+    action: z.literal("update_founder_selection"),
+    opportunityId: z.string().trim().min(1),
+    selectedAngleId: z.string().trim().nullable(),
+    selectedHookId: z.string().trim().nullable(),
+  }),
 ]);
 
 export const zazaConnectBridgeActionRequestSchema = z.discriminatedUnion("action", [

@@ -10,6 +10,22 @@ import type {
   ContentOpportunity,
   ContentOpportunityState,
 } from "@/lib/content-opportunities";
+import {
+  applySelectedHookSelection,
+  buildHookSet,
+  inspectHookTrust,
+  type HookSet,
+  type HookVariant,
+} from "@/lib/hook-engine";
+import {
+  buildMessageAngles,
+  inspectMessageAngleTrust,
+  type MessageAngle,
+} from "@/lib/message-angles";
+import {
+  buildVideoBriefWithDiagnostics,
+  inspectVideoBriefTrust,
+} from "@/lib/video-briefs";
 import type { FactoryInputResponse } from "@/types/api";
 
 function priorityTone(priority: ContentOpportunity["priority"]) {
@@ -92,6 +108,155 @@ function typeLabel(type: ContentOpportunity["opportunityType"]) {
   }
 }
 
+function angleStyleTone(style: MessageAngle["style"]) {
+  switch (style) {
+    case "validation":
+      return "bg-sky-50 text-sky-700 ring-sky-200";
+    case "reframe":
+      return "bg-cyan-50 text-cyan-700 ring-cyan-200";
+    case "practical-help":
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+    case "risk-awareness":
+      return "bg-amber-50 text-amber-700 ring-amber-200";
+    case "calm-relief":
+      return "bg-violet-50 text-violet-700 ring-violet-200";
+    case "teacher-voice":
+    default:
+      return "bg-slate-100 text-slate-700 ring-slate-200";
+  }
+}
+
+function angleStyleLabel(style: MessageAngle["style"]) {
+  switch (style) {
+    case "practical-help":
+      return "Practical help";
+    case "risk-awareness":
+      return "Risk awareness";
+    case "calm-relief":
+      return "Calm relief";
+    case "teacher-voice":
+      return "Teacher voice";
+    case "validation":
+      return "Validation";
+    case "reframe":
+    default:
+      return "Reframe";
+  }
+}
+
+function hookTypeTone(type: HookVariant["type"]) {
+  switch (type) {
+    case "direct":
+      return "bg-slate-100 text-slate-700 ring-slate-200";
+    case "empathetic":
+      return "bg-sky-50 text-sky-700 ring-sky-200";
+    case "pattern-interrupt":
+      return "bg-cyan-50 text-cyan-700 ring-cyan-200";
+    case "teacher-confession":
+      return "bg-violet-50 text-violet-700 ring-violet-200";
+    case "calm-warning":
+      return "bg-amber-50 text-amber-700 ring-amber-200";
+    case "practical":
+    default:
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  }
+}
+
+function hookTypeLabel(type: HookVariant["type"]) {
+  switch (type) {
+    case "pattern-interrupt":
+      return "Pattern interrupt";
+    case "teacher-confession":
+      return "Teacher confession";
+    case "calm-warning":
+      return "Calm warning";
+    case "direct":
+      return "Direct";
+    case "empathetic":
+      return "Empathetic";
+    case "practical":
+    default:
+      return "Practical";
+  }
+}
+
+function trustReasonLabel(reason: string) {
+  switch (reason) {
+    case "blocked-language":
+      return "hype phrasing";
+    case "bro-marketing":
+      return "marketing tone";
+    case "generic-drift":
+      return "generic drift";
+    case "manipulative-urgency":
+      return "urgency pressure";
+    case "exaggerated-fear":
+      return "fear-heavy tone";
+    case "overpromising":
+      return "overpromising";
+    case "product-too-early":
+      return "product too early";
+    default:
+      return reason.replaceAll("-", " ");
+  }
+}
+
+interface OpportunityDraftFlow {
+  angles: MessageAngle[];
+  hookSetsByAngleId: Record<string, HookSet>;
+}
+
+function buildOpportunityDraftFlow(
+  opportunity: ContentOpportunity,
+): OpportunityDraftFlow | null {
+  try {
+    const anglePairs = buildMessageAngles(opportunity)
+      .map((angle) => {
+        try {
+          return {
+            angle,
+            hookSet: buildHookSet(opportunity, angle),
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter(
+        (
+          item,
+        ): item is {
+          angle: MessageAngle;
+          hookSet: HookSet;
+        } => item !== null,
+      );
+
+    if (anglePairs.length === 0) {
+      return null;
+    }
+
+    return {
+      angles: anglePairs.map((item) => item.angle),
+      hookSetsByAngleId: Object.fromEntries(
+        anglePairs.map((item) => [item.angle.id, item.hookSet]),
+      ) as Record<string, HookSet>,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildSelectedVideoBrief(
+  opportunity: ContentOpportunity,
+  angle: MessageAngle,
+  hookSet: HookSet,
+) {
+  try {
+    return buildVideoBriefWithDiagnostics(opportunity, angle, hookSet);
+  } catch {
+    return null;
+  }
+}
+
 function buildSections(opportunities: ContentOpportunity[]) {
   const readyNow = opportunities.filter(
     (item) => item.status === "open" && item.priority === "high" && item.trustRisk !== "high",
@@ -144,6 +309,9 @@ export function FactoryInputsPanel({
 }) {
   const [state, setState] = useState(initialState);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [expandedByOpportunityId, setExpandedByOpportunityId] = useState<
+    Record<string, boolean>
+  >({});
   const [noteEdits, setNoteEdits] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       initialState.opportunities.map((item) => [item.opportunityId, item.operatorNotes ?? ""]),
@@ -152,6 +320,16 @@ export function FactoryInputsPanel({
   const [isPending, startTransition] = useTransition();
   const sections = useMemo(
     () => buildSections(state.opportunities),
+    [state.opportunities],
+  );
+  const opportunityFlowsById = useMemo(
+    () =>
+      Object.fromEntries(
+        state.opportunities.map((item) => [
+          item.opportunityId,
+          buildOpportunityDraftFlow(item),
+        ]),
+      ) as Record<string, OpportunityDraftFlow | null>,
     [state.opportunities],
   );
 
@@ -164,6 +342,37 @@ export function FactoryInputsPanel({
     }));
   }
 
+  function toggleExpanded(opportunityId: string) {
+    setExpandedByOpportunityId((current) => ({
+      ...current,
+      [opportunityId]: !current[opportunityId],
+    }));
+  }
+
+  function selectAngle(opportunityId: string, angleId: string) {
+    runRequest({
+      method: "PATCH",
+      body: {
+        action: "update_founder_selection",
+        opportunityId,
+        selectedAngleId: angleId,
+        selectedHookId: null,
+      },
+    });
+  }
+
+  function selectHook(opportunityId: string, angleId: string, hookId: string) {
+    runRequest({
+      method: "PATCH",
+      body: {
+        action: "update_founder_selection",
+        opportunityId,
+        selectedAngleId: angleId,
+        selectedHookId: hookId,
+      },
+    });
+  }
+
   function runRequest(
     input:
       | { method: "POST"; body: { refresh: true } }
@@ -173,7 +382,13 @@ export function FactoryInputsPanel({
             | { action: "approve_for_production"; opportunityId: string }
             | { action: "dismiss"; opportunityId: string }
             | { action: "reopen"; opportunityId: string }
-            | { action: "update_notes"; opportunityId: string; notes: string };
+            | { action: "update_notes"; opportunityId: string; notes: string }
+            | {
+                action: "update_founder_selection";
+                opportunityId: string;
+                selectedAngleId: string | null;
+                selectedHookId: string | null;
+              };
         },
   ) {
     startTransition(async () => {
@@ -258,7 +473,47 @@ export function FactoryInputsPanel({
           <p className="text-sm text-slate-600">{section.description}</p>
 
           <div className="space-y-3">
-            {section.items.map((item) => (
+            {section.items.map((item) => {
+              const flow = opportunityFlowsById[item.opportunityId];
+              const isExpanded = expandedByOpportunityId[item.opportunityId] ?? false;
+              const selectedAngle =
+                flow?.angles.find(
+                  (angle) => angle.id === item.selectedAngleId,
+                ) ??
+                flow?.angles.find((angle) => angle.isRecommended) ??
+                flow?.angles[0] ??
+                null;
+              const selectedHookSetBase = selectedAngle
+                ? flow?.hookSetsByAngleId[selectedAngle.id] ?? null
+                : null;
+              const selectedHookSet = selectedHookSetBase
+                ? applySelectedHookSelection(
+                    selectedHookSetBase,
+                    item.selectedHookId ?? selectedHookSetBase.primaryHook.id,
+                  )
+                : null;
+              const brief =
+                selectedAngle && selectedHookSet
+                  ? item.selectedVideoBrief &&
+                    item.selectedAngleId === selectedAngle.id &&
+                    item.selectedHookId === selectedHookSet.primaryHook.id
+                    ? {
+                        brief: item.selectedVideoBrief,
+                        diagnostics: inspectVideoBriefTrust(
+                          item,
+                          selectedAngle,
+                          selectedHookSet,
+                          item.selectedVideoBrief,
+                        ),
+                      }
+                    : buildSelectedVideoBrief(item, selectedAngle, selectedHookSet)
+                  : null;
+              const primaryHookTrust =
+                selectedAngle && selectedHookSet
+                  ? inspectHookTrust(item, selectedAngle, selectedHookSet.primaryHook)
+                  : null;
+
+              return (
               <div key={item.opportunityId} className="rounded-2xl bg-white/84 px-4 py-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge className={priorityTone(item.priority)}>{item.priority}</Badge>
@@ -375,6 +630,322 @@ export function FactoryInputsPanel({
                   ) : null}
                 </div>
 
+                <div className="mt-3 rounded-2xl bg-slate-50/80 px-4 py-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                        Message flow
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        Review angles, choose the hook, and inspect the brief before approval.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => toggleExpanded(item.opportunityId)}
+                    >
+                      {isExpanded ? "Collapse detail" : "Open message flow"}
+                    </Button>
+                  </div>
+
+                  {isExpanded ? (
+                    flow && selectedAngle && selectedHookSet ? (
+                      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                        <div className="grid gap-3">
+                          {flow.angles.map((angle) => {
+                            const isSelected = angle.id === selectedAngle.id;
+                            const angleTrust = inspectMessageAngleTrust(item, angle);
+
+                            return (
+                              <div
+                                key={angle.id}
+                                className={`rounded-2xl px-4 py-4 ${
+                                  isSelected ? "bg-white ring-1 ring-slate-200" : "bg-white/70"
+                                }`}
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge className={angleStyleTone(angle.style)}>
+                                    {angleStyleLabel(angle.style)}
+                                  </Badge>
+                                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                    Score {angle.score}
+                                  </Badge>
+                                  {angle.isRecommended ? (
+                                    <Badge className="bg-emerald-50 text-emerald-700 ring-emerald-200">
+                                      Recommended
+                                    </Badge>
+                                  ) : null}
+                                  {isSelected ? (
+                                    <Badge className="bg-slate-900 text-white ring-slate-900">
+                                      Selected
+                                    </Badge>
+                                  ) : null}
+                                  {angleTrust.reasons.length > 0 ? (
+                                    <Badge className="bg-amber-50 text-amber-700 ring-amber-200">
+                                      Trust caution
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                <p className="mt-3 text-sm font-medium text-slate-950">
+                                  {angle.title}
+                                </p>
+                                <p className="mt-2 text-sm leading-6 text-slate-700">
+                                  {angle.summary}
+                                </p>
+                                <p className="mt-3 text-sm leading-6 text-slate-700">
+                                  {angle.teacherVoiceLine}
+                                </p>
+                                <p className="mt-2 text-xs leading-5 text-slate-500">
+                                  {angle.whyThisAngle}
+                                </p>
+                                {angleTrust.reasons.length > 0 ? (
+                                  <p className="mt-2 text-xs leading-5 text-amber-700">
+                                    Kept conservative around {angleTrust.reasons.map(trustReasonLabel).join(", ")}.
+                                  </p>
+                                ) : null}
+                                {!isSelected ? (
+                                  <div className="mt-3">
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      disabled={isPending}
+                                      onClick={() => selectAngle(item.opportunityId, angle.id)}
+                                    >
+                                      Select angle
+                                    </Button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                              Selected hook
+                            </p>
+                            <p className="mt-3 text-base font-medium text-slate-950">
+                              {selectedHookSet.primaryHook.text}
+                            </p>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <Badge className={hookTypeTone(selectedHookSet.primaryHook.type)}>
+                                {hookTypeLabel(selectedHookSet.primaryHook.type)}
+                              </Badge>
+                              <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                Score {selectedHookSet.primaryHook.score}
+                              </Badge>
+                              {primaryHookTrust && primaryHookTrust.reasons.length > 0 ? (
+                                <Badge className="bg-amber-50 text-amber-700 ring-amber-200">
+                                  Trust caution
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <p className="mt-3 text-sm leading-6 text-slate-600">
+                              {selectedHookSet.rationale}
+                            </p>
+                            {primaryHookTrust && primaryHookTrust.reasons.length > 0 ? (
+                              <p className="mt-2 text-xs leading-5 text-amber-700">
+                                Opening kept grounded around {primaryHookTrust.reasons.map(trustReasonLabel).join(", ")}.
+                              </p>
+                            ) : null}
+                          </div>
+
+                          <div className="rounded-2xl bg-white/80 px-4 py-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                Hook options
+                              </p>
+                              <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                {selectedHookSet.variants.length}
+                              </Badge>
+                            </div>
+                            <div className="mt-3 grid gap-2">
+                              {selectedHookSet.variants.map((variant) => {
+                                const isSelected = variant.id === selectedHookSet.primaryHook.id;
+                                const hookTrust = inspectHookTrust(item, selectedAngle, variant);
+
+                                return (
+                                  <div
+                                    key={variant.id}
+                                    className={`rounded-2xl px-3 py-3 ${
+                                      isSelected
+                                        ? "bg-slate-50 ring-1 ring-slate-200"
+                                        : "bg-slate-50/70"
+                                    }`}
+                                  >
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Badge className={hookTypeTone(variant.type)}>
+                                        {hookTypeLabel(variant.type)}
+                                      </Badge>
+                                      <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                        Score {variant.score}
+                                      </Badge>
+                                      {isSelected ? (
+                                        <Badge className="bg-slate-900 text-white ring-slate-900">
+                                          Selected
+                                        </Badge>
+                                      ) : null}
+                                      {hookTrust.reasons.length > 0 ? (
+                                        <Badge className="bg-amber-50 text-amber-700 ring-amber-200">
+                                          Trust caution
+                                        </Badge>
+                                      ) : null}
+                                    </div>
+                                    <p className="mt-2 text-sm leading-6 text-slate-800">
+                                      {variant.text}
+                                    </p>
+                                    {hookTrust.reasons.length > 0 ? (
+                                      <p className="mt-2 text-xs leading-5 text-amber-700">
+                                        Softened around {hookTrust.reasons.map(trustReasonLabel).join(", ")}.
+                                      </p>
+                                    ) : null}
+                                    {!isSelected ? (
+                                      <div className="mt-3">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          disabled={isPending}
+                                          onClick={() =>
+                                            selectHook(item.opportunityId, selectedAngle.id, variant.id)
+                                          }
+                                        >
+                                          Select hook
+                                        </Button>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {brief ? (
+                            <div className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                  Video brief
+                                </p>
+                                <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                  {brief.brief.format.replaceAll("-", " ")}
+                                </Badge>
+                                <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                  {brief.brief.durationSec}s
+                                </Badge>
+                                {brief.diagnostics.wasSanitized ? (
+                                  <Badge className="bg-amber-50 text-amber-700 ring-amber-200">
+                                    Trust adjusted
+                                  </Badge>
+                                ) : null}
+                                {brief.diagnostics.usedFallback ? (
+                                  <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                    Conservative fallback
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <p className="mt-3 text-sm font-medium text-slate-950">
+                                {brief.brief.title}
+                              </p>
+                              {brief.diagnostics.wasSanitized ? (
+                                <p className="mt-2 text-xs leading-5 text-amber-700">
+                                  This brief was softened to stay teacher-safe and keep the product out of the opening.
+                                </p>
+                              ) : null}
+                              <p className="mt-2 text-sm leading-6 text-slate-700">
+                                <span className="font-medium text-slate-950">Hook:</span>{" "}
+                                {brief.brief.hook}
+                              </p>
+                              <p className="mt-2 text-sm leading-6 text-slate-700">
+                                <span className="font-medium text-slate-950">Goal:</span>{" "}
+                                {brief.brief.goal}
+                              </p>
+                              <p className="mt-2 text-sm leading-6 text-slate-700">
+                                <span className="font-medium text-slate-950">Tone:</span>{" "}
+                                {brief.brief.tone}
+                              </p>
+                              <p className="mt-2 text-sm leading-6 text-slate-700">
+                                <span className="font-medium text-slate-950">
+                                  Visual direction:
+                                </span>{" "}
+                                {brief.brief.visualDirection}
+                              </p>
+
+                              <div className="mt-3 grid gap-2">
+                                {brief.brief.structure.map((beat) => (
+                                  <div
+                                    key={`${brief.brief.id}:${beat.order}`}
+                                    className="rounded-2xl bg-slate-50/80 px-3 py-3"
+                                  >
+                                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                      Beat {beat.order}: {beat.purpose}
+                                    </p>
+                                    <p className="mt-2 text-sm leading-6 text-slate-700">
+                                      {beat.guidance}
+                                    </p>
+                                    {beat.suggestedOverlay ? (
+                                      <p className="mt-2 text-xs leading-5 text-slate-500">
+                                        Overlay: {beat.suggestedOverlay}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="mt-3">
+                                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                  Overlay lines
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {brief.brief.overlayLines.map((line) => (
+                                    <Badge
+                                      key={`${brief.brief.id}:${line}`}
+                                      className="bg-slate-100 text-slate-700 ring-slate-200"
+                                    >
+                                      {line}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <p className="mt-3 text-sm leading-6 text-slate-700">
+                                <span className="font-medium text-slate-950">CTA:</span>{" "}
+                                {brief.brief.cta}
+                              </p>
+
+                              {brief.brief.productionNotes?.length ? (
+                                <div className="mt-3">
+                                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                    Production notes
+                                  </p>
+                                  <div className="mt-2 space-y-2">
+                                    {brief.brief.productionNotes.map((note) => (
+                                      <p
+                                        key={`${brief.brief.id}:${note}`}
+                                        className="text-sm leading-6 text-slate-600"
+                                      >
+                                        {note}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="rounded-2xl bg-amber-50/80 px-4 py-4 text-sm leading-6 text-amber-700">
+                              This opportunity has a workable angle and hook flow, but the brief is not stable enough to show yet.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-600">
+                        This opportunity does not have a stable angle flow yet. Refresh the queue after the source signal becomes clearer.
+                      </div>
+                    )
+                  ) : null}
+                </div>
+
                 <div className="mt-3 grid gap-2">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
                     Operator notes
@@ -468,7 +1039,8 @@ export function FactoryInputsPanel({
                   </Button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       ))}

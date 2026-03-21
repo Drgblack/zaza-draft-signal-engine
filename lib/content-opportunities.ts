@@ -14,7 +14,9 @@ import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaign
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { buildGrowthMemory, type GrowthMemoryState } from "@/lib/growth-memory";
+import { applySelectedHookSelection, buildHookSet } from "@/lib/hook-engine";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
+import { buildMessageAngles } from "@/lib/message-angles";
 import {
   filterSignalsForActiveReviewQueue,
   indexConfirmedClusterByCanonicalSignalId,
@@ -35,6 +37,11 @@ import { buildRevenueSignalsFromInputs } from "@/lib/revenue-signals";
 import { buildRevenueSignalInsights } from "@/lib/revenue-signals";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
+import {
+  buildVideoBrief,
+  type VideoBrief,
+  videoBriefSchema,
+} from "@/lib/video-briefs";
 import { buildWeeklyRecap } from "@/lib/weekly-recap";
 import { buildWeeklyPostingPack } from "@/lib/weekly-posting-pack";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
@@ -57,10 +64,18 @@ export const CONTENT_OPPORTUNITY_STATUSES = [
 ] as const;
 
 export const CONTENT_OPPORTUNITY_PRIORITIES = ["high", "medium", "low"] as const;
+export const CONTENT_OPPORTUNITY_FOUNDER_SELECTION_STATUSES = [
+  "pending",
+  "angle-selected",
+  "hook-selected",
+  "approved",
+] as const;
 
 export type ContentOpportunityType = (typeof CONTENT_OPPORTUNITY_TYPES)[number];
 export type ContentOpportunityStatus = (typeof CONTENT_OPPORTUNITY_STATUSES)[number];
 export type ContentOpportunityPriority = (typeof CONTENT_OPPORTUNITY_PRIORITIES)[number];
+export type ContentOpportunityFounderSelectionStatus =
+  (typeof CONTENT_OPPORTUNITY_FOUNDER_SELECTION_STATUSES)[number];
 
 export interface ContentOpportunitySourceRef {
   signalId: string;
@@ -103,6 +118,10 @@ export interface ContentOpportunity {
   updatedAt: string;
   approvedAt: string | null;
   dismissedAt: string | null;
+  founderSelectionStatus: ContentOpportunityFounderSelectionStatus;
+  selectedAngleId: string | null;
+  selectedHookId: string | null;
+  selectedVideoBrief: VideoBrief | null;
   operatorNotes: string | null;
 }
 
@@ -156,6 +175,12 @@ const contentOpportunitySchema = z.object({
   updatedAt: z.string().trim().min(1),
   approvedAt: z.string().trim().nullable().default(null),
   dismissedAt: z.string().trim().nullable().default(null),
+  founderSelectionStatus: z
+    .enum(CONTENT_OPPORTUNITY_FOUNDER_SELECTION_STATUSES)
+    .default("pending"),
+  selectedAngleId: z.string().trim().nullable().default(null),
+  selectedHookId: z.string().trim().nullable().default(null),
+  selectedVideoBrief: videoBriefSchema.nullable().default(null),
   operatorNotes: z.string().trim().nullable().default(null),
 });
 
@@ -190,6 +215,12 @@ export const contentOpportunityActionRequestSchema = z.discriminatedUnion("actio
     action: z.literal("update_notes"),
     opportunityId: z.string().trim().min(1),
     notes: z.string(),
+  }),
+  z.object({
+    action: z.literal("update_founder_selection"),
+    opportunityId: z.string().trim().min(1),
+    selectedAngleId: z.string().trim().nullable(),
+    selectedHookId: z.string().trim().nullable(),
   }),
 ]);
 
@@ -415,6 +446,106 @@ function buildTitle(candidate: ApprovalQueueCandidate) {
   );
 }
 
+function normalizeFounderSelectionStatus(input: {
+  existingStatus: ContentOpportunityFounderSelectionStatus;
+  selectedAngleId: string | null;
+  selectedHookId: string | null;
+}) {
+  if (input.existingStatus === "approved") {
+    return "approved" as const;
+  }
+
+  if (input.selectedHookId) {
+    return "hook-selected" as const;
+  }
+
+  if (input.selectedAngleId) {
+    return "angle-selected" as const;
+  }
+
+  return "pending" as const;
+}
+
+function normalizeFounderSelection(
+  opportunity: ContentOpportunity,
+): Pick<
+  ContentOpportunity,
+  "founderSelectionStatus" | "selectedAngleId" | "selectedHookId" | "selectedVideoBrief"
+> {
+  const existingStatus = opportunity.founderSelectionStatus ?? "pending";
+  const selectedAngleId = normalizeText(opportunity.selectedAngleId);
+  const selectedHookId = normalizeText(opportunity.selectedHookId);
+
+  if (!selectedAngleId) {
+    return {
+      founderSelectionStatus:
+        existingStatus === "approved" ? "approved" : "pending",
+      selectedAngleId: null,
+      selectedHookId: null,
+      selectedVideoBrief: null,
+    };
+  }
+
+  try {
+    const angles = buildMessageAngles(opportunity);
+    const angle = angles.find((item) => item.id === selectedAngleId);
+
+    if (!angle) {
+      return {
+        founderSelectionStatus:
+          existingStatus === "approved" ? "approved" : "pending",
+        selectedAngleId: null,
+        selectedHookId: null,
+        selectedVideoBrief: null,
+      };
+    }
+
+    if (!selectedHookId) {
+      return {
+        founderSelectionStatus:
+          existingStatus === "approved" ? "approved" : "angle-selected",
+        selectedAngleId: angle.id,
+        selectedHookId: null,
+        selectedVideoBrief: null,
+      };
+    }
+
+    const hookSet = buildHookSet(opportunity, angle);
+    const hook = hookSet.variants.find((item) => item.id === selectedHookId);
+
+    if (!hook) {
+      return {
+        founderSelectionStatus:
+          existingStatus === "approved" ? "approved" : "angle-selected",
+        selectedAngleId: angle.id,
+        selectedHookId: null,
+        selectedVideoBrief: null,
+      };
+    }
+
+    const selectedHookSet = applySelectedHookSelection(hookSet, hook.id);
+
+    return {
+      founderSelectionStatus: normalizeFounderSelectionStatus({
+        existingStatus,
+        selectedAngleId: angle.id,
+        selectedHookId: hook.id,
+      }),
+      selectedAngleId: angle.id,
+      selectedHookId: hook.id,
+      selectedVideoBrief: buildVideoBrief(opportunity, angle, selectedHookSet),
+    };
+  } catch {
+    return {
+      founderSelectionStatus:
+        existingStatus === "approved" ? "approved" : "pending",
+      selectedAngleId: null,
+      selectedHookId: null,
+      selectedVideoBrief: null,
+    };
+  }
+}
+
 function mergePersistedFields(
   nextOpportunity: ContentOpportunity,
   existingOpportunity: ContentOpportunity | undefined,
@@ -423,20 +554,33 @@ function mergePersistedFields(
     return nextOpportunity;
   }
 
-  return {
+  const mergedOpportunity: ContentOpportunity = {
     ...nextOpportunity,
     status: existingOpportunity.status,
     createdAt: existingOpportunity.createdAt,
     approvedAt: existingOpportunity.approvedAt,
     dismissedAt: existingOpportunity.dismissedAt,
+    founderSelectionStatus: existingOpportunity.founderSelectionStatus ?? "pending",
+    selectedAngleId: existingOpportunity.selectedAngleId ?? null,
+    selectedHookId: existingOpportunity.selectedHookId ?? null,
+    selectedVideoBrief: existingOpportunity.selectedVideoBrief ?? null,
     operatorNotes: existingOpportunity.operatorNotes,
+  };
+
+  return {
+    ...mergedOpportunity,
+    ...normalizeFounderSelection(mergedOpportunity),
   };
 }
 
 function summarizeState(opportunities: ContentOpportunity[]) {
-  const open = opportunities.filter((item) => item.status === "open");
-  const approved = opportunities.filter((item) => item.status === "approved_for_production");
-  const dismissed = opportunities.filter((item) => item.status === "dismissed");
+  const normalizedOpportunities = opportunities.map((opportunity) => ({
+    ...opportunity,
+    ...normalizeFounderSelection(opportunity),
+  }));
+  const open = normalizedOpportunities.filter((item) => item.status === "open");
+  const approved = normalizedOpportunities.filter((item) => item.status === "approved_for_production");
+  const dismissed = normalizedOpportunities.filter((item) => item.status === "dismissed");
   const topSummary: string[] = [];
 
   if (open.length > 0) {
@@ -457,7 +601,7 @@ function summarizeState(opportunities: ContentOpportunity[]) {
     approvedCount: approved.length,
     dismissedCount: dismissed.length,
     topSummary: topSummary.slice(0, 4),
-    opportunities: sortOpportunities(opportunities),
+    opportunities: sortOpportunities(normalizedOpportunities),
   });
 }
 
@@ -535,6 +679,10 @@ function buildOpportunityFromCandidate(
     updatedAt: now.toISOString(),
     approvedAt: null,
     dismissedAt: null,
+    founderSelectionStatus: "pending",
+    selectedAngleId: null,
+    selectedHookId: null,
+    selectedVideoBrief: null,
     operatorNotes: null,
   });
 }
@@ -618,9 +766,17 @@ async function updateOpportunity(
   updater: (opportunity: ContentOpportunity) => ContentOpportunity,
 ) {
   const store = await readPersistedStore();
-  const nextOpportunities = store.opportunities.map((opportunity) =>
-    opportunity.opportunityId === opportunityId ? updater(opportunity) : opportunity,
-  );
+  const nextOpportunities = store.opportunities.map((opportunity) => {
+    if (opportunity.opportunityId !== opportunityId) {
+      return opportunity;
+    }
+
+    const updatedOpportunity = updater(opportunity);
+    return {
+      ...updatedOpportunity,
+      ...normalizeFounderSelection(updatedOpportunity),
+    };
+  });
   await writePersistedStore({
     updatedAt: new Date().toISOString(),
     opportunities: nextOpportunities,
@@ -639,6 +795,7 @@ export async function approveContentOpportunity(opportunityId: string) {
   const state = await updateOpportunity(opportunityId, (opportunity) => ({
     ...opportunity,
     status: "approved_for_production",
+    founderSelectionStatus: "approved",
     approvedAt: timestamp,
     dismissedAt: null,
     updatedAt: timestamp,
@@ -665,6 +822,11 @@ export async function dismissContentOpportunity(opportunityId: string) {
   const state = await updateOpportunity(opportunityId, (opportunity) => ({
     ...opportunity,
     status: "dismissed",
+    founderSelectionStatus: normalizeFounderSelectionStatus({
+      existingStatus: "pending",
+      selectedAngleId: opportunity.selectedAngleId,
+      selectedHookId: opportunity.selectedHookId,
+    }),
     dismissedAt: timestamp,
     approvedAt: null,
     updatedAt: timestamp,
@@ -691,6 +853,11 @@ export async function reopenContentOpportunity(opportunityId: string) {
   const state = await updateOpportunity(opportunityId, (opportunity) => ({
     ...opportunity,
     status: "open",
+    founderSelectionStatus: normalizeFounderSelectionStatus({
+      existingStatus: "pending",
+      selectedAngleId: opportunity.selectedAngleId,
+      selectedHookId: opportunity.selectedHookId,
+    }),
     dismissedAt: null,
     updatedAt: timestamp,
   }));
@@ -730,6 +897,54 @@ export async function updateContentOpportunityNotes(opportunityId: string, notes
       },
     },
   ]);
+  return state;
+}
+
+export async function updateContentOpportunityFounderSelection(input: {
+  opportunityId: string;
+  selectedAngleId: string | null;
+  selectedHookId: string | null;
+}) {
+  const timestamp = new Date().toISOString();
+  const store = await readPersistedStore();
+  const current = store.opportunities.find((item) => item.opportunityId === input.opportunityId);
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const nextSelectedAngleId = normalizeText(input.selectedAngleId);
+  const nextSelectedHookId =
+    nextSelectedAngleId && input.selectedHookId
+      ? normalizeText(input.selectedHookId)
+      : null;
+  const nextFounderSelectionStatus = normalizeFounderSelectionStatus({
+    existingStatus: current.founderSelectionStatus,
+    selectedAngleId: nextSelectedAngleId,
+    selectedHookId: nextSelectedHookId,
+  });
+
+  const state = await updateOpportunity(input.opportunityId, (opportunity) => ({
+    ...opportunity,
+    founderSelectionStatus: nextFounderSelectionStatus,
+    selectedAngleId: nextSelectedAngleId,
+    selectedHookId: nextSelectedHookId,
+    selectedVideoBrief: null,
+    updatedAt: timestamp,
+  }));
+  await appendAuditEventsSafe([
+    {
+      signalId: current.signalId,
+      eventType: "CONTENT_OPPORTUNITY_FOUNDER_SELECTION_UPDATED" as const,
+      actor: "operator",
+      summary: `Updated founder selection for content opportunity "${current.title}".`,
+      metadata: {
+        founderSelectionStatus: nextFounderSelectionStatus,
+        hasAngle: Boolean(nextSelectedAngleId),
+        hasHook: Boolean(nextSelectedHookId),
+      },
+    },
+  ]);
+
   return state;
 }
 

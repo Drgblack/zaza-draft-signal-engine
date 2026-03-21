@@ -6,6 +6,7 @@ import {
   listContentOpportunityState,
   refreshContentOpportunityStateFromSystem,
   reopenContentOpportunity,
+  updateContentOpportunityFounderSelection,
   updateContentOpportunityNotes,
 } from "@/lib/content-opportunities";
 import {
@@ -95,7 +96,13 @@ export async function PATCH(request: Request) {
           ? await dismissContentOpportunity(parsed.data.opportunityId)
           : parsed.data.action === "reopen"
             ? await reopenContentOpportunity(parsed.data.opportunityId)
-            : await updateContentOpportunityNotes(parsed.data.opportunityId, parsed.data.notes);
+            : parsed.data.action === "update_notes"
+              ? await updateContentOpportunityNotes(parsed.data.opportunityId, parsed.data.notes)
+              : await updateContentOpportunityFounderSelection({
+                  opportunityId: parsed.data.opportunityId,
+                  selectedAngleId: parsed.data.selectedAngleId,
+                  selectedHookId: parsed.data.selectedHookId,
+                });
 
     return NextResponse.json<FactoryInputResponse>({
       success: true,
@@ -107,7 +114,9 @@ export async function PATCH(request: Request) {
             ? "Factory input dismissed."
             : parsed.data.action === "reopen"
               ? "Factory input reopened."
-              : "Factory input notes updated.",
+              : parsed.data.action === "update_notes"
+                ? "Factory input notes updated."
+                : "Founder selection saved.",
     });
   } catch (error) {
     return NextResponse.json<FactoryInputResponse>(
