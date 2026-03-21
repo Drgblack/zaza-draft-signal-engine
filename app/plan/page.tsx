@@ -1,3 +1,4 @@
+import { CampaignAllocationPanel } from "@/components/campaigns/campaign-allocation-panel";
 import { PlaybookPackSuggestions } from "@/components/playbook/playbook-pack-suggestions";
 import { RecommendedWeeklyPostingPackSection } from "@/components/plan/recommended-weekly-posting-pack";
 import { WeeklyPlanManager } from "@/components/plan/weekly-plan-manager";
@@ -8,6 +9,7 @@ import { listSignalsWithFallback } from "@/lib/airtable";
 import { buildAudienceMemoryInsights, syncAudienceMemory } from "@/lib/audience-memory";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
+import { buildCampaignAllocationState } from "@/lib/campaign-allocation";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import {
@@ -182,6 +184,16 @@ export default async function WeeklyPlanPage() {
     revenueSignals,
   });
   const audienceInsights = buildAudienceMemoryInsights(audienceMemory);
+  const campaignAllocation = buildCampaignAllocationState({
+    strategy,
+    signals,
+    weeklyPlan: plan,
+    weeklyPackSignalIds: postingPack.items.map((item) => item.signalId),
+    approvalCandidates: approvalReadyCandidates,
+    cadence,
+    revenueSignals,
+    audienceMemory,
+  });
   const [importedConnectContexts, latestConnectExport] = await Promise.all([
     listImportedZazaConnectContexts(),
     getLatestZazaConnectExport(),
@@ -331,6 +343,8 @@ export default async function WeeklyPlanPage() {
       </Card>
 
       <RecommendedWeeklyPostingPackSection pack={postingPack} />
+
+      <CampaignAllocationPanel state={campaignAllocation} compact />
 
       <PlaybookPackSuggestions
         title="Reusable Playbook Packs"

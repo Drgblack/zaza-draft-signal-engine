@@ -1,6 +1,8 @@
 import Link from "next/link";
 
+import { CampaignAllocationPanel } from "@/components/campaigns/campaign-allocation-panel";
 import { GrowthDirectorPanel } from "@/components/director/growth-director-panel";
+import { ResourceFocusPanel } from "@/components/director/resource-focus-panel";
 import { StrategicDecisionPanel } from "@/components/director/strategic-decision-panel";
 import { GrowthScorecardPanel } from "@/components/scorecard/growth-scorecard-panel";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +13,7 @@ import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
+import { buildCampaignAllocationState } from "@/lib/campaign-allocation";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import {
@@ -20,6 +23,7 @@ import {
 } from "@/lib/duplicate-clusters";
 import { buildDistributionBundles, buildDistributionSummary } from "@/lib/distribution";
 import { buildEvergreenSummary } from "@/lib/evergreen";
+import { syncExceptionInbox } from "@/lib/exception-inbox";
 import { buildAutonomousExperimentProposals, buildExperimentProposalInsights, listExperimentProposals } from "@/lib/experiment-proposals";
 import { listExperiments } from "@/lib/experiments";
 import { listFeedbackEntries } from "@/lib/feedback";
@@ -39,6 +43,7 @@ import { listPlaybookCards } from "@/lib/playbook-cards";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { listPostingAssistantPackages } from "@/lib/posting-assistant";
+import { buildResourceFocusState } from "@/lib/resource-focus";
 import { buildRevenueSignalInsights, syncRevenueSignals } from "@/lib/revenue-signals";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
@@ -46,6 +51,7 @@ import { buildStrategicDecisionState } from "@/lib/strategic-decisions";
 import { buildSourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import { getOperatorTuning } from "@/lib/tuning";
 import { formatDateTime } from "@/lib/utils";
+import { runWeeklyExecutionAutopilot } from "@/lib/weekly-execution";
 import { buildWeeklyRecap } from "@/lib/weekly-recap";
 import { buildWeeklyPostingPack, buildWeeklyPostingPackInsights } from "@/lib/weekly-posting-pack";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
@@ -278,6 +284,19 @@ export default async function DirectorPage() {
   });
   const operatorTaskSummary = buildOperatorTaskSummary(operatorTasks);
   const stagedPostingPackages = await listPostingAssistantPackages({ status: "active" });
+  const weeklyExecution = await runWeeklyExecutionAutopilot({
+    weekStartDate: weeklyPostingPack.weekStartDate,
+    pack: weeklyPostingPack,
+    approvalCandidates: approvalReadyCandidates,
+    stagedPackages: stagedPostingPackages,
+    experiments,
+  });
+  const exceptionInbox = await syncExceptionInbox({
+    approvalCandidates: approvalReadyCandidates,
+    operatorTasks,
+    executionFlow: weeklyExecution.flow,
+    now: renderNow,
+  });
   const signalsById = new Map(signalResult.signals.map((signal) => [signal.recordId, signal]));
   const sequenceByPackageId = Object.fromEntries(
     stagedPostingPackages.map((pkg) => {
@@ -311,6 +330,17 @@ export default async function DirectorPage() {
     importedContexts: importedConnectContexts,
     influencerGraphSummary: influencerGraph.summary,
   });
+  const campaignAllocation = buildCampaignAllocationState({
+    strategy,
+    signals: signalResult.signals,
+    weeklyPlan,
+    weeklyPackSignalIds: weeklyPostingPack.items.map((item) => item.signalId),
+    approvalCandidates: approvalReadyCandidates,
+    cadence,
+    revenueSignals,
+    audienceMemory,
+    now: renderNow,
+  });
   const director = buildGrowthDirector({
     weeklyPlan,
     weeklyPostingPack,
@@ -342,6 +372,21 @@ export default async function DirectorPage() {
     activeExperimentCount: experiments.filter((experiment) => experiment.status !== "completed").length,
     now: renderNow,
   });
+  const resourceFocus = buildResourceFocusState({
+    exceptionInbox,
+    operatorTaskSummary,
+    operatorTasks,
+    weeklyExecution: weeklyExecution.flow,
+    campaignAllocation,
+    strategicDecisions,
+    followUpTasks,
+    approvalCandidates: approvalReadyCandidates,
+    sourceAutopilotState,
+    influencerGraphSummary: influencerGraph.summary,
+    revenueInsights,
+    activeExperimentCount: experiments.filter((experiment) => experiment.status !== "completed").length,
+    now: renderNow,
+  });
 
   await appendAuditEventsSafe([
     {
@@ -354,6 +399,16 @@ export default async function DirectorPage() {
         bottlenecks: director.topBottlenecks.length,
         opportunities: director.strongestOpportunities.length,
         actions: director.recommendedActions.length,
+      },
+    },
+    {
+      signalId: `resource-focus:${renderNow.toISOString().slice(0, 10)}`,
+      eventType: "RESOURCE_FOCUS_COMPUTED",
+      actor: "system",
+      summary: `Computed resource focus stack with ${resourceFocus.focusStack.length} recommendation${resourceFocus.focusStack.length === 1 ? "" : "s"}.`,
+      metadata: {
+        focusCount: resourceFocus.focusStack.length,
+        topFocusArea: resourceFocus.focusStack[0]?.focusArea ?? null,
       },
     },
     ...(strategicDecisions.proposals.length > 0
@@ -413,6 +468,8 @@ export default async function DirectorPage() {
       </Card>
 
       <GrowthScorecardPanel scorecard={scorecard} compact />
+      <ResourceFocusPanel state={resourceFocus} />
+      <CampaignAllocationPanel state={campaignAllocation} compact />
       <StrategicDecisionPanel state={strategicDecisions} />
       <GrowthDirectorPanel director={director} />
     </div>

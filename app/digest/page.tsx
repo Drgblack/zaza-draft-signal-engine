@@ -1,6 +1,8 @@
 import Link from "next/link";
 
+import { CampaignAllocationPanel } from "@/components/campaigns/campaign-allocation-panel";
 import { GrowthDirectorPanel } from "@/components/director/growth-director-panel";
+import { ResourceFocusPanel } from "@/components/director/resource-focus-panel";
 import { FlywheelOptimisationPanel } from "@/components/optimisation/flywheel-optimisation-panel";
 import { FollowUpTaskList } from "@/components/follow-up/follow-up-task-list";
 import { WeeklyRecapPanel } from "@/components/recap/weekly-recap-panel";
@@ -14,6 +16,7 @@ import { appendAuditEventsSafe, listAuditEvents } from "@/lib/audit";
 import { buildAutonomyScorecard } from "@/lib/autonomy-scorecard";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
+import { buildCampaignAllocationState } from "@/lib/campaign-allocation";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildOperatorDigest } from "@/lib/digest";
 import {
@@ -46,6 +49,7 @@ import { listPatterns } from "@/lib/patterns";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { listPostingAssistantPackages } from "@/lib/posting-assistant";
+import { buildResourceFocusState } from "@/lib/resource-focus";
 import { buildRevenueSignalInsights, syncRevenueSignals } from "@/lib/revenue-signals";
 import { buildSafeReplyState } from "@/lib/safe-replies";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
@@ -358,6 +362,16 @@ export default async function DigestPage() {
     importedContexts: importedConnectContexts,
     influencerGraphSummary: influencerGraph.summary,
   });
+  const campaignAllocation = buildCampaignAllocationState({
+    strategy,
+    signals: signalResult.signals,
+    weeklyPlan,
+    weeklyPackSignalIds: weeklyPostingPack.items.map((item) => item.signalId),
+    approvalCandidates: approvalReadyCandidates,
+    cadence,
+    revenueSignals,
+    audienceMemory,
+  });
   const growthDirector = buildGrowthDirector({
     weeklyPlan,
     weeklyPostingPack,
@@ -387,6 +401,20 @@ export default async function DigestPage() {
     influencerGraphSummary: influencerGraph.summary,
     activeExperimentCount: experiments.filter((experiment) => experiment.status !== "completed").length,
   });
+  const resourceFocus = buildResourceFocusState({
+    exceptionInbox,
+    operatorTaskSummary,
+    operatorTasks,
+    weeklyExecution: weeklyExecution.flow,
+    campaignAllocation,
+    strategicDecisions,
+    followUpTasks,
+    approvalCandidates: approvalReadyCandidates,
+    sourceAutopilotState,
+    influencerGraphSummary: influencerGraph.summary,
+    revenueInsights,
+    activeExperimentCount: experiments.filter((experiment) => experiment.status !== "completed").length,
+  });
 
   await appendAuditEventsSafe([
     {
@@ -399,6 +427,16 @@ export default async function DigestPage() {
         autonomyRate: Math.round(autonomyScorecard.autonomyRate * 100),
         partialAutonomyRate: Math.round(autonomyScorecard.partialAutonomyRate * 100),
         blockedRate: Math.round(autonomyScorecard.blockedRate * 100),
+      },
+    },
+    {
+      signalId: `resource-focus:${digest.generatedAt.slice(0, 10)}`,
+      eventType: "RESOURCE_FOCUS_COMPUTED",
+      actor: "system",
+      summary: `Computed resource focus stack with ${resourceFocus.focusStack.length} recommendation${resourceFocus.focusStack.length === 1 ? "" : "s"}.`,
+      metadata: {
+        focusCount: resourceFocus.focusStack.length,
+        topFocusArea: resourceFocus.focusStack[0]?.focusArea ?? null,
       },
     },
     {
@@ -427,6 +465,7 @@ export default async function DigestPage() {
         connectExports: connectBridgeSummary.exportCount,
         directorPriorities: growthDirector.topPriorities.length,
         strategicDecisions: strategicDecisions.proposals.length,
+        resourceFocusCount: resourceFocus.focusStack.length,
       },
     },
   ]);
@@ -631,6 +670,8 @@ export default async function DigestPage() {
         </CardContent>
       </Card>
 
+      <ResourceFocusPanel state={resourceFocus} compact />
+      <CampaignAllocationPanel state={campaignAllocation} compact />
       <GrowthDirectorPanel director={growthDirector} compact />
       <GrowthScorecardPanel scorecard={scorecard} compact />
 

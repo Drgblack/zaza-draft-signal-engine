@@ -1,6 +1,60 @@
 # Codex Runs
 
 ## Current Run
+Run 107 adds Resource Focus Engine:
+- added a centralized resource-focus helper in `lib/resource-focus.ts`
+- the system can now recommend where limited operator attention should go first across:
+  - `review_queue`
+  - `staging_and_posting`
+  - `campaign_support`
+  - `source_quality`
+  - `experiment_resolution`
+  - `outcome_completion`
+  - `evergreen_reuse`
+  - `outreach`
+- `/digest` now shows a compact focus stack for the next 10 to 60 minutes of work
+- `/director` now shows a fuller focus stack with urgency, leverage, effort band, and workflow links
+- focus recommendations are grounded in existing:
+  - exception inbox state
+  - weekly execution autopilot state
+  - campaign allocation
+  - strategic decisions
+  - follow-up tasks
+  - source-autopilot pressure
+  - outreach and influencer opportunities
+- added audit coverage for:
+  - `RESOURCE_FOCUS_COMPUTED`
+- kept the layer intentionally bounded:
+  - no time tracking
+  - no scheduling
+  - no replacement for the task system
+
+## Previous Run
+Run 106 adds Campaign Allocation Autopilot:
+- added a centralized campaign allocation helper in `lib/campaign-allocation.ts`
+- the system can now recommend weekly campaign support levels across:
+  - `increase`
+  - `maintain`
+  - `reduce`
+  - `pause_temporarily`
+- campaign allocation now synthesizes existing:
+  - campaign status and timing
+  - weekly pack representation
+  - approval-ready queue supply
+  - recent campaign cadence
+  - revenue signal support
+  - audience-fit hints
+- `/campaigns` now shows a full Campaign Allocation Autopilot panel with weekly-share guidance, reasons, and workflow links
+- `/plan` and `/director` now show compact campaign allocation panels so weekly planning and strategic review both reference the same guidance
+- added audit coverage for:
+  - `CAMPAIGN_ALLOCATION_COMPUTED`
+- kept the layer intentionally bounded:
+  - advisory only
+  - no automatic campaign shutdowns
+  - no budget logic
+  - no exact false-precision allocation math
+
+## Previous Run
 Run 105 adds Strategic Decision Proposals:
 - added a centralized strategic decision helper in `lib/strategic-decisions.ts`
 - the system can now synthesize bounded higher-level recommendations across:

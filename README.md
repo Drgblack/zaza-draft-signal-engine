@@ -42,6 +42,8 @@ Convert selected teacher-relevant signals into structured, platform-specific dra
 - Operator Exception Inbox that pulls blocked, unresolved, and judgement-required work into one compact operator-only queue
 - Safe Multi-Step Execution Chains that let bounded repair, re-evaluation, and promotion paths run automatically when confidence and policy both allow it
 - Strategic Decision Proposals that surface the top bounded founder-level calls across campaign focus, platform mix, evergreen balance, source quality, outreach, experiments, and conversion pressure
+- Campaign Allocation Autopilot that recommends how much weekly content share each campaign should receive based on current support, queue supply, recent outcomes, and campaign relevance
+- Resource Focus Engine that recommends where the next 10 to 60 minutes of operator attention should go across execution, review, campaigns, outcomes, sources, experiments, evergreen reuse, and outreach
 - Semi-Autonomous Distribution Engine (Safe Mode) that groups staged platform variants, prompts, and follow-up notes into explicit manual distribution bundles
 - Founder Voice Mode that applies Zaza's calm, grounded, teacher-first identity layer across generation and review when enabled
 - Influencer and outreach content branch for manual relationship-building messages, collaboration prompts, and reply suggestions tied to a signal
@@ -196,6 +198,57 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - advisory only
   - no automatic strategy control
   - only as strong as the stored state it is synthesizing
+
+## Campaign Allocation Autopilot
+- Campaign allocation logic is centralized in `lib/campaign-allocation.ts`.
+- The layer stays intentionally bounded:
+  - no auto-created campaigns
+  - no budget logic
+  - no automatic campaign shutdowns
+- Current support levels are:
+  - `increase`
+  - `maintain`
+  - `reduce`
+  - `pause_temporarily`
+- Current operator surfaces:
+  - `/campaigns`
+  - compact campaign-allocation panel in `/plan`
+  - compact campaign-allocation panel in `/director`
+- What it does:
+  - compares active campaign status, weekly-pack representation, queue supply, recent cadence, revenue signals, and audience-fit hints
+  - recommends how much weekly content share each campaign should receive
+  - highlights under-supported and over-supported campaigns with short reasons and linked workflows
+- Limitations:
+  - advisory only
+  - no automatic campaign pausing
+  - weekly share suggestions are intentionally approximate, not exact planning quotas
+
+## Resource Focus Engine
+- Resource focus logic is centralized in `lib/resource-focus.ts`.
+- The layer stays intentionally bounded:
+  - no time tracking
+  - no scheduling system
+  - no project-management replacement
+- Current focus areas include:
+  - `review_queue`
+  - `staging_and_posting`
+  - `campaign_support`
+  - `source_quality`
+  - `experiment_resolution`
+  - `outcome_completion`
+  - `evergreen_reuse`
+  - `outreach`
+- Current operator surfaces:
+  - compact focus stack in `/digest`
+  - fuller focus stack in `/director`
+- What it does:
+  - turns execution readiness, exception pressure, campaign allocation, source autopilot, follow-up gaps, experiments, evergreen opportunities, and outreach context into a short focus stack
+  - keeps the list capped at the top few areas instead of expanding into a full task list
+  - includes effort bands so the operator can decide where the next 10, 30, or 60 minutes should go
+- Limitations:
+  - advisory only
+  - no exact scheduling
+  - strongest when queue, execution, follow-up, and source state are already being kept current
 
 ## AI Growth Director
 - Growth Director logic is centralized in `lib/growth-director.ts`.
