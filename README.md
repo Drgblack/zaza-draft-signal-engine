@@ -344,6 +344,36 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - advisory and bounded
   - strongest when the instruction is short, explicit, and tied to one clear target area
 
+## Content Opportunity Layer
+- Content opportunities are centralized in `lib/content-opportunities.ts`.
+- This is a Phase A factory-input layer, not a second full review workflow.
+- It converts the strongest current approval candidates into lighter-weight production opportunities using:
+  - approval ranking
+  - growth memory
+  - revenue amplification
+  - commercial risk guardrails already present on ranked candidates
+- Each content opportunity carries:
+  - stable opportunity ID derived from the source signal
+  - priority and opportunity type
+  - recommended angle
+  - hook direction
+  - recommended format and platform emphasis
+  - why-now summary
+  - trust-risk summary
+  - compact memory context
+- Opportunities persist in `data/content-opportunities.json`.
+- `/factory-inputs` is the main review surface for this layer:
+  - approve for production
+  - dismiss
+  - reopen
+  - keep lightweight operator notes
+- opening `/factory-inputs` reads the persisted queue by default; refresh remains an explicit action
+- Limitations:
+  - no video brief generation yet
+  - no platform API automation
+  - derived from current queue state rather than a separate planning database
+  - high-risk items remain visible but do not appear as top ready-now opportunities
+
 ## Resource Focus Engine
 - Resource focus logic is centralized in `lib/resource-focus.ts`.
 - The layer stays intentionally bounded:

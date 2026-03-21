@@ -1,6 +1,46 @@
 # Codex Runs
 
 ## Current Run
+Run 119 adds Content Opportunity Layer Phase A:
+- added a centralized content opportunity helper in `lib/content-opportunities.ts`
+- added JSON persistence in `data/content-opportunities.json`
+- content opportunities now derive from:
+  - approval ranking
+  - growth memory
+  - revenue amplification
+  - commercial risk guardrails already present on ranked candidates
+- each opportunity carries:
+  - stable opportunity ID
+  - lightweight production-oriented angle and hook direction
+  - recommended format and platforms
+  - why-now summary
+  - trust-risk summary
+  - compact memory context
+- added `/factory-inputs` as a lighter-weight decision queue for:
+  - approve for production
+  - dismiss
+  - reopen
+  - note-taking
+- added `/api/factory-inputs` for:
+  - refresh
+  - approve
+  - dismiss
+  - reopen
+  - update notes
+- added digest summary coverage and navigation access
+- added audit coverage for:
+  - `CONTENT_OPPORTUNITY_REFRESHED`
+  - `CONTENT_OPPORTUNITY_APPROVED`
+  - `CONTENT_OPPORTUNITY_DISMISSED`
+  - `CONTENT_OPPORTUNITY_REOPENED`
+  - `CONTENT_OPPORTUNITY_NOTES_UPDATED`
+- kept Phase A intentionally bounded:
+  - no video brief generation yet
+  - no platform API automation
+  - no duplicate full review workflow
+  - high-risk opportunities remain visible but do not surface as top ready-now items
+
+## Previous Run
 Run 118 adds Founder Override Layer:
 - added a centralized founder override helper in `lib/founder-overrides.ts`
 - founder overrides are now stored as visible temporary instructions with:
@@ -28,35 +68,6 @@ Run 118 adds Founder Override Layer:
   - no hidden overrides
   - no safety bypass
   - no permanent configuration sprawl
-
-## Previous Run
-Run 117 adds Revenue Signal Amplifier:
-- added a centralized revenue amplification helper in `lib/revenue-amplifier.ts`
-- the system now identifies strong revenue-linked patterns across:
-  - platform
-  - editorial mode
-  - CTA and destination pairing
-  - audience context
-- the amplifier uses existing commercial evidence from:
-  - revenue signals
-  - attribution memory
-  - growth memory
-  - winner and weekly recap context
-- the layer now exposes bounded outputs such as:
-  - amplified patterns worth reusing more often
-  - caution patterns that should be de-emphasized
-  - compact recommended reuse guidance for downstream modules
-- integrated the amplifier into:
-  - generation guidance
-  - weekly planning
-  - strategic decision proposals
-  - distribution priority
-  - review and final review UI
-- review and generation now surface compact `Revenue pattern` summaries when a candidate matches a strong commercial family
-- kept the layer intentionally bounded:
-  - no auto-posting
-  - no hard overfitting to one winning route
-  - no hidden rewriting of core content framing
 
 ## Previous Run
 Run 116 adds Adaptive Funnel Engine:

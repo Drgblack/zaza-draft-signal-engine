@@ -35,6 +35,7 @@ import { buildEvergreenSummary } from "@/lib/evergreen";
 import { buildExecutiveBriefing } from "@/lib/executive-briefing";
 import { syncFounderOverrideState } from "@/lib/founder-overrides";
 import { buildAdaptiveFunnelState } from "@/lib/funnel-engine";
+import { listContentOpportunityState } from "@/lib/content-opportunities";
 import { syncExceptionInbox } from "@/lib/exception-inbox";
 import { buildAutonomousExperimentProposals, buildExperimentProposalInsights, listExperimentProposals } from "@/lib/experiment-proposals";
 import { buildExperimentInsights, listExperiments } from "@/lib/experiments";
@@ -109,6 +110,7 @@ export default async function DigestPage() {
     importedConnectContexts,
     latestConnectExport,
     founderOverrides,
+    factoryInputState,
   ] = await Promise.all([
     listSignalsWithFallback({ limit: 1000 }),
     listFeedbackEntries(),
@@ -131,6 +133,7 @@ export default async function DigestPage() {
     listImportedZazaConnectContexts(),
     getLatestZazaConnectExport(),
     syncFounderOverrideState(),
+    listContentOpportunityState(),
   ]);
 
   const weeklyPlanStore = await getWeeklyPlanStore(strategy);
@@ -823,6 +826,66 @@ export default async function DigestPage() {
       </Card>
 
       <FounderOverrideSummary state={founderOverrides} compact />
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Factory Inputs</CardTitle>
+            <Link href="/factory-inputs" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
+              Open queue
+            </Link>
+          </div>
+          <CardDescription>
+            A lighter-weight production-input queue derived from the strongest approval-ready candidates, with trust-risk flagging kept visible.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Queue summary</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">{factoryInputState.openCount}</p>
+            <p className="mt-2 text-sm text-slate-600">
+              {factoryInputState.topSummary[0] ??
+                "No content opportunity queue has been refreshed yet."}
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Ready now</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">
+                {
+                  factoryInputState.opportunities.filter(
+                    (item) =>
+                      item.status === "open" &&
+                      item.priority === "high" &&
+                      item.trustRisk !== "high",
+                  ).length
+                }
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">High commercial</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">
+                {
+                  factoryInputState.opportunities.filter(
+                    (item) =>
+                      item.status === "open" &&
+                      item.commercialPotential === "high",
+                  ).length
+                }
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Trust-risk flagged</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">
+                {
+                  factoryInputState.opportunities.filter(
+                    (item) => item.status === "open" && item.trustRisk === "high",
+                  ).length
+                }
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       <ExecutiveBriefingPanel briefing={executiveBriefing} compact />
       <FunnelEnginePanel state={funnelEngine} compact />
       <GrowthMemoryPanel memory={growthMemory} compact />

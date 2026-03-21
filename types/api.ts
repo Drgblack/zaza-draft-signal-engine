@@ -54,6 +54,7 @@ import type { ScenarioAngleAssessment, ScenarioAngleSuggestion } from "@/lib/sce
 import type { OperatorTuning } from "@/lib/tuning-definitions";
 import type { AudienceSegment, Campaign, CampaignStrategy, ContentPillar } from "@/lib/campaigns";
 import type { FounderOverrideState } from "@/lib/founder-overrides";
+import type { ContentOpportunityState } from "@/lib/content-opportunities";
 import type { DuplicateCluster } from "@/lib/duplicate-clusters";
 import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
@@ -407,6 +408,30 @@ export const founderOverrideCreateRequestSchema = z.object({
 export const founderOverrideDeleteRequestSchema = z.object({
   overrideId: z.string().trim().min(1),
 });
+
+export const factoryInputRefreshRequestSchema = z.object({
+  refresh: z.literal(true).default(true),
+});
+
+export const factoryInputActionRequestSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("approve_for_production"),
+    opportunityId: z.string().trim().min(1),
+  }),
+  z.object({
+    action: z.literal("dismiss"),
+    opportunityId: z.string().trim().min(1),
+  }),
+  z.object({
+    action: z.literal("reopen"),
+    opportunityId: z.string().trim().min(1),
+  }),
+  z.object({
+    action: z.literal("update_notes"),
+    opportunityId: z.string().trim().min(1),
+    notes: z.string(),
+  }),
+]);
 
 export const zazaConnectBridgeActionRequestSchema = z.discriminatedUnion("action", [
   z.object({
@@ -925,6 +950,13 @@ export interface TuningResponse {
 export interface FounderOverrideResponse {
   success: boolean;
   state: FounderOverrideState | null;
+  message?: string;
+  error?: string;
+}
+
+export interface FactoryInputResponse {
+  success: boolean;
+  state: ContentOpportunityState | null;
   message?: string;
   error?: string;
 }
