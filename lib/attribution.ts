@@ -6,6 +6,10 @@ import { z } from "zod";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { mockPostingLogSeed, mockStrategicOutcomeSeed } from "@/lib/mock-data";
 import { POSTING_PLATFORMS, type PostingLogEntry, type PostingPlatform, postingLogEntrySchema } from "@/lib/posting-memory";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import { strategicOutcomeSchema } from "@/lib/strategic-outcome-memory";
 import { EDITORIAL_MODES, type SignalRecord } from "@/types/signal";
@@ -38,6 +42,8 @@ export const attributionRecordSchema = z.object({
 const attributionStoreSchema = z.record(z.string(), attributionRecordSchema);
 
 export type AttributionRecord = z.infer<typeof attributionRecordSchema>;
+
+let inMemoryAttributionStore: Record<string, AttributionRecord> = {};
 
 export interface AttributionInsightRow {
   key: string;
@@ -207,10 +213,12 @@ function buildSeedStore(): Record<string, AttributionRecord> {
 async function readPersistedStore(): Promise<Record<string, AttributionRecord>> {
   try {
     const raw = await readFile(ATTRIBUTION_STORE_PATH, "utf8");
-    return attributionStoreSchema.parse(JSON.parse(raw));
+    const store = attributionStoreSchema.parse(JSON.parse(raw));
+    inMemoryAttributionStore = store;
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return {};
+      return inMemoryAttributionStore;
     }
 
     throw error;
@@ -218,8 +226,20 @@ async function readPersistedStore(): Promise<Record<string, AttributionRecord>> 
 }
 
 async function writeStore(store: Record<string, AttributionRecord>): Promise<void> {
-  await mkdir(path.dirname(ATTRIBUTION_STORE_PATH), { recursive: true });
-  await writeFile(ATTRIBUTION_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = attributionStoreSchema.parse(store);
+  inMemoryAttributionStore = parsed;
+
+  try {
+    await mkdir(path.dirname(ATTRIBUTION_STORE_PATH), { recursive: true });
+    await writeFile(ATTRIBUTION_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("attribution-memory", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export function buildAttributionRecordsFromInputs(input: {

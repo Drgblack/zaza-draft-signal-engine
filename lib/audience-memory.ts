@@ -8,6 +8,10 @@ import { getEditorialModeDefinition } from "@/lib/editorial-modes";
 import type { PostingLogEntry, PostingPlatform } from "@/lib/posting-memory";
 import { getPostingPlatformLabel } from "@/lib/posting-memory";
 import type { RevenueSignal } from "@/lib/revenue-signals";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import type { CtaGoal, EditorialMode, SignalRecord } from "@/types/signal";
 import { z } from "zod";
@@ -84,6 +88,8 @@ const audienceMemoryStateSchema = z.object({
   segments: z.array(audienceMemorySegmentSchema),
   topNotes: z.array(z.string().trim().min(1)),
 });
+
+let inMemoryAudienceMemoryState: AudienceMemoryState | null = null;
 
 function normalizeText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
@@ -368,18 +374,32 @@ export function buildAudienceMemoryState(input: {
 async function readPersistedAudienceMemory(): Promise<AudienceMemoryState | null> {
   try {
     const raw = await readFile(AUDIENCE_MEMORY_STORE_PATH, "utf8");
-    return audienceMemoryStateSchema.parse(JSON.parse(raw));
+    const state = audienceMemoryStateSchema.parse(JSON.parse(raw));
+    inMemoryAudienceMemoryState = state;
+    return state;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return null;
+      return inMemoryAudienceMemoryState;
     }
     throw error;
   }
 }
 
 async function writeAudienceMemory(state: AudienceMemoryState): Promise<void> {
-  await mkdir(path.dirname(AUDIENCE_MEMORY_STORE_PATH), { recursive: true });
-  await writeFile(AUDIENCE_MEMORY_STORE_PATH, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  const parsed = audienceMemoryStateSchema.parse(state);
+  inMemoryAudienceMemoryState = parsed;
+
+  try {
+    await mkdir(path.dirname(AUDIENCE_MEMORY_STORE_PATH), { recursive: true });
+    await writeFile(AUDIENCE_MEMORY_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("audience-memory", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export async function syncAudienceMemory(input: {

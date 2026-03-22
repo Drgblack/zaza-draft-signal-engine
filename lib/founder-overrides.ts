@@ -6,6 +6,10 @@ import { z } from "zod";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import type { PostingPlatform } from "@/lib/posting-memory";
 import { getPostingPlatformLabel } from "@/lib/posting-memory";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import type { SignalRecord } from "@/types/signal";
 
 const FOUNDER_OVERRIDE_STORE_PATH = path.join(
@@ -87,6 +91,9 @@ const founderOverrideStoreSchema = z.object({
 });
 
 type FounderOverrideStore = z.infer<typeof founderOverrideStoreSchema>;
+
+let inMemoryFounderOverrideStore: FounderOverrideStore =
+  founderOverrideStoreSchema.parse({ items: [], updatedAt: null });
 
 function normalizeText(value: string | null | undefined) {
   return value?.trim() ?? "";
@@ -296,10 +303,12 @@ function buildState(items: FounderOverrideRecord[], now: Date): FounderOverrideS
 async function readStore(): Promise<FounderOverrideStore> {
   try {
     const raw = await readFile(FOUNDER_OVERRIDE_STORE_PATH, "utf8");
-    return founderOverrideStoreSchema.parse(JSON.parse(raw));
+    const store = founderOverrideStoreSchema.parse(JSON.parse(raw));
+    inMemoryFounderOverrideStore = store;
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return founderOverrideStoreSchema.parse({ items: [], updatedAt: null });
+      return inMemoryFounderOverrideStore;
     }
 
     throw error;
@@ -307,8 +316,20 @@ async function readStore(): Promise<FounderOverrideStore> {
 }
 
 async function writeStore(store: FounderOverrideStore) {
-  await mkdir(path.dirname(FOUNDER_OVERRIDE_STORE_PATH), { recursive: true });
-  await writeFile(FOUNDER_OVERRIDE_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = founderOverrideStoreSchema.parse(store);
+  inMemoryFounderOverrideStore = parsed;
+
+  try {
+    await mkdir(path.dirname(FOUNDER_OVERRIDE_STORE_PATH), { recursive: true });
+    await writeFile(FOUNDER_OVERRIDE_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("founder-overrides", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export function matchFounderOverrideThemesToSignal(

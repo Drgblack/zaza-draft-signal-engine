@@ -6,6 +6,10 @@ import { z } from "zod";
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
 import type { ApprovalQueueCandidate } from "@/lib/approval-ranking";
 import type { OperatorTask, OperatorTaskQuickAction } from "@/lib/operator-tasks";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import type { WeeklyExecutionFlow } from "@/lib/weekly-execution";
 
 const EXCEPTION_INBOX_STORE_PATH = path.join(process.cwd(), "data", "exception-inbox.json");
@@ -131,6 +135,13 @@ export const exceptionInboxActionRequestSchema = z.discriminatedUnion("action", 
 ]);
 
 export type ExceptionInboxActionRequest = z.infer<typeof exceptionInboxActionRequestSchema>;
+
+let inMemoryExceptionInboxStore: z.infer<typeof exceptionInboxStoreSchema> =
+  exceptionInboxStoreSchema.parse({
+    dismissedIds: [],
+    lastOpenItems: [],
+    updatedAt: null,
+  });
 
 function normalize(value: string | null | undefined) {
   return value?.trim() ?? "";
@@ -385,14 +396,12 @@ function groupItems(items: ExceptionInboxItem[]): ExceptionInboxGroup[] {
 async function readPersistedStore() {
   try {
     const raw = await readFile(EXCEPTION_INBOX_STORE_PATH, "utf8");
-    return exceptionInboxStoreSchema.parse(JSON.parse(raw));
+    const store = exceptionInboxStoreSchema.parse(JSON.parse(raw));
+    inMemoryExceptionInboxStore = store;
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return exceptionInboxStoreSchema.parse({
-        dismissedIds: [],
-        lastOpenItems: [],
-        updatedAt: null,
-      });
+      return inMemoryExceptionInboxStore;
     }
 
     throw error;
@@ -400,8 +409,20 @@ async function readPersistedStore() {
 }
 
 async function writePersistedStore(store: z.infer<typeof exceptionInboxStoreSchema>) {
-  await mkdir(path.dirname(EXCEPTION_INBOX_STORE_PATH), { recursive: true });
-  await writeFile(EXCEPTION_INBOX_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = exceptionInboxStoreSchema.parse(store);
+  inMemoryExceptionInboxStore = parsed;
+
+  try {
+    await mkdir(path.dirname(EXCEPTION_INBOX_STORE_PATH), { recursive: true });
+    await writeFile(EXCEPTION_INBOX_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("exception-inbox", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export async function syncExceptionInbox(input: {

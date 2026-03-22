@@ -12,6 +12,10 @@ import { getPostingPlatformLabel, type PostingLogEntry, type PostingPlatform } f
 import { getPrimaryLinkVariant, getPublishPrepPackageForPlatform, getSelectedCtaText, parsePublishPrepBundle } from "@/lib/publish-prep";
 import { buildRevenueSignalsFromInputs, type RevenueSignal } from "@/lib/revenue-signals";
 import type { ReuseMemoryCase } from "@/lib/reuse-memory";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import type { WeeklyRecap } from "@/lib/weekly-recap";
 import type { EditorialMode, SignalRecord } from "@/types/signal";
@@ -57,6 +61,12 @@ export const playbookPackUseRequestSchema = z.object({
 
 export type PlaybookPack = z.infer<typeof playbookPackSchema>;
 export type PlaybookPackUseRequest = z.infer<typeof playbookPackUseRequestSchema>;
+
+let inMemoryPlaybookPackStore: z.infer<typeof playbookPackStoreSchema> =
+  playbookPackStoreSchema.parse({
+    packs: [],
+    updatedAt: null,
+  });
 
 export interface PlaybookPackMatch {
   pack: PlaybookPack;
@@ -354,13 +364,12 @@ function shouldKeepPack(pack: AggregatedPack): boolean {
 async function readPersistedStore(): Promise<z.infer<typeof playbookPackStoreSchema>> {
   try {
     const raw = await readFile(PLAYBOOK_PACK_STORE_PATH, "utf8");
-    return playbookPackStoreSchema.parse(JSON.parse(raw));
+    const store = playbookPackStoreSchema.parse(JSON.parse(raw));
+    inMemoryPlaybookPackStore = store;
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return playbookPackStoreSchema.parse({
-        packs: [],
-        updatedAt: null,
-      });
+      return inMemoryPlaybookPackStore;
     }
 
     throw error;
@@ -368,8 +377,20 @@ async function readPersistedStore(): Promise<z.infer<typeof playbookPackStoreSch
 }
 
 async function writeStore(store: z.infer<typeof playbookPackStoreSchema>): Promise<void> {
-  await mkdir(path.dirname(PLAYBOOK_PACK_STORE_PATH), { recursive: true });
-  await writeFile(PLAYBOOK_PACK_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = playbookPackStoreSchema.parse(store);
+  inMemoryPlaybookPackStore = parsed;
+
+  try {
+    await mkdir(path.dirname(PLAYBOOK_PACK_STORE_PATH), { recursive: true });
+    await writeFile(PLAYBOOK_PACK_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("playbook-packs", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export async function syncPlaybookPacks(input: {

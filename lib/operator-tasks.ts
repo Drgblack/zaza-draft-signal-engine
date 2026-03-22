@@ -30,6 +30,10 @@ import type { PlaybookCard } from "@/lib/playbook-card-definitions";
 import type { SignalPattern } from "@/lib/pattern-definitions";
 import type { PostingLogEntry } from "@/lib/posting-memory";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import type { OperatorTuningSettings } from "@/lib/tuning";
 import type { SignalRecord } from "@/types/signal";
@@ -118,6 +122,8 @@ export const operatorTaskActionRequestSchema = z.object({
 export type OperatorTaskQuickAction = z.infer<typeof operatorTaskQuickActionSchema>;
 export type OperatorTask = z.infer<typeof operatorTaskSchema>;
 
+let inMemoryOperatorTaskStore = buildEmptyStore();
+
 export interface OperatorTaskSummary {
   openCount: number;
   highPriorityCount: number;
@@ -141,10 +147,12 @@ function buildEmptyStore() {
 async function readPersistedStore() {
   try {
     const raw = await readFile(OPERATOR_TASK_STORE_PATH, "utf8");
-    return operatorTaskStoreSchema.parse(JSON.parse(raw));
+    const store = operatorTaskStoreSchema.parse(JSON.parse(raw));
+    inMemoryOperatorTaskStore = store;
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return buildEmptyStore();
+      return inMemoryOperatorTaskStore;
     }
 
     throw error;
@@ -152,8 +160,20 @@ async function readPersistedStore() {
 }
 
 async function writeStore(store: z.infer<typeof operatorTaskStoreSchema>) {
-  await mkdir(path.dirname(OPERATOR_TASK_STORE_PATH), { recursive: true });
-  await writeFile(OPERATOR_TASK_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = operatorTaskStoreSchema.parse(store);
+  inMemoryOperatorTaskStore = parsed;
+
+  try {
+    await mkdir(path.dirname(OPERATOR_TASK_STORE_PATH), { recursive: true });
+    await writeFile(OPERATOR_TASK_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("operator-tasks", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 function toIso(value: number | Date): string {

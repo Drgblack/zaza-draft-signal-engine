@@ -6,6 +6,10 @@ import { z } from "zod";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { mockPostingLogSeed, mockStrategicOutcomeSeed } from "@/lib/mock-data";
 import { POSTING_PLATFORMS, type PostingLogEntry, type PostingPlatform, postingLogEntrySchema } from "@/lib/posting-memory";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import { strategicOutcomeSchema } from "@/lib/strategic-outcome-memory";
 import { EDITORIAL_MODES, type SignalRecord } from "@/types/signal";
@@ -52,6 +56,8 @@ export const revenueSignalRequestSchema = z.object({
 
 export type RevenueSignal = z.infer<typeof revenueSignalSchema>;
 export type RevenueSignalRequest = z.infer<typeof revenueSignalRequestSchema>;
+
+let inMemoryRevenueSignalStore: Record<string, RevenueSignal> = {};
 
 export interface RevenueSignalInsightRow {
   key: string;
@@ -272,10 +278,12 @@ function buildSeedStore(): Record<string, RevenueSignal> {
 async function readPersistedStore(): Promise<Record<string, RevenueSignal>> {
   try {
     const raw = await readFile(REVENUE_SIGNAL_STORE_PATH, "utf8");
-    return revenueSignalStoreSchema.parse(JSON.parse(raw));
+    const store = revenueSignalStoreSchema.parse(JSON.parse(raw));
+    inMemoryRevenueSignalStore = store;
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return {};
+      return inMemoryRevenueSignalStore;
     }
 
     throw error;
@@ -283,8 +291,20 @@ async function readPersistedStore(): Promise<Record<string, RevenueSignal>> {
 }
 
 async function writeStore(store: Record<string, RevenueSignal>): Promise<void> {
-  await mkdir(path.dirname(REVENUE_SIGNAL_STORE_PATH), { recursive: true });
-  await writeFile(REVENUE_SIGNAL_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = revenueSignalStoreSchema.parse(store);
+  inMemoryRevenueSignalStore = parsed;
+
+  try {
+    await mkdir(path.dirname(REVENUE_SIGNAL_STORE_PATH), { recursive: true });
+    await writeFile(REVENUE_SIGNAL_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("revenue-signals", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export function buildRevenueSignalsFromInputs(input: {

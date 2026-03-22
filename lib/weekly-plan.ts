@@ -7,6 +7,10 @@ import type { CampaignStrategy } from "@/lib/campaigns";
 import { getSignalContentContextSummary } from "@/lib/campaigns";
 import type { PostingLogEntry, PostingPlatform } from "@/lib/posting-memory";
 import { getPostingPlatformLabel, POSTING_PLATFORMS } from "@/lib/posting-memory";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import { EDITORIAL_MODE_DEFINITIONS } from "@/lib/editorial-modes";
 import {
   EDITORIAL_MODES,
@@ -134,6 +138,8 @@ const WEEKLY_PLAN_STORE_PATH = path.join(process.cwd(), "data", "weekly-plan.jso
 export type WeeklyPlan = z.infer<typeof weeklyPlanSchema>;
 export type WeeklyPlanInput = z.infer<typeof weeklyPlanInputSchema>;
 export type WeeklyPlanStore = z.infer<typeof weeklyPlanStoreSchema>;
+
+let inMemoryWeeklyPlanStore: WeeklyPlanStore | null = null;
 
 export interface WeeklyPlanTemplate {
   id: WeeklyPlanTemplateId;
@@ -358,10 +364,12 @@ function buildDefaultWeeklyPlan(strategy: CampaignStrategy, weekStartDate = form
 async function readPersistedWeeklyPlanStore(): Promise<WeeklyPlanStore | null> {
   try {
     const raw = await readFile(WEEKLY_PLAN_STORE_PATH, "utf8");
-    return weeklyPlanStoreSchema.parse(JSON.parse(raw));
+    const store = weeklyPlanStoreSchema.parse(JSON.parse(raw));
+    inMemoryWeeklyPlanStore = store;
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return null;
+      return inMemoryWeeklyPlanStore;
     }
 
     throw error;
@@ -369,8 +377,20 @@ async function readPersistedWeeklyPlanStore(): Promise<WeeklyPlanStore | null> {
 }
 
 async function writeWeeklyPlanStore(store: WeeklyPlanStore): Promise<void> {
-  await mkdir(path.dirname(WEEKLY_PLAN_STORE_PATH), { recursive: true });
-  await writeFile(WEEKLY_PLAN_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = weeklyPlanStoreSchema.parse(store);
+  inMemoryWeeklyPlanStore = parsed;
+
+  try {
+    await mkdir(path.dirname(WEEKLY_PLAN_STORE_PATH), { recursive: true });
+    await writeFile(WEEKLY_PLAN_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("weekly-plan", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export async function getWeeklyPlanStore(strategy: CampaignStrategy): Promise<WeeklyPlanStore> {
