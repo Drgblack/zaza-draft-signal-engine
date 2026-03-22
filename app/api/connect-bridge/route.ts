@@ -74,13 +74,111 @@ function getFallbackPlatform(signal: Awaited<ReturnType<typeof listSignalsWithFa
   };
 }
 
+function getFallbackAssessmentPriority(
+  decision: ReturnType<typeof assessAutonomousSignal>["decision"],
+) {
+  switch (decision) {
+    case "approval_ready":
+      return 4;
+    case "advance":
+      return 3;
+    case "hold":
+      return 2;
+    case "skip":
+    default:
+      return 0;
+  }
+}
+
+function getFallbackOutcomePriority(expectedOutcomeTier: "high" | "medium" | "low") {
+  switch (expectedOutcomeTier) {
+    case "high":
+      return 3;
+    case "medium":
+      return 2;
+    case "low":
+    default:
+      return 1;
+  }
+}
+
+function getFallbackRiskPriority(decision: string) {
+  switch (decision) {
+    case "allow":
+      return 3;
+    case "suggest_fix":
+      return 2;
+    case "block":
+    default:
+      return 0;
+  }
+}
+
+function getFallbackCompletenessPriority(completenessState: string) {
+  switch (completenessState) {
+    case "complete":
+      return 2;
+    case "mostly_complete":
+      return 1;
+    case "incomplete":
+    default:
+      return 0;
+  }
+}
+
+function getFallbackTriagePriority(triageState: string) {
+  switch (triageState) {
+    case "approve_ready":
+      return 3;
+    case "repairable":
+      return 2;
+    case "needs_judgement":
+      return 1;
+    case "stale_but_reusable":
+    default:
+      return 0;
+  }
+}
+
+function chooseFallbackReason(candidate: ReturnType<typeof rankApprovalCandidates>[number]) {
+  const preferredRankReason = candidate.rankReasons.find(
+    (reason) =>
+      reason !== "Playbook support exists" &&
+      reason !== "Pattern support exists" &&
+      reason !== "Bundle context exists",
+  );
+
+  return (
+    preferredRankReason ??
+    candidate.rankReasons[0] ??
+    candidate.signal.contentAngle ??
+    candidate.signal.manualSummary ??
+    "Current review ranking surfaced this for founder judgement."
+  );
+}
+
 function buildFallbackBridgeCandidates(input: {
   candidates: ReturnType<typeof rankApprovalCandidates>;
 }): BridgeFallbackCandidateInput[] {
   return input.candidates
     .filter((candidate) => candidate.triage.triageState !== "suppress")
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      exportPriority:
+        getFallbackAssessmentPriority(candidate.assessment.decision) * 100 +
+        getFallbackOutcomePriority(candidate.expectedOutcome.expectedOutcomeTier) * 10 +
+        getFallbackRiskPriority(candidate.commercialRisk.decision) * 10 +
+        getFallbackCompletenessPriority(candidate.completeness.completenessState) * 5 +
+        getFallbackTriagePriority(candidate.triage.triageState),
+    }))
+    .sort(
+      (left, right) =>
+        right.exportPriority - left.exportPriority ||
+        left.index - right.index,
+    )
     .slice(0, 5)
-    .map((candidate) => {
+    .map(({ candidate }) => {
       const platform = getFallbackPlatform(candidate.signal);
       const primaryPainPoint =
         candidate.signal.teacherPainPoint ??
@@ -88,11 +186,7 @@ function buildFallbackBridgeCandidates(input: {
         candidate.signal.scenarioAngle ??
         candidate.signal.manualSummary ??
         candidate.signal.sourceTitle;
-      const reason =
-        candidate.rankReasons[0] ??
-        candidate.signal.contentAngle ??
-        candidate.signal.manualSummary ??
-        "Current review ranking surfaced this for founder judgement.";
+      const reason = chooseFallbackReason(candidate);
 
       return {
         candidateId: `review-candidate:${candidate.signal.recordId}`,
