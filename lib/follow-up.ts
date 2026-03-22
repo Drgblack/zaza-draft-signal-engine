@@ -7,6 +7,10 @@ import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
 import type { ManualExperiment } from "@/lib/experiments";
 import type { PostingOutcome } from "@/lib/outcomes";
 import { getPostingPlatformLabel, type PostingLogEntry } from "@/lib/posting-memory";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import type { SignalRecord } from "@/types/signal";
 import type { WeeklyPlan } from "@/lib/weekly-plan";
@@ -54,6 +58,7 @@ export const followUpActionRequestSchema = z.object({
 });
 
 export type FollowUpTask = z.infer<typeof followUpTaskSchema>;
+let inMemoryFollowUpStore = buildEmptyStore();
 
 function toIso(value: number | Date): string {
   return (value instanceof Date ? value : new Date(value)).toISOString();
@@ -102,10 +107,12 @@ function buildEmptyStore() {
 async function readPersistedStore() {
   try {
     const raw = await readFile(FOLLOW_UP_STORE_PATH, "utf8");
-    return followUpStoreSchema.parse(JSON.parse(raw));
+    const store = followUpStoreSchema.parse(JSON.parse(raw));
+    inMemoryFollowUpStore = store;
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return buildEmptyStore();
+      return inMemoryFollowUpStore;
     }
 
     throw error;
@@ -113,8 +120,20 @@ async function readPersistedStore() {
 }
 
 async function writeStore(store: z.infer<typeof followUpStoreSchema>) {
-  await mkdir(path.dirname(FOLLOW_UP_STORE_PATH), { recursive: true });
-  await writeFile(FOLLOW_UP_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = followUpStoreSchema.parse(store);
+  inMemoryFollowUpStore = parsed;
+
+  try {
+    await mkdir(path.dirname(FOLLOW_UP_STORE_PATH), { recursive: true });
+    await writeFile(FOLLOW_UP_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("follow-up", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 function normalizeTask(task: FollowUpTask): FollowUpTask {

@@ -14,6 +14,10 @@ import {
   recordInfluencerInteraction,
   type InfluencerGraphRow,
 } from "@/lib/influencer-graph";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 
 const SAFE_REPLY_STORE_PATH = path.join(process.cwd(), "data", "safe-replies.json");
 
@@ -123,6 +127,10 @@ export interface SafeReplyState {
 }
 
 type SafeReplyStoreEntry = z.infer<typeof safeReplyStoreEntrySchema>;
+let inMemorySafeReplyStore = safeReplyStoreSchema.parse({
+  entries: [],
+  updatedAt: null,
+});
 
 function normalizeText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
@@ -283,18 +291,32 @@ function analyzeReply(row: InfluencerGraphRow): Omit<SafeReplyItem,
 async function readPersistedStore() {
   try {
     const raw = await readFile(SAFE_REPLY_STORE_PATH, "utf8");
-    return safeReplyStoreSchema.parse(JSON.parse(raw));
+    const store = safeReplyStoreSchema.parse(JSON.parse(raw));
+    inMemorySafeReplyStore = store;
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return safeReplyStoreSchema.parse({ entries: [], updatedAt: null });
+      return inMemorySafeReplyStore;
     }
     throw error;
   }
 }
 
 async function writeStore(store: z.infer<typeof safeReplyStoreSchema>) {
-  await mkdir(path.dirname(SAFE_REPLY_STORE_PATH), { recursive: true });
-  await writeFile(SAFE_REPLY_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = safeReplyStoreSchema.parse(store);
+  inMemorySafeReplyStore = parsed;
+
+  try {
+    await mkdir(path.dirname(SAFE_REPLY_STORE_PATH), { recursive: true });
+    await writeFile(SAFE_REPLY_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("safe-replies", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 function sortRows(rows: SafeReplyItem[]) {
