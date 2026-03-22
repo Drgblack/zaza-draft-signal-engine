@@ -107,7 +107,7 @@ function buildEmptyStore() {
 async function readPersistedStore() {
   try {
     const raw = await readFile(FOLLOW_UP_STORE_PATH, "utf8");
-    const store = followUpStoreSchema.parse(JSON.parse(raw));
+    const store = sanitizeFollowUpStore(JSON.parse(raw));
     inMemoryFollowUpStore = store;
     return store;
   } catch (error) {
@@ -115,12 +115,16 @@ async function readPersistedStore() {
       return inMemoryFollowUpStore;
     }
 
-    throw error;
+    console.warn(
+      "follow-up: persisted store could not be parsed, falling back to in-memory state.",
+      error,
+    );
+    return inMemoryFollowUpStore;
   }
 }
 
 async function writeStore(store: z.infer<typeof followUpStoreSchema>) {
-  const parsed = followUpStoreSchema.parse(store);
+  const parsed = sanitizeFollowUpStore(store);
   inMemoryFollowUpStore = parsed;
 
   try {
@@ -134,6 +138,45 @@ async function writeStore(store: z.infer<typeof followUpStoreSchema>) {
 
     throw error;
   }
+}
+
+function sanitizeFollowUpStore(
+  input: unknown,
+): z.infer<typeof followUpStoreSchema> {
+  const parsed = followUpStoreSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  const fallbackInput =
+    input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const tasks = Array.isArray((fallbackInput as { tasks?: unknown }).tasks)
+    ? (fallbackInput as { tasks?: unknown[] }).tasks ?? []
+    : [];
+  const updatedAt =
+    typeof (fallbackInput as { updatedAt?: unknown }).updatedAt === "string"
+      ? ((fallbackInput as { updatedAt?: string }).updatedAt ?? null)
+      : null;
+
+  const sanitizedTasks = tasks
+    .map((task, index) => {
+      const parsedTask = followUpTaskSchema.safeParse(task);
+      if (!parsedTask.success) {
+        console.warn(
+          `follow-up: dropping invalid persisted task at index ${index}.`,
+          parsedTask.error,
+        );
+        return null;
+      }
+
+      return parsedTask.data;
+    })
+    .filter((task): task is FollowUpTask => Boolean(task));
+
+  return followUpStoreSchema.parse({
+    tasks: sortTasks(sanitizedTasks),
+    updatedAt,
+  });
 }
 
 function normalizeTask(task: FollowUpTask): FollowUpTask {
