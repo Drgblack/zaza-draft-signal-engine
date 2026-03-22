@@ -396,7 +396,7 @@ function groupItems(items: ExceptionInboxItem[]): ExceptionInboxGroup[] {
 async function readPersistedStore() {
   try {
     const raw = await readFile(EXCEPTION_INBOX_STORE_PATH, "utf8");
-    const store = exceptionInboxStoreSchema.parse(JSON.parse(raw));
+    const store = sanitizeExceptionInboxStore(JSON.parse(raw));
     inMemoryExceptionInboxStore = store;
     return store;
   } catch (error) {
@@ -404,12 +404,16 @@ async function readPersistedStore() {
       return inMemoryExceptionInboxStore;
     }
 
-    throw error;
+    console.warn(
+      "exception-inbox: persisted store could not be parsed, falling back to in-memory state.",
+      error,
+    );
+    return inMemoryExceptionInboxStore;
   }
 }
 
 async function writePersistedStore(store: z.infer<typeof exceptionInboxStoreSchema>) {
-  const parsed = exceptionInboxStoreSchema.parse(store);
+  const parsed = sanitizeExceptionInboxStore(store);
   inMemoryExceptionInboxStore = parsed;
 
   try {
@@ -423,6 +427,52 @@ async function writePersistedStore(store: z.infer<typeof exceptionInboxStoreSche
 
     throw error;
   }
+}
+
+function sanitizeExceptionInboxStore(
+  input: unknown,
+): z.infer<typeof exceptionInboxStoreSchema> {
+  const parsed = exceptionInboxStoreSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  const fallbackInput =
+    input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const dismissedIds = Array.isArray((fallbackInput as { dismissedIds?: unknown }).dismissedIds)
+    ? (fallbackInput as { dismissedIds?: unknown[] }).dismissedIds ?? []
+    : [];
+  const lastOpenItems = Array.isArray((fallbackInput as { lastOpenItems?: unknown }).lastOpenItems)
+    ? (fallbackInput as { lastOpenItems?: unknown[] }).lastOpenItems ?? []
+    : [];
+  const updatedAt =
+    typeof (fallbackInput as { updatedAt?: unknown }).updatedAt === "string"
+      ? ((fallbackInput as { updatedAt?: string }).updatedAt ?? null)
+      : null;
+
+  const sanitizedDismissedIds = dismissedIds.filter(
+    (id): id is string => typeof id === "string" && id.trim().length > 0,
+  );
+  const sanitizedSnapshots = lastOpenItems
+    .map((item, index) => {
+      const parsedSnapshot = exceptionSnapshotSchema.safeParse(item);
+      if (!parsedSnapshot.success) {
+        console.warn(
+          `exception-inbox: dropping invalid persisted snapshot at index ${index}.`,
+          parsedSnapshot.error,
+        );
+        return null;
+      }
+
+      return parsedSnapshot.data;
+    })
+    .filter((item): item is z.infer<typeof exceptionSnapshotSchema> => Boolean(item));
+
+  return exceptionInboxStoreSchema.parse({
+    dismissedIds: sanitizedDismissedIds,
+    lastOpenItems: sanitizedSnapshots,
+    updatedAt,
+  });
 }
 
 export async function syncExceptionInbox(input: {

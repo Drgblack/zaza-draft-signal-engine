@@ -147,7 +147,7 @@ function buildEmptyStore() {
 async function readPersistedStore() {
   try {
     const raw = await readFile(OPERATOR_TASK_STORE_PATH, "utf8");
-    const store = operatorTaskStoreSchema.parse(JSON.parse(raw));
+    const store = sanitizeOperatorTaskStore(JSON.parse(raw));
     inMemoryOperatorTaskStore = store;
     return store;
   } catch (error) {
@@ -155,12 +155,16 @@ async function readPersistedStore() {
       return inMemoryOperatorTaskStore;
     }
 
-    throw error;
+    console.warn(
+      "operator-tasks: persisted store could not be parsed, falling back to in-memory state.",
+      error,
+    );
+    return inMemoryOperatorTaskStore;
   }
 }
 
 async function writeStore(store: z.infer<typeof operatorTaskStoreSchema>) {
-  const parsed = operatorTaskStoreSchema.parse(store);
+  const parsed = sanitizeOperatorTaskStore(store);
   inMemoryOperatorTaskStore = parsed;
 
   try {
@@ -174,6 +178,45 @@ async function writeStore(store: z.infer<typeof operatorTaskStoreSchema>) {
 
     throw error;
   }
+}
+
+function sanitizeOperatorTaskStore(
+  input: unknown,
+): z.infer<typeof operatorTaskStoreSchema> {
+  const parsed = operatorTaskStoreSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  const fallbackInput =
+    input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const tasks = Array.isArray((fallbackInput as { tasks?: unknown }).tasks)
+    ? (fallbackInput as { tasks?: unknown[] }).tasks ?? []
+    : [];
+  const updatedAt =
+    typeof (fallbackInput as { updatedAt?: unknown }).updatedAt === "string"
+      ? ((fallbackInput as { updatedAt?: string }).updatedAt ?? null)
+      : null;
+
+  const sanitizedTasks = tasks
+    .map((task, index) => {
+      const parsedTask = operatorTaskSchema.safeParse(task);
+      if (!parsedTask.success) {
+        console.warn(
+          `operator-tasks: dropping invalid persisted task at index ${index}.`,
+          parsedTask.error,
+        );
+        return null;
+      }
+
+      return parsedTask.data;
+    })
+    .filter((task): task is OperatorTask => Boolean(task));
+
+  return operatorTaskStoreSchema.parse({
+    tasks: sortTasks(sanitizedTasks),
+    updatedAt,
+  });
 }
 
 function toIso(value: number | Date): string {
