@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import {
   approveContentOpportunity,
+  approveContentOpportunityVideoBriefForGeneration,
   dismissContentOpportunity,
   listContentOpportunityState,
   refreshContentOpportunityStateFromSystem,
@@ -92,6 +93,8 @@ export async function PATCH(request: Request) {
     const state =
       parsed.data.action === "approve_for_production"
         ? await approveContentOpportunity(parsed.data.opportunityId)
+        : parsed.data.action === "approve_video_brief_for_generation"
+          ? await approveContentOpportunityVideoBriefForGeneration(parsed.data.opportunityId)
         : parsed.data.action === "dismiss"
           ? await dismissContentOpportunity(parsed.data.opportunityId)
           : parsed.data.action === "reopen"
@@ -110,6 +113,8 @@ export async function PATCH(request: Request) {
       message:
         parsed.data.action === "approve_for_production"
           ? "Factory input approved for production."
+          : parsed.data.action === "approve_video_brief_for_generation"
+            ? "Video brief approved for generation."
           : parsed.data.action === "dismiss"
             ? "Factory input dismissed."
             : parsed.data.action === "reopen"

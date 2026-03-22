@@ -1,0 +1,55 @@
+import { NextResponse } from "next/server";
+
+import { reviewContentOpportunityRenderedAsset } from "@/lib/content-opportunities";
+import {
+  factoryInputRenderReviewRequestSchema,
+  type FactoryInputResponse,
+} from "@/types/api";
+
+export const dynamic = "force-dynamic";
+
+export async function PATCH(request: Request) {
+  const payload = await request.json().catch(() => null);
+  const parsed = factoryInputRenderReviewRequestSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    return NextResponse.json<FactoryInputResponse>(
+      {
+        success: false,
+        state: null,
+        error: parsed.error.issues[0]?.message ?? "Invalid render review payload.",
+      },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const state = await reviewContentOpportunityRenderedAsset({
+      opportunityId: parsed.data.opportunityId,
+      status: parsed.data.status,
+      reviewNotes: parsed.data.reviewNotes,
+      rejectionReason: parsed.data.rejectionReason,
+    });
+
+    return NextResponse.json<FactoryInputResponse>({
+      success: true,
+      state,
+      message:
+        parsed.data.status === "accepted"
+          ? "Rendered asset accepted."
+          : "Rendered asset rejected.",
+    });
+  } catch (error) {
+    return NextResponse.json<FactoryInputResponse>(
+      {
+        success: false,
+        state: null,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to update rendered asset review.",
+      },
+      { status: 500 },
+    );
+  }
+}

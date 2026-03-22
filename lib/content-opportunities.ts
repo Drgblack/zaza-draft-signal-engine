@@ -32,16 +32,45 @@ import { listPlaybookCards } from "@/lib/playbook-cards";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { listPostingOutcomes } from "@/lib/outcomes";
+import {
+  buildNarrationSpec,
+  narrationSpecSchema,
+  type NarrationSpec,
+} from "@/lib/narration-specs";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
+import {
+  createMockRenderedAsset,
+  createPendingAssetReview,
+  assetReviewStateSchema,
+  renderedAssetSchema,
+  type AssetReviewState,
+  type RenderedAsset,
+} from "@/lib/rendered-assets";
+import {
+  createRenderJob,
+  type RenderProvider,
+  renderJobSchema,
+  type RenderJob,
+} from "@/lib/render-jobs";
 import { buildRevenueSignalsFromInputs } from "@/lib/revenue-signals";
 import { buildRevenueSignalInsights } from "@/lib/revenue-signals";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
 import {
+  buildVideoGenerationRequest,
+  type VideoGenerationRequest,
+  videoGenerationRequestSchema,
+} from "@/lib/video-generation";
+import {
   buildVideoBrief,
   type VideoBrief,
   videoBriefSchema,
 } from "@/lib/video-briefs";
+import {
+  buildVideoPrompt,
+  type VideoPrompt,
+  videoPromptSchema,
+} from "@/lib/video-prompts";
 import { buildWeeklyRecap } from "@/lib/weekly-recap";
 import { buildWeeklyPostingPack } from "@/lib/weekly-posting-pack";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
@@ -92,6 +121,17 @@ export interface ContentOpportunityMemoryContext {
   caution: string | null;
 }
 
+export interface ContentOpportunityGenerationState {
+  videoBriefApprovedAt: string | null;
+  videoBriefApprovedBy: string | null;
+  narrationSpec: NarrationSpec | null;
+  videoPrompt: VideoPrompt | null;
+  generationRequest: VideoGenerationRequest | null;
+  renderJob: RenderJob | null;
+  renderedAsset: RenderedAsset | null;
+  assetReview: AssetReviewState | null;
+}
+
 export interface ContentOpportunity {
   opportunityId: string;
   signalId: string;
@@ -122,6 +162,7 @@ export interface ContentOpportunity {
   selectedAngleId: string | null;
   selectedHookId: string | null;
   selectedVideoBrief: VideoBrief | null;
+  generationState: ContentOpportunityGenerationState | null;
   operatorNotes: string | null;
 }
 
@@ -147,6 +188,17 @@ const contentOpportunityMemoryContextSchema = z.object({
   revenuePattern: z.string().trim().nullable().default(null),
   audienceCue: z.string().trim().nullable().default(null),
   caution: z.string().trim().nullable().default(null),
+});
+
+export const contentOpportunityGenerationStateSchema = z.object({
+  videoBriefApprovedAt: z.string().trim().nullable().default(null),
+  videoBriefApprovedBy: z.string().trim().nullable().default(null),
+  narrationSpec: narrationSpecSchema.nullable().default(null),
+  videoPrompt: videoPromptSchema.nullable().default(null),
+  generationRequest: videoGenerationRequestSchema.nullable().default(null),
+  renderJob: renderJobSchema.nullable().default(null),
+  renderedAsset: renderedAssetSchema.nullable().default(null),
+  assetReview: assetReviewStateSchema.nullable().default(null),
 });
 
 const contentOpportunitySchema = z.object({
@@ -181,6 +233,7 @@ const contentOpportunitySchema = z.object({
   selectedAngleId: z.string().trim().nullable().default(null),
   selectedHookId: z.string().trim().nullable().default(null),
   selectedVideoBrief: videoBriefSchema.nullable().default(null),
+  generationState: contentOpportunityGenerationStateSchema.nullable().default(null),
   operatorNotes: z.string().trim().nullable().default(null),
 });
 
@@ -221,6 +274,10 @@ export const contentOpportunityActionRequestSchema = z.discriminatedUnion("actio
     opportunityId: z.string().trim().min(1),
     selectedAngleId: z.string().trim().nullable(),
     selectedHookId: z.string().trim().nullable(),
+  }),
+  z.object({
+    action: z.literal("approve_video_brief_for_generation"),
+    opportunityId: z.string().trim().min(1),
   }),
 ]);
 
@@ -546,6 +603,97 @@ function normalizeFounderSelection(
   }
 }
 
+function normalizeGenerationState(
+  opportunity: ContentOpportunity,
+): ContentOpportunityGenerationState | null {
+  const generationState = opportunity.generationState;
+  if (!generationState) {
+    return null;
+  }
+
+  if (
+    opportunity.status !== "approved_for_production" ||
+    opportunity.founderSelectionStatus !== "approved" ||
+    !opportunity.selectedVideoBrief
+  ) {
+    return null;
+  }
+
+  try {
+    const normalizedState = contentOpportunityGenerationStateSchema.parse(generationState);
+    const approvedBrief = opportunity.selectedVideoBrief;
+
+    if (
+      normalizedState.narrationSpec &&
+      (normalizedState.narrationSpec.opportunityId !== opportunity.opportunityId ||
+        normalizedState.narrationSpec.videoBriefId !== approvedBrief.id)
+    ) {
+      return null;
+    }
+
+    if (
+      normalizedState.videoPrompt &&
+      (normalizedState.videoPrompt.opportunityId !== opportunity.opportunityId ||
+        normalizedState.videoPrompt.videoBriefId !== approvedBrief.id)
+    ) {
+      return null;
+    }
+
+    if (
+      normalizedState.generationRequest &&
+      (normalizedState.generationRequest.opportunityId !== opportunity.opportunityId ||
+        normalizedState.generationRequest.videoBriefId !== approvedBrief.id ||
+        (normalizedState.narrationSpec &&
+          normalizedState.generationRequest.narrationSpecId !== normalizedState.narrationSpec.id) ||
+        (normalizedState.videoPrompt &&
+          normalizedState.generationRequest.videoPromptId !== normalizedState.videoPrompt.id))
+    ) {
+      return null;
+    }
+
+    if (
+      normalizedState.renderJob &&
+      (!normalizedState.generationRequest ||
+        normalizedState.renderJob.generationRequestId !== normalizedState.generationRequest.id)
+    ) {
+      return null;
+    }
+
+    if (
+      normalizedState.renderedAsset &&
+      (!normalizedState.renderJob ||
+        normalizedState.renderedAsset.renderJobId !== normalizedState.renderJob.id)
+    ) {
+      return null;
+    }
+
+    if (
+      normalizedState.assetReview &&
+      (!normalizedState.renderedAsset ||
+        normalizedState.assetReview.renderedAssetId !== normalizedState.renderedAsset.id)
+    ) {
+      return null;
+    }
+
+    return normalizedState;
+  } catch {
+    return null;
+  }
+}
+
+function normalizePersistedOpportunity(opportunity: ContentOpportunity): ContentOpportunity {
+  const founderSelection = normalizeFounderSelection(opportunity);
+  const founderNormalizedOpportunity = {
+    ...opportunity,
+    ...founderSelection,
+  };
+
+  return {
+    ...founderNormalizedOpportunity,
+    generationState: normalizeGenerationState(founderNormalizedOpportunity),
+  };
+}
+
 function mergePersistedFields(
   nextOpportunity: ContentOpportunity,
   existingOpportunity: ContentOpportunity | undefined,
@@ -564,20 +712,17 @@ function mergePersistedFields(
     selectedAngleId: existingOpportunity.selectedAngleId ?? null,
     selectedHookId: existingOpportunity.selectedHookId ?? null,
     selectedVideoBrief: existingOpportunity.selectedVideoBrief ?? null,
+    generationState: existingOpportunity.generationState ?? null,
     operatorNotes: existingOpportunity.operatorNotes,
   };
 
-  return {
-    ...mergedOpportunity,
-    ...normalizeFounderSelection(mergedOpportunity),
-  };
+  return normalizePersistedOpportunity(mergedOpportunity);
 }
 
 function summarizeState(opportunities: ContentOpportunity[]) {
-  const normalizedOpportunities = opportunities.map((opportunity) => ({
-    ...opportunity,
-    ...normalizeFounderSelection(opportunity),
-  }));
+  const normalizedOpportunities = opportunities.map((opportunity) =>
+    normalizePersistedOpportunity(opportunity),
+  );
   const open = normalizedOpportunities.filter((item) => item.status === "open");
   const approved = normalizedOpportunities.filter((item) => item.status === "approved_for_production");
   const dismissed = normalizedOpportunities.filter((item) => item.status === "dismissed");
@@ -683,6 +828,7 @@ function buildOpportunityFromCandidate(
     selectedAngleId: null,
     selectedHookId: null,
     selectedVideoBrief: null,
+    generationState: null,
     operatorNotes: null,
   });
 }
@@ -772,10 +918,7 @@ async function updateOpportunity(
     }
 
     const updatedOpportunity = updater(opportunity);
-    return {
-      ...updatedOpportunity,
-      ...normalizeFounderSelection(updatedOpportunity),
-    };
+    return normalizePersistedOpportunity(updatedOpportunity);
   });
   await writePersistedStore({
     updatedAt: new Date().toISOString(),
@@ -929,6 +1072,7 @@ export async function updateContentOpportunityFounderSelection(input: {
     selectedAngleId: nextSelectedAngleId,
     selectedHookId: nextSelectedHookId,
     selectedVideoBrief: null,
+    generationState: null,
     updatedAt: timestamp,
   }));
   await appendAuditEventsSafe([
@@ -941,6 +1085,229 @@ export async function updateContentOpportunityFounderSelection(input: {
         founderSelectionStatus: nextFounderSelectionStatus,
         hasAngle: Boolean(nextSelectedAngleId),
         hasHook: Boolean(nextSelectedHookId),
+      },
+    },
+  ]);
+
+  return state;
+}
+
+export async function approveContentOpportunityVideoBriefForGeneration(
+  opportunityId: string,
+) {
+  const timestamp = new Date().toISOString();
+  const approvedBy = "founder";
+  const store = await readPersistedStore();
+  const current = store.opportunities.find((item) => item.opportunityId === opportunityId);
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const normalizedCurrent = normalizePersistedOpportunity(current);
+  if (
+    normalizedCurrent.status !== "approved_for_production" ||
+    normalizedCurrent.founderSelectionStatus !== "approved"
+  ) {
+    throw new Error("Approve for production before approving a brief for generation.");
+  }
+
+  if (
+    !normalizedCurrent.selectedAngleId ||
+    !normalizedCurrent.selectedHookId ||
+    !normalizedCurrent.selectedVideoBrief
+  ) {
+    throw new Error("Select an angle and hook so a stable video brief exists before approval.");
+  }
+
+  const currentGenerationState = contentOpportunityGenerationStateSchema.parse(
+    normalizedCurrent.generationState ?? {},
+  );
+
+  const state = await updateOpportunity(opportunityId, (opportunity) => ({
+    ...opportunity,
+    generationState: {
+      ...currentGenerationState,
+      videoBriefApprovedAt: timestamp,
+      videoBriefApprovedBy: approvedBy,
+    },
+    updatedAt: timestamp,
+  }));
+  await appendAuditEventsSafe([
+    {
+      signalId: current.signalId,
+      eventType: "CONTENT_OPPORTUNITY_VIDEO_BRIEF_APPROVED_FOR_GENERATION" as const,
+      actor: "operator",
+      summary: `Approved video brief for generation on content opportunity "${current.title}".`,
+      metadata: {
+        approvedBy,
+        videoBriefId: normalizedCurrent.selectedVideoBrief.id,
+      },
+    },
+  ]);
+
+  return state;
+}
+
+export async function generateContentOpportunityVideo(input: {
+  opportunityId: string;
+  provider?: RenderProvider;
+}) {
+  const provider = input.provider ?? "mock";
+  if (provider !== "mock") {
+    throw new Error(`Render provider "${provider}" is not available yet.`);
+  }
+
+  const timestamp = new Date().toISOString();
+  const store = await readPersistedStore();
+  const current = store.opportunities.find((item) => item.opportunityId === input.opportunityId);
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const normalizedCurrent = normalizePersistedOpportunity(current);
+  if (
+    !normalizedCurrent.selectedAngleId ||
+    !normalizedCurrent.selectedHookId ||
+    !normalizedCurrent.selectedVideoBrief
+  ) {
+    throw new Error("Select an angle and hook so a stable video brief exists before generation.");
+  }
+
+  if (
+    !normalizedCurrent.generationState?.videoBriefApprovedAt ||
+    !normalizedCurrent.generationState?.videoBriefApprovedBy
+  ) {
+    throw new Error("Approve the video brief for generation before starting a render.");
+  }
+
+  const brief = normalizedCurrent.selectedVideoBrief;
+  const narrationSpec = buildNarrationSpec(normalizedCurrent, brief);
+  const videoPrompt = buildVideoPrompt(normalizedCurrent, brief);
+  const approvedAt = normalizedCurrent.generationState.videoBriefApprovedAt;
+  const approvedBy = normalizedCurrent.generationState.videoBriefApprovedBy;
+  const generationRequestBase = buildVideoGenerationRequest({
+    opportunity: normalizedCurrent,
+    brief,
+    narrationSpec,
+    videoPrompt,
+    approvedAt,
+    approvedBy,
+  });
+  const generationRequest = {
+    ...generationRequestBase,
+    status: "completed" as const,
+  };
+  const renderJobBase = createRenderJob({
+    generationRequestId: generationRequest.id,
+    provider,
+  });
+  const renderJob = {
+    ...renderJobBase,
+    status: "completed" as const,
+    providerJobId: renderJobBase.id,
+    submittedAt: timestamp,
+    completedAt: timestamp,
+  };
+  const renderedAsset = createMockRenderedAsset({
+    renderJobId: renderJob.id,
+    durationSec: brief.durationSec,
+    createdAt: timestamp,
+  });
+  const assetReview = createPendingAssetReview({
+    renderedAssetId: renderedAsset.id,
+  });
+
+  const nextGenerationState = contentOpportunityGenerationStateSchema.parse({
+    videoBriefApprovedAt: approvedAt,
+    videoBriefApprovedBy: approvedBy,
+    narrationSpec,
+    videoPrompt,
+    generationRequest,
+    renderJob,
+    renderedAsset,
+    assetReview,
+  });
+
+  const state = await updateOpportunity(input.opportunityId, (opportunity) => ({
+    ...opportunity,
+    generationState: nextGenerationState,
+    updatedAt: timestamp,
+  }));
+  await appendAuditEventsSafe([
+    {
+      signalId: current.signalId,
+      eventType: "CONTENT_OPPORTUNITY_VIDEO_GENERATION_STARTED" as const,
+      actor: "operator",
+      summary: `Started mock video generation for content opportunity "${current.title}".`,
+      metadata: {
+        provider,
+        generationRequestId: generationRequest.id,
+      },
+    },
+    {
+      signalId: current.signalId,
+      eventType: "CONTENT_OPPORTUNITY_RENDER_COMPLETED" as const,
+      actor: "operator",
+      summary: `Completed mock render for content opportunity "${current.title}".`,
+      metadata: {
+        provider,
+        renderJobId: renderJob.id,
+        renderedAssetId: renderedAsset.id,
+      },
+    },
+  ]);
+
+  return state;
+}
+
+export async function reviewContentOpportunityRenderedAsset(input: {
+  opportunityId: string;
+  status: "accepted" | "rejected";
+  reviewNotes?: string;
+  rejectionReason?: string;
+}) {
+  const timestamp = new Date().toISOString();
+  const store = await readPersistedStore();
+  const current = store.opportunities.find((item) => item.opportunityId === input.opportunityId);
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const normalizedCurrent = normalizePersistedOpportunity(current);
+  if (
+    !normalizedCurrent.generationState?.renderedAsset ||
+    !normalizedCurrent.generationState.assetReview
+  ) {
+    throw new Error("A rendered asset must exist before review can be updated.");
+  }
+
+  const nextReviewNotes = normalizeText(input.reviewNotes);
+  const nextRejectionReason =
+    input.status === "rejected" ? normalizeText(input.rejectionReason) : null;
+  const state = await updateOpportunity(input.opportunityId, (opportunity) => ({
+    ...opportunity,
+    generationState: {
+      ...contentOpportunityGenerationStateSchema.parse(opportunity.generationState ?? {}),
+      assetReview: {
+        ...normalizedCurrent.generationState!.assetReview!,
+        status: input.status,
+        reviewedAt: timestamp,
+        reviewNotes: nextReviewNotes,
+        rejectionReason: nextRejectionReason,
+      },
+    },
+    updatedAt: timestamp,
+  }));
+  await appendAuditEventsSafe([
+    {
+      signalId: current.signalId,
+      eventType: "CONTENT_OPPORTUNITY_ASSET_REVIEW_UPDATED" as const,
+      actor: "operator",
+      summary: `Updated render review for content opportunity "${current.title}".`,
+      metadata: {
+        reviewStatus: input.status,
+        hasReviewNotes: Boolean(nextReviewNotes),
+        hasRejectionReason: Boolean(nextRejectionReason),
       },
     },
   ]);

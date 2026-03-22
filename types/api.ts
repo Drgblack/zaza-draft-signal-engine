@@ -54,7 +54,10 @@ import type { ScenarioAngleAssessment, ScenarioAngleSuggestion } from "@/lib/sce
 import type { OperatorTuning } from "@/lib/tuning-definitions";
 import type { AudienceSegment, Campaign, CampaignStrategy, ContentPillar } from "@/lib/campaigns";
 import type { FounderOverrideState } from "@/lib/founder-overrides";
-import type { ContentOpportunityState } from "@/lib/content-opportunities";
+import type {
+  ContentOpportunity,
+  ContentOpportunityState,
+} from "@/lib/content-opportunities";
 import type { DuplicateCluster } from "@/lib/duplicate-clusters";
 import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
@@ -437,7 +440,31 @@ export const factoryInputActionRequestSchema = z.discriminatedUnion("action", [
     selectedAngleId: z.string().trim().nullable(),
     selectedHookId: z.string().trim().nullable(),
   }),
+  z.object({
+    action: z.literal("approve_video_brief_for_generation"),
+    opportunityId: z.string().trim().min(1),
+  }),
 ]);
+
+export const factoryInputGenerateVideoRequestSchema = z.object({
+  opportunityId: z.string().trim().min(1),
+  provider: z.enum(["mock", "runway", "capcut", "custom"]).default("mock"),
+});
+
+export type FactoryInputGenerateVideoRequest = z.infer<
+  typeof factoryInputGenerateVideoRequestSchema
+>;
+
+export const factoryInputRenderReviewRequestSchema = z.object({
+  opportunityId: z.string().trim().min(1),
+  status: z.enum(["accepted", "rejected"]),
+  reviewNotes: z.string().optional(),
+  rejectionReason: z.string().optional(),
+});
+
+export type FactoryInputRenderReviewRequest = z.infer<
+  typeof factoryInputRenderReviewRequestSchema
+>;
 
 export const zazaConnectBridgeActionRequestSchema = z.discriminatedUnion("action", [
   z.object({
@@ -963,6 +990,33 @@ export interface FounderOverrideResponse {
 export interface FactoryInputResponse {
   success: boolean;
   state: ContentOpportunityState | null;
+  message?: string;
+  error?: string;
+}
+
+export interface FactoryInputRenderStatusResponse {
+  success: boolean;
+  opportunityId: string | null;
+  generationState: ContentOpportunity["generationState"];
+  derivedStatus: {
+    briefApproved: boolean;
+    generationStarted: boolean;
+    renderCompleted: boolean;
+    assetPendingReview: boolean;
+    assetAccepted: boolean;
+    assetRejected: boolean;
+    renderJobStatus: "queued" | "submitted" | "rendering" | "completed" | "failed" | null;
+    lifecycleLabel:
+      | "awaiting_brief_approval"
+      | "ready_to_generate"
+      | "queued"
+      | "submitted"
+      | "rendering"
+      | "failed"
+      | "pending_review"
+      | "accepted"
+      | "rejected";
+  } | null;
   message?: string;
   error?: string;
 }

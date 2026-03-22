@@ -26,6 +26,7 @@ import {
   buildVideoBriefWithDiagnostics,
   inspectVideoBriefTrust,
 } from "@/lib/video-briefs";
+import { formatDateTime } from "@/lib/utils";
 import type { FactoryInputResponse } from "@/types/api";
 
 function priorityTone(priority: ContentOpportunity["priority"]) {
@@ -178,6 +179,73 @@ function hookTypeLabel(type: HookVariant["type"]) {
     default:
       return "Practical";
   }
+}
+
+function renderStatusTone(
+  status: NonNullable<NonNullable<ContentOpportunity["generationState"]>["renderJob"]>["status"],
+) {
+  switch (status) {
+    case "completed":
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+    case "failed":
+      return "bg-rose-50 text-rose-700 ring-rose-200";
+    case "rendering":
+      return "bg-sky-50 text-sky-700 ring-sky-200";
+    case "submitted":
+    case "queued":
+    default:
+      return "bg-slate-100 text-slate-700 ring-slate-200";
+  }
+}
+
+function renderStatusLabel(
+  status: NonNullable<NonNullable<ContentOpportunity["generationState"]>["renderJob"]>["status"],
+) {
+  switch (status) {
+    case "queued":
+      return "Queued";
+    case "submitted":
+      return "Submitted";
+    case "rendering":
+      return "Rendering";
+    case "completed":
+      return "Completed";
+    case "failed":
+    default:
+      return "Failed";
+  }
+}
+
+function assetReviewTone(
+  status: NonNullable<NonNullable<ContentOpportunity["generationState"]>["assetReview"]>["status"],
+) {
+  switch (status) {
+    case "accepted":
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+    case "rejected":
+      return "bg-rose-50 text-rose-700 ring-rose-200";
+    case "pending_review":
+    default:
+      return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+}
+
+function assetReviewLabel(
+  status: NonNullable<NonNullable<ContentOpportunity["generationState"]>["assetReview"]>["status"],
+) {
+  switch (status) {
+    case "accepted":
+      return "Accepted";
+    case "rejected":
+      return "Rejected";
+    case "pending_review":
+    default:
+      return "Pending review";
+  }
+}
+
+function canOpenAssetReference(url: string | null | undefined) {
+  return Boolean(url && /^https?:\/\//.test(url));
 }
 
 function trustReasonLabel(reason: string) {
@@ -375,11 +443,13 @@ export function FactoryInputsPanel({
 
   function runRequest(
     input:
-      | { method: "POST"; body: { refresh: true } }
+      | { url?: "/api/factory-inputs"; method: "POST"; body: { refresh: true } }
       | {
+          url?: "/api/factory-inputs";
           method: "PATCH";
           body:
             | { action: "approve_for_production"; opportunityId: string }
+            | { action: "approve_video_brief_for_generation"; opportunityId: string }
             | { action: "dismiss"; opportunityId: string }
             | { action: "reopen"; opportunityId: string }
             | { action: "update_notes"; opportunityId: string; notes: string }
@@ -389,11 +459,29 @@ export function FactoryInputsPanel({
                 selectedAngleId: string | null;
                 selectedHookId: string | null;
               };
+        }
+      | {
+          url: "/api/factory-inputs/generate-video";
+          method: "POST";
+          body: {
+            opportunityId: string;
+            provider?: "mock";
+          };
+        }
+      | {
+          url: "/api/factory-inputs/render-review";
+          method: "PATCH";
+          body: {
+            opportunityId: string;
+            status: "accepted" | "rejected";
+            reviewNotes?: string;
+            rejectionReason?: string;
+          };
         },
   ) {
     startTransition(async () => {
       try {
-        const response = await fetch("/api/factory-inputs", {
+        const response = await fetch(input.url ?? "/api/factory-inputs", {
           method: input.method,
           headers: {
             "Content-Type": "application/json",
@@ -508,6 +596,25 @@ export function FactoryInputsPanel({
                       }
                     : buildSelectedVideoBrief(item, selectedAngle, selectedHookSet)
                   : null;
+              const briefApprovedForGeneration =
+                Boolean(item.generationState?.videoBriefApprovedAt) &&
+                Boolean(item.generationState?.videoBriefApprovedBy) &&
+                Boolean(item.selectedVideoBrief) &&
+                item.selectedVideoBrief?.id === brief?.brief.id;
+              const generationState = item.generationState;
+              const generationRequest = generationState?.generationRequest ?? null;
+              const renderJob = generationState?.renderJob ?? null;
+              const renderedAsset = generationState?.renderedAsset ?? null;
+              const assetReview = generationState?.assetReview ?? null;
+              const renderStatus = renderJob?.status ?? null;
+              const canGenerateVideo =
+                briefApprovedForGeneration &&
+                !generationRequest &&
+                !renderJob &&
+                !renderedAsset;
+              const canReviewAsset =
+                Boolean(renderedAsset) &&
+                assetReview?.status === "pending_review";
               const primaryHookTrust =
                 selectedAngle && selectedHookSet
                   ? inspectHookTrust(item, selectedAngle, selectedHookSet.primaryHook)
@@ -912,6 +1019,171 @@ export function FactoryInputsPanel({
                                 <span className="font-medium text-slate-950">CTA:</span>{" "}
                                 {brief.brief.cta}
                               </p>
+
+                                <div className="mt-4 rounded-2xl bg-slate-50/80 px-3 py-3">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                      Generation gate
+                                    </p>
+                                  {briefApprovedForGeneration ? (
+                                    <Badge className="bg-emerald-50 text-emerald-700 ring-emerald-200">
+                                      Approved for generation
+                                    </Badge>
+                                  ) : (
+                                    <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                        Awaiting approval
+                                      </Badge>
+                                    )}
+                                    {renderStatus ? (
+                                      <Badge className={renderStatusTone(renderStatus)}>
+                                        {renderStatusLabel(renderStatus)}
+                                      </Badge>
+                                    ) : null}
+                                    {assetReview ? (
+                                      <Badge className={assetReviewTone(assetReview.status)}>
+                                        {assetReviewLabel(assetReview.status)}
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                                    {briefApprovedForGeneration
+                                      ? `Approved by ${item.generationState?.videoBriefApprovedBy ?? "founder"} on ${formatDateTime(item.generationState?.videoBriefApprovedAt)}.`
+                                      : item.status !== "approved_for_production"
+                                        ? "Approve this opportunity for production first, then approve the brief for generation."
+                                        : "Approve this brief explicitly before any generation step is shown."}
+                                  </p>
+                                  {renderJob?.submittedAt ? (
+                                    <p className="mt-2 text-xs leading-5 text-slate-500">
+                                      Render submitted on {formatDateTime(renderJob.submittedAt)}.
+                                    </p>
+                                  ) : null}
+                                  {renderedAsset ? (
+                                    <div className="mt-3 rounded-2xl bg-white/80 px-3 py-3">
+                                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                        Asset reference
+                                      </p>
+                                      <p className="mt-2 break-all font-mono text-xs leading-5 text-slate-600">
+                                        {renderedAsset.url}
+                                      </p>
+                                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                                        <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                          {renderedAsset.assetType}
+                                        </Badge>
+                                        {renderedAsset.durationSec ? (
+                                          <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                            {renderedAsset.durationSec}s
+                                          </Badge>
+                                        ) : null}
+                                        {canOpenAssetReference(renderedAsset.url) ? (
+                                          <Link href={renderedAsset.url} target="_blank">
+                                            <Button size="sm" variant="ghost">
+                                              Open asset
+                                            </Button>
+                                          </Link>
+                                        ) : null}
+                                      </div>
+                                      {assetReview?.reviewedAt ? (
+                                        <p className="mt-2 text-xs leading-5 text-slate-500">
+                                          Reviewed on {formatDateTime(assetReview.reviewedAt)}.
+                                        </p>
+                                      ) : null}
+                                      {assetReview?.reviewNotes ? (
+                                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                                          {assetReview.reviewNotes}
+                                        </p>
+                                      ) : null}
+                                      {assetReview?.rejectionReason ? (
+                                        <p className="mt-2 text-sm leading-6 text-rose-700">
+                                          {assetReview.rejectionReason}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {!briefApprovedForGeneration ? (
+                                      <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      disabled={
+                                        isPending ||
+                                        item.status !== "approved_for_production" ||
+                                        !item.selectedAngleId ||
+                                        !item.selectedHookId ||
+                                        !item.selectedVideoBrief ||
+                                        item.selectedVideoBrief.id !== brief.brief.id
+                                      }
+                                      onClick={() =>
+                                        runRequest({
+                                          method: "PATCH",
+                                          body: {
+                                            action: "approve_video_brief_for_generation",
+                                            opportunityId: item.opportunityId,
+                                          },
+                                        })
+                                      }
+                                      >
+                                        Approve brief
+                                      </Button>
+                                    ) : null}
+                                    {canGenerateVideo ? (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={isPending}
+                                        onClick={() =>
+                                          runRequest({
+                                            url: "/api/factory-inputs/generate-video",
+                                            method: "POST",
+                                            body: {
+                                              opportunityId: item.opportunityId,
+                                              provider: "mock",
+                                            },
+                                          })
+                                        }
+                                      >
+                                        Generate video
+                                      </Button>
+                                    ) : null}
+                                    {canReviewAsset ? (
+                                      <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        disabled={isPending}
+                                        onClick={() =>
+                                          runRequest({
+                                            url: "/api/factory-inputs/render-review",
+                                            method: "PATCH",
+                                            body: {
+                                              opportunityId: item.opportunityId,
+                                              status: "accepted",
+                                            },
+                                          })
+                                        }
+                                      >
+                                        Accept
+                                      </Button>
+                                    ) : null}
+                                    {canReviewAsset ? (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={isPending}
+                                        onClick={() =>
+                                          runRequest({
+                                            url: "/api/factory-inputs/render-review",
+                                            method: "PATCH",
+                                            body: {
+                                              opportunityId: item.opportunityId,
+                                              status: "rejected",
+                                            },
+                                          })
+                                        }
+                                      >
+                                        Reject
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                </div>
 
                               {brief.brief.productionNotes?.length ? (
                                 <div className="mt-3">
