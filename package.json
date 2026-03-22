@@ -11,6 +11,7 @@
     "test:bridge": "node -e \"require('fs').rmSync('.test-dist',{ recursive: true, force: true })\" && npx tsc -p tsconfig.bridge-tests.json && node --test .test-dist/tests/zaza-connect-bridge-opportunities.test.js && node -e \"require('fs').rmSync('.test-dist',{ recursive: true, force: true })\""
   },
   "dependencies": {
+    "@vercel/blob": "^2.3.1",
     "clsx": "^2.1.1",
     "fast-xml-parser": "^5.5.6",
     "lucide-react": "^0.577.0",

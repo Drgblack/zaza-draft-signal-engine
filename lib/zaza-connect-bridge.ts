@@ -1,6 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
-
+import { get, put } from "@vercel/blob";
 import { z } from "zod";
 
 import type { InfluencerGraphRow, InfluencerGraphSummary } from "@/lib/influencer-graph";
@@ -9,11 +7,11 @@ import type { NarrativeSequence } from "@/lib/narrative-sequences";
 import type { WeeklyPostingPack } from "@/lib/weekly-posting-pack";
 import type { SignalRecord } from "@/types/signal";
 
-const ZAZA_CONNECT_BRIDGE_STORE_PATH = path.join(
-  process.cwd(),
-  "data",
-  "zaza-connect-bridge.json",
-);
+const ZAZA_CONNECT_BRIDGE_STORE_BLOB_PATHNAME = "zaza-connect-bridge/store.json";
+const ZAZA_CONNECT_BRIDGE_BLOB_ACCESS =
+  process.env.ZAZA_CONNECT_BRIDGE_BLOB_ACCESS === "private"
+    ? "private"
+    : "public";
 
 function normalizeText(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
@@ -170,6 +168,8 @@ const zazaConnectBridgeStoreSchema = z.object({
   updatedAt: z.string().trim().nullable().default(null),
 });
 
+type ZazaConnectBridgeStore = z.infer<typeof zazaConnectBridgeStoreSchema>;
+
 export type ZazaConnectImportedContext = z.infer<typeof zazaConnectImportedContextSchema>;
 export type ZazaConnectExportPayload = z.infer<typeof zazaConnectExportPayloadSchema>;
 
@@ -192,6 +192,24 @@ export interface ZazaConnectBridgeSummary {
   relationshipHintCount: number;
   influencerRelevantExportCount: number;
   topNotes: string[];
+}
+
+let inMemoryBridgeStore: ZazaConnectBridgeStore = zazaConnectBridgeStoreSchema.parse({
+  imports: [],
+  exports: [],
+  updatedAt: null,
+});
+
+function buildEmptyBridgeStore(): ZazaConnectBridgeStore {
+  return zazaConnectBridgeStoreSchema.parse({
+    imports: [],
+    exports: [],
+    updatedAt: null,
+  });
+}
+
+function isBlobBridgeStoreEnabled() {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 }
 
 function buildSeedImportedContexts(): ZazaConnectImportedContext[] {
@@ -251,25 +269,57 @@ function buildSeedImportedContexts(): ZazaConnectImportedContext[] {
 }
 
 async function readPersistedBridgeStore() {
+  if (!isBlobBridgeStoreEnabled()) {
+    return inMemoryBridgeStore;
+  }
+
   try {
-    const raw = await readFile(ZAZA_CONNECT_BRIDGE_STORE_PATH, "utf8");
-    return zazaConnectBridgeStoreSchema.parse(JSON.parse(raw));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return zazaConnectBridgeStoreSchema.parse({
-        imports: [],
-        exports: [],
-        updatedAt: null,
-      });
+    const blob = await get(ZAZA_CONNECT_BRIDGE_STORE_BLOB_PATHNAME, {
+      access: ZAZA_CONNECT_BRIDGE_BLOB_ACCESS,
+      useCache: false,
+    });
+
+    if (!blob || !blob.stream) {
+      return buildEmptyBridgeStore();
     }
 
-    throw error;
+    const raw = await new Response(blob.stream).text();
+    return zazaConnectBridgeStoreSchema.parse(JSON.parse(raw));
+  } catch (error) {
+    throw new Error(
+      `Unable to read Zaza Connect bridge store from Vercel Blob: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
+    );
   }
 }
 
-async function writeBridgeStore(store: z.infer<typeof zazaConnectBridgeStoreSchema>) {
-  await mkdir(path.dirname(ZAZA_CONNECT_BRIDGE_STORE_PATH), { recursive: true });
-  await writeFile(ZAZA_CONNECT_BRIDGE_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+async function writeBridgeStore(store: ZazaConnectBridgeStore) {
+  const parsed = zazaConnectBridgeStoreSchema.parse(store);
+
+  if (!isBlobBridgeStoreEnabled()) {
+    inMemoryBridgeStore = parsed;
+    return;
+  }
+
+  try {
+    await put(
+      ZAZA_CONNECT_BRIDGE_STORE_BLOB_PATHNAME,
+      `${JSON.stringify(parsed, null, 2)}\n`,
+      {
+        access: ZAZA_CONNECT_BRIDGE_BLOB_ACCESS,
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType: "application/json; charset=utf-8",
+      },
+    );
+  } catch (error) {
+    throw new Error(
+      `Unable to write Zaza Connect bridge store to Vercel Blob: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
+    );
+  }
 }
 
 function mergeImportedContexts(
