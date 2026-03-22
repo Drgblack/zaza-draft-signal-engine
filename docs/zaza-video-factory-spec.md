@@ -6,6 +6,52 @@
 **Zaza Technologies — Confidential Internal Build Document**  
 *Revision 3 — incorporates all reviewer feedback rounds*
 
+## Current Build Status — March 22 2026
+
+### Completed
+- Phase B: ContentOpportunity layer (Run 119)
+- Phase C Slice 1: VisualProvider abstraction + lifecycle state machine
+- Phase C Slice 2: Provider registry + cost estimate snapshots
+- Phase C UI: VideoFactoryReview component (v0, committed)
+- Phase C Slice 3-7: Run ledger, failure classification, quality checks,
+  export upgrade, runner separation (Codex Prompts 6-10, in progress)
+
+### In progress
+- Codex Prompts 6-10 running now
+
+### Not yet started
+- Phase C Slice 5: Real provider integration (ElevenLabs, Runway, AssemblyAI)
+- Phase C Slice 6: ffmpeg composition
+- Phase C Slice 8: Wire VideoFactoryReview to real API routes
+- Phase D onwards
+
+### Next Handoff After Prompts 6-10
+
+Once Codex completes Prompt 10, the next prompt should be the two pre-existing test errors that appeared in the type check today. Give Codex this before anything else in the next session:
+
+```text
+Use the spec at C:\Users\User\Projects\zaza-draft-signal-engine\docs\zaza-video-factory-spec.md 
+as the source of truth before changing anything.
+
+Fix two pre-existing TypeScript test errors before continuing Phase C work:
+
+1. tests/video-factory-quality-checks.test.ts line 147:
+   defaultsSnapshot.voiceProvider is typed as string but must be 
+   typed as the literal "elevenlabs". Add "as const" or change 
+   the test fixture to use the correct literal type.
+
+2. tests/video-factory-quality-checks.test.ts line 164:
+   placement is typed as string but must be 
+   "lower-third" | "center". Add "as const" or correct the 
+   test fixture value.
+
+Fix only these two test errors. Do not change any other files.
+
+Checks:
+- npx tsc --noEmit --pretty false
+- npm run lint
+```
+
 ---
 
 ## Table of Contents
