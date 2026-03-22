@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { selectAuthenticPhrasesForBrief } from "@/lib/authentic-language";
 import type { ContentOpportunity } from "@/lib/content-opportunities";
 import { evaluatePhaseBTrust } from "@/lib/phase-b-trust";
 import {
@@ -44,15 +45,19 @@ function normalizeSentence(value: string | null | undefined): string {
   return `${normalized.replace(/[.!?]+$/g, "")}.`;
 }
 
-function firstNonEmpty(...values: Array<string | null | undefined>): string {
-  for (const value of values) {
-    const normalized = normalizeText(value);
-    if (normalized) {
-      return normalized;
+function uniqueLines(lines: string[]): string[] {
+  const nextLines: string[] = [];
+
+  for (const line of lines) {
+    const normalized = normalizeText(line).toLowerCase();
+    if (!normalized || nextLines.some((existing) => normalizeText(existing).toLowerCase() === normalized)) {
+      continue;
     }
+
+    nextLines.push(line);
   }
 
-  return "";
+  return nextLines;
 }
 
 function narrationSpecId(videoBriefId: string): string {
@@ -93,55 +98,78 @@ function chooseNarrationPace(
   return "slow";
 }
 
-function safeLine(
-  line: string,
+function chooseSafeLine(
+  candidates: Array<string | null | undefined>,
   fallback: string,
   options?: {
     allowProductMention?: boolean;
   },
 ): string {
-  const normalized = normalizeSentence(line);
-  if (!normalized) {
-    return normalizeSentence(fallback);
+  for (const candidate of candidates) {
+    const normalized = normalizeSentence(candidate);
+    if (!normalized) {
+      continue;
+    }
+
+    if (evaluatePhaseBTrust(normalized, options).penalty < 24) {
+      return normalized;
+    }
   }
 
-  return evaluatePhaseBTrust(normalized, options).penalty < 24
-    ? normalized
-    : normalizeSentence(fallback);
+  return normalizeSentence(fallback);
 }
 
-function buildRecognitionLine(
+function buildBeatDrivenLines(
   opportunity: ContentOpportunity,
   brief: VideoBrief,
-): string {
-  return firstNonEmpty(
-    opportunity.teacherLanguage[0],
-    opportunity.primaryPainPoint,
-    brief.overlayLines[1],
-    brief.goal,
-  );
-}
+): string[] {
+  const authenticPhrases = selectAuthenticPhrasesForBrief(
+    opportunity,
+    brief,
+    brief.structure.length,
+  ).map((phrase) => phrase.text);
+  const lastBeatIndex = brief.structure.length - 1;
 
-function buildReliefLine(
-  opportunity: ContentOpportunity,
-  brief: VideoBrief,
-): string {
-  return firstNonEmpty(
-    brief.goal,
-    opportunity.recommendedAngle,
-    brief.overlayLines[2],
-    opportunity.whyNow,
-  );
-}
+  return uniqueLines(
+    brief.structure.map((beat, index) => {
+      if (index === 0) {
+        return chooseSafeLine(
+          [
+            brief.hook,
+            beat.suggestedOverlay,
+            brief.overlayLines[0],
+            beat.guidance,
+          ],
+          opportunity.primaryPainPoint,
+        );
+      }
 
-function buildNextStepLine(
-  opportunity: ContentOpportunity,
-  brief: VideoBrief,
-): string {
-  return firstNonEmpty(
-    opportunity.suggestedNextStep,
-    brief.overlayLines[brief.overlayLines.length - 1],
-    opportunity.whyNow,
+      const baseLine = chooseSafeLine(
+        [
+          beat.suggestedOverlay,
+          brief.overlayLines[index],
+          beat.guidance,
+          index < lastBeatIndex ? brief.goal : null,
+          authenticPhrases[index] ?? authenticPhrases[index - 1] ?? authenticPhrases[0],
+        ],
+        opportunity.primaryPainPoint,
+      );
+
+      if (index !== lastBeatIndex) {
+        return baseLine;
+      }
+
+      return chooseSafeLine(
+        [
+          `${normalizeText(baseLine)} ${brief.cta}`,
+          `${brief.overlayLines[brief.overlayLines.length - 1]} ${brief.cta}`,
+          `${beat.guidance} ${brief.cta}`,
+          brief.cta,
+        ],
+        brief.cta,
+        { allowProductMention: true },
+      );
+    }),
   );
 }
 
@@ -149,24 +177,7 @@ function buildNarrationScript(
   opportunity: ContentOpportunity,
   brief: VideoBrief,
 ): string {
-  const lines = [
-    safeLine(brief.hook, opportunity.primaryPainPoint),
-    safeLine(
-      buildRecognitionLine(opportunity, brief),
-      opportunity.primaryPainPoint,
-    ),
-    safeLine(
-      buildReliefLine(opportunity, brief),
-      opportunity.recommendedAngle,
-    ),
-    safeLine(
-      `${buildNextStepLine(opportunity, brief)} ${brief.cta}`,
-      `${opportunity.suggestedNextStep} ${brief.cta}`,
-      { allowProductMention: true },
-    ),
-  ];
-
-  return lines.join(" ");
+  return buildBeatDrivenLines(opportunity, brief).join(" ");
 }
 
 function buildPronunciationNotes(brief: VideoBrief): string[] | undefined {

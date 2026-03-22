@@ -49,6 +49,7 @@ import {
   type AssetReviewState,
   type RenderedAsset,
 } from "@/lib/rendered-assets";
+import { orchestrateCompiledVideoGeneration } from "@/lib/generation-orchestrator";
 import { productionDefaultsSnapshotEquals } from "@/lib/production-defaults";
 import {
   createRenderJob,
@@ -56,12 +57,9 @@ import {
   renderJobSchema,
   type RenderJob,
 } from "@/lib/render-jobs";
-import { assemblyAiCaptionProvider } from "@/lib/providers/caption-provider";
-import { ffmpegCompositionProvider } from "@/lib/providers/composition-provider";
-import { elevenLabsNarrationProvider } from "@/lib/providers/narration-provider";
-import { runwayVisualProvider } from "@/lib/providers/visual-provider";
 import {
   appendPerformanceSignals,
+  buildProductionOutcomeMetadata,
   buildAssetAcceptedPerformanceSignal,
   buildAssetDiscardedPerformanceSignal,
   buildAssetGeneratedPerformanceSignal,
@@ -75,7 +73,6 @@ import { buildRevenueSignalsFromInputs } from "@/lib/revenue-signals";
 import { buildRevenueSignalInsights } from "@/lib/revenue-signals";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
-import { compileVideoBriefForProduction } from "@/lib/prompt-compiler";
 import {
   buildVideoGenerationRequest,
   type VideoGenerationRequest,
@@ -840,39 +837,33 @@ function nextRenderVersion(input: {
   return `${CURRENT_RENDER_VERSION}:attempt-${Number(attemptMatch[1]) + 1}`;
 }
 
-function runCompiledMockProduction(input: {
-  compiledProductionPlan: ReturnType<typeof compileVideoBriefForProduction>;
-  createdAt: string;
+function buildPerformanceSignalMetadata(input: {
+  opportunity: ContentOpportunity;
+  videoBriefId: string | null;
+  provider?: string | null;
+  renderVersion?: string | null;
+  defaultsProfileId?: string | null;
+  voiceId?: string | null;
+  aspectRatio?: string | null;
+  resolution?: string | null;
+  trustStatus?: string | null;
+  trustAdjusted?: boolean | null;
+  extra?: Record<string, unknown>;
 }) {
-  const narration = elevenLabsNarrationProvider.generateNarration({
-    narrationSpec: input.compiledProductionPlan.narrationSpec,
-    createdAt: input.createdAt,
+  return buildProductionOutcomeMetadata({
+    angleId: input.opportunity.selectedAngleId,
+    hookId: input.opportunity.selectedHookId,
+    videoBriefId: input.videoBriefId,
+    renderVersion: input.renderVersion,
+    provider: input.provider,
+    defaultsProfileId: input.defaultsProfileId,
+    voiceId: input.voiceId,
+    aspectRatio: input.aspectRatio,
+    resolution: input.resolution,
+    trustStatus: input.trustStatus,
+    trustAdjusted: input.trustAdjusted,
+    extra: input.extra,
   });
-  const sceneAssets = input.compiledProductionPlan.scenePrompts.map((scenePrompt) =>
-    runwayVisualProvider.generateSceneAsset({
-      scenePrompt,
-      createdAt: input.createdAt,
-    })
-  );
-  const captionTrack = assemblyAiCaptionProvider.generateCaptionTrack({
-    captionSpec: input.compiledProductionPlan.captionSpec,
-    narration,
-    createdAt: input.createdAt,
-  });
-  const composedVideo = ffmpegCompositionProvider.composeVideo({
-    compositionSpec: input.compiledProductionPlan.compositionSpec,
-    narration,
-    sceneAssets,
-    captionTrack,
-    createdAt: input.createdAt,
-  });
-
-  return {
-    narration,
-    sceneAssets,
-    captionTrack,
-    composedVideo,
-  };
 }
 
 async function runContentOpportunityVideoGeneration(input: {
@@ -881,10 +872,6 @@ async function runContentOpportunityVideoGeneration(input: {
   isRegenerate: boolean;
 }) {
   const provider = input.provider ?? "mock";
-  if (provider !== "mock") {
-    throw new Error(`Render provider "${provider}" is not available yet.`);
-  }
-
   const timestamp = new Date().toISOString();
   const store = await readPersistedStore();
   const current = store.opportunities.find((item) => item.opportunityId === input.opportunityId);
@@ -907,11 +894,19 @@ async function runContentOpportunityVideoGeneration(input: {
     throw new Error("A prior render attempt must exist before regeneration can be used.");
   }
 
-  const compiledProductionPlan = compileVideoBriefForProduction({
+  const renderVersion = nextRenderVersion({
+    previousRenderVersion: currentGenerationState.renderJob?.renderVersion,
+    isRegenerate: input.isRegenerate,
+  });
+  const orchestration = orchestrateCompiledVideoGeneration({
     opportunity: normalizedCurrent,
     brief,
+    provider,
+    renderVersion,
+    createdAt: timestamp,
   });
-  const narrationSpec = compiledProductionPlan.narrationSpec;
+  const compiledProductionPlan = orchestration.compiledProductionPlan;
+  const narrationSpec = orchestration.narrationSpec;
   const videoPrompt = buildVideoPrompt(normalizedCurrent, brief);
   const generationRequestBase = buildVideoGenerationRequest({
     opportunity: normalizedCurrent,
@@ -925,37 +920,38 @@ async function runContentOpportunityVideoGeneration(input: {
     ...generationRequestBase,
     status: "completed" as const,
   };
-  const renderVersion = nextRenderVersion({
-    previousRenderVersion: currentGenerationState.renderJob?.renderVersion,
-    isRegenerate: input.isRegenerate,
-  });
-  const providerResults = runCompiledMockProduction({
-    compiledProductionPlan,
-    createdAt: timestamp,
-  });
   const renderJobBase = createRenderJob({
     generationRequestId: generationRequest.id,
-    provider,
-    renderVersion,
-    compiledProductionPlan,
-    productionDefaultsSnapshot: compiledProductionPlan.defaultsSnapshot,
+    provider: orchestration.renderJobInput.provider,
+    renderVersion: orchestration.renderJobInput.renderVersion,
+    compiledProductionPlan: orchestration.renderJobInput.compiledProductionPlan,
+    productionDefaultsSnapshot: orchestration.renderJobInput.productionDefaultsSnapshot,
   });
   const renderJob = {
     ...renderJobBase,
     status: "completed" as const,
-    providerJobId: providerResults.composedVideo.id,
-    submittedAt: timestamp,
-    completedAt: timestamp,
+    providerJobId: orchestration.renderJobInput.providerJobId,
+    submittedAt: orchestration.renderJobInput.submittedAt,
+    completedAt: orchestration.renderJobInput.completedAt,
   };
   const renderedAsset = createMockRenderedAsset({
     renderJobId: renderJob.id,
-    url: providerResults.composedVideo.videoUrl,
-    thumbnailUrl: providerResults.composedVideo.thumbnailUrl ?? null,
-    durationSec: providerResults.composedVideo.durationSec ?? brief.durationSec,
-    createdAt: providerResults.composedVideo.createdAt,
+    ...orchestration.renderedAssetInput,
   });
   const assetReview = createPendingAssetReview({
     renderedAssetId: renderedAsset.id,
+  });
+  const generationSignalMetadata = buildPerformanceSignalMetadata({
+    opportunity: normalizedCurrent,
+    videoBriefId: brief.id,
+    provider,
+    renderVersion,
+    defaultsProfileId: compiledProductionPlan.defaultsSnapshot.id,
+    voiceId: compiledProductionPlan.defaultsSnapshot.voiceId,
+    aspectRatio: compiledProductionPlan.defaultsSnapshot.aspectRatio,
+    resolution: compiledProductionPlan.defaultsSnapshot.resolution,
+    trustStatus: compiledProductionPlan.trustAssessment.status,
+    trustAdjusted: compiledProductionPlan.trustAssessment.adjusted,
   });
   const performanceSignals = appendPerformanceSignals(
     currentGenerationState.performanceSignals,
@@ -966,10 +962,7 @@ async function runContentOpportunityVideoGeneration(input: {
         renderedAssetId: renderedAsset.id,
         createdAt: timestamp,
         value: renderedAsset.durationSec ?? null,
-        metadata: {
-          provider,
-          renderVersion,
-        },
+        metadata: generationSignalMetadata,
       }),
       ...(input.isRegenerate
         ? [
@@ -978,10 +971,7 @@ async function runContentOpportunityVideoGeneration(input: {
               videoBriefId: brief.id,
               renderedAssetId: renderedAsset.id,
               createdAt: timestamp,
-              metadata: {
-                provider,
-                renderVersion,
-              },
+              metadata: generationSignalMetadata,
             }),
           ]
         : []),
@@ -1039,14 +1029,14 @@ async function runContentOpportunityVideoGeneration(input: {
         renderVersion,
         renderJobId: renderJob.id,
         renderedAssetId: renderedAsset.id,
-        narrationProvider: providerResults.narration.provider,
-        narrationId: providerResults.narration.id,
-        visualProvider: runwayVisualProvider.provider,
-        sceneAssetCount: providerResults.sceneAssets.length,
-        captionProvider: providerResults.captionTrack.provider,
-        captionTrackId: providerResults.captionTrack.id,
-        compositionProvider: providerResults.composedVideo.provider,
-        composedVideoId: providerResults.composedVideo.id,
+        narrationProvider: orchestration.providerResults.narration.provider,
+        narrationId: orchestration.providerResults.narration.id,
+        visualProvider: orchestration.providerResults.sceneAssets[0]?.provider ?? "runway",
+        sceneAssetCount: orchestration.providerResults.sceneAssets.length,
+        captionProvider: orchestration.providerResults.captionTrack.provider,
+        captionTrackId: orchestration.providerResults.captionTrack.id,
+        compositionProvider: orchestration.providerResults.composedVideo.provider,
+        composedVideoId: orchestration.providerResults.composedVideo.id,
       },
     },
   ]);
@@ -1492,9 +1482,13 @@ export async function approveContentOpportunityVideoBriefForGeneration(
           opportunityId: normalizedCurrent.opportunityId,
           videoBriefId: brief.id,
           createdAt: timestamp,
-          metadata: {
-            approvedBy,
-          },
+          metadata: buildPerformanceSignalMetadata({
+            opportunity: normalizedCurrent,
+            videoBriefId: brief.id,
+            extra: {
+              approvedBy,
+            },
+          }),
         }),
       ]),
     },
@@ -1567,6 +1561,13 @@ export async function reviewContentOpportunityRenderedAsset(input: {
   const nextRejectionReason =
     input.status === "rejected" ? normalizeText(input.rejectionReason) : null;
   const videoBriefId = normalizedCurrent.selectedVideoBrief?.id ?? null;
+  const currentDefaultsSnapshot =
+    normalizedCurrent.generationState.renderJob?.productionDefaultsSnapshot ??
+    normalizedCurrent.generationState.renderJob?.compiledProductionPlan?.defaultsSnapshot ??
+    null;
+  const currentTrustAssessment =
+    normalizedCurrent.generationState.renderJob?.compiledProductionPlan?.trustAssessment ??
+    null;
   const performanceSignal =
     input.status === "accepted"
       ? buildAssetAcceptedPerformanceSignal({
@@ -1574,19 +1575,43 @@ export async function reviewContentOpportunityRenderedAsset(input: {
           videoBriefId,
           renderedAssetId: normalizedCurrent.generationState.renderedAsset.id,
           createdAt: timestamp,
-          metadata: {
+          metadata: buildPerformanceSignalMetadata({
+            opportunity: normalizedCurrent,
+            videoBriefId,
+            provider: normalizedCurrent.generationState.renderJob?.provider ?? null,
+            renderVersion: normalizedCurrent.generationState.renderJob?.renderVersion ?? null,
+            defaultsProfileId: currentDefaultsSnapshot?.id ?? null,
+            voiceId: currentDefaultsSnapshot?.voiceId ?? null,
+            aspectRatio: currentDefaultsSnapshot?.aspectRatio ?? null,
+            resolution: currentDefaultsSnapshot?.resolution ?? null,
+            trustStatus: currentTrustAssessment?.status ?? null,
+            trustAdjusted: currentTrustAssessment?.adjusted ?? null,
+            extra: {
             hasReviewNotes: Boolean(nextReviewNotes),
-          },
+            },
+          }),
         })
       : buildAssetRejectedPerformanceSignal({
           opportunityId: normalizedCurrent.opportunityId,
           videoBriefId,
           renderedAssetId: normalizedCurrent.generationState.renderedAsset.id,
           createdAt: timestamp,
-          metadata: {
+          metadata: buildPerformanceSignalMetadata({
+            opportunity: normalizedCurrent,
+            videoBriefId,
+            provider: normalizedCurrent.generationState.renderJob?.provider ?? null,
+            renderVersion: normalizedCurrent.generationState.renderJob?.renderVersion ?? null,
+            defaultsProfileId: currentDefaultsSnapshot?.id ?? null,
+            voiceId: currentDefaultsSnapshot?.voiceId ?? null,
+            aspectRatio: currentDefaultsSnapshot?.aspectRatio ?? null,
+            resolution: currentDefaultsSnapshot?.resolution ?? null,
+            trustStatus: currentTrustAssessment?.status ?? null,
+            trustAdjusted: currentTrustAssessment?.adjusted ?? null,
+            extra: {
             hasReviewNotes: Boolean(nextReviewNotes),
             hasRejectionReason: Boolean(nextRejectionReason),
-          },
+            },
+          }),
         });
   const state = await updateOpportunity(input.opportunityId, (opportunity) => ({
     ...opportunity,
@@ -1653,9 +1678,37 @@ export async function discardContentOpportunityRenderedAsset(
     videoBriefId: normalizedCurrent.selectedVideoBrief?.id ?? null,
     renderedAssetId: renderedAsset.id,
     createdAt: timestamp,
-    metadata: {
-      renderJobId: normalizedCurrent.generationState?.renderJob?.id ?? null,
-    },
+    metadata: buildPerformanceSignalMetadata({
+      opportunity: normalizedCurrent,
+      videoBriefId: normalizedCurrent.selectedVideoBrief?.id ?? null,
+      provider: normalizedCurrent.generationState?.renderJob?.provider ?? null,
+      renderVersion: normalizedCurrent.generationState?.renderJob?.renderVersion ?? null,
+      defaultsProfileId:
+        normalizedCurrent.generationState?.renderJob?.productionDefaultsSnapshot?.id ??
+        normalizedCurrent.generationState?.renderJob?.compiledProductionPlan?.defaultsSnapshot.id ??
+        null,
+      voiceId:
+        normalizedCurrent.generationState?.renderJob?.productionDefaultsSnapshot?.voiceId ??
+        normalizedCurrent.generationState?.renderJob?.compiledProductionPlan?.defaultsSnapshot.voiceId ??
+        null,
+      aspectRatio:
+        normalizedCurrent.generationState?.renderJob?.productionDefaultsSnapshot?.aspectRatio ??
+        normalizedCurrent.generationState?.renderJob?.compiledProductionPlan?.defaultsSnapshot.aspectRatio ??
+        null,
+      resolution:
+        normalizedCurrent.generationState?.renderJob?.productionDefaultsSnapshot?.resolution ??
+        normalizedCurrent.generationState?.renderJob?.compiledProductionPlan?.defaultsSnapshot.resolution ??
+        null,
+      trustStatus:
+        normalizedCurrent.generationState?.renderJob?.compiledProductionPlan?.trustAssessment.status ??
+        null,
+      trustAdjusted:
+        normalizedCurrent.generationState?.renderJob?.compiledProductionPlan?.trustAssessment.adjusted ??
+        null,
+      extra: {
+        renderJobId: normalizedCurrent.generationState?.renderJob?.id ?? null,
+      },
+    }),
   });
 
   const state = await updateOpportunity(opportunityId, (opportunity) => ({

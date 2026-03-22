@@ -22,6 +22,43 @@ export const performanceSignalSchema = z.object({
 
 export type PerformanceSignal = z.infer<typeof performanceSignalSchema>;
 
+export function buildProductionOutcomeMetadata(input: {
+  angleId?: string | null;
+  hookId?: string | null;
+  videoBriefId?: string | null;
+  renderVersion?: string | null;
+  provider?: string | null;
+  defaultsProfileId?: string | null;
+  voiceId?: string | null;
+  aspectRatio?: string | null;
+  resolution?: string | null;
+  trustStatus?: string | null;
+  trustAdjusted?: boolean | null;
+  extra?: Record<string, unknown>;
+}): Record<string, unknown> | undefined {
+  const metadataEntries = Object.entries({
+    angleId: input.angleId ?? null,
+    hookId: input.hookId ?? null,
+    videoBriefId: input.videoBriefId ?? null,
+    renderVersion: input.renderVersion ?? null,
+    provider: input.provider ?? null,
+    defaultsProfileId: input.defaultsProfileId ?? null,
+    voiceId: input.voiceId ?? null,
+    aspectRatio: input.aspectRatio ?? null,
+    resolution: input.resolution ?? null,
+    trustStatus: input.trustStatus ?? null,
+    trustAdjusted:
+      input.trustAdjusted === null || input.trustAdjusted === undefined
+        ? null
+        : input.trustAdjusted,
+    ...(input.extra ?? {}),
+  }).filter(([, value]) => value !== null && value !== undefined);
+
+  return metadataEntries.length > 0
+    ? Object.fromEntries(metadataEntries)
+    : undefined;
+}
+
 function performanceSignalId(input: {
   opportunityId: string;
   eventType: PerformanceSignal["eventType"];
