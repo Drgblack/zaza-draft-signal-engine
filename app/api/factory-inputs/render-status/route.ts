@@ -13,7 +13,11 @@ function buildDerivedStatus(
   const briefApproved = Boolean(
     generationState.videoBriefApprovedAt && generationState.videoBriefApprovedBy,
   );
-  const generationStarted = Boolean(generationState.generationRequest);
+  const factoryLifecycleStatus = generationState.factoryLifecycle?.status ?? null;
+  const generationStarted = Boolean(
+    generationState.factoryLifecycle ||
+      generationState.generationRequest,
+  );
   const renderJobStatus = generationState.renderJob?.status ?? null;
   const renderCompleted = renderJobStatus === "completed";
   const assetReviewStatus = generationState.assetReview?.status ?? null;
@@ -36,6 +40,25 @@ function buildDerivedStatus(
             ? "discarded"
           : assetReviewStatus === "pending_review"
             ? "pending_review"
+            : factoryLifecycleStatus === "failed"
+              ? "failed"
+            : factoryLifecycleStatus === "queued"
+              ? "queued"
+            : factoryLifecycleStatus === "preparing" ||
+                factoryLifecycleStatus === "generating_narration" ||
+                factoryLifecycleStatus === "generating_visuals" ||
+                factoryLifecycleStatus === "generating_captions" ||
+                factoryLifecycleStatus === "composing"
+              ? "rendering"
+            : factoryLifecycleStatus === "generated" ||
+                factoryLifecycleStatus === "review_pending"
+              ? "pending_review"
+            : factoryLifecycleStatus === "accepted"
+              ? "accepted"
+            : factoryLifecycleStatus === "rejected"
+              ? "rejected"
+            : factoryLifecycleStatus === "discarded"
+              ? "discarded"
             : renderJobStatus === "failed"
               ? "failed"
               : renderJobStatus === "queued"

@@ -91,6 +91,13 @@ import {
 import { buildWeeklyRecap } from "@/lib/weekly-recap";
 import { buildWeeklyPostingPack } from "@/lib/weekly-posting-pack";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
+import {
+  createDraftVideoFactoryLifecycle,
+  transitionVideoFactoryLifecycle,
+  videoFactoryLifecycleSchema,
+  type VideoFactoryLifecycle,
+  type VideoFactoryStatus,
+} from "@/lib/video-factory-state";
 import type { PostingPlatform } from "@/lib/posting-memory";
 
 const CONTENT_OPPORTUNITY_STORE_PATH = path.join(process.cwd(), "data", "content-opportunities.json");
@@ -142,6 +149,7 @@ export interface ContentOpportunityMemoryContext {
 export interface ContentOpportunityGenerationState {
   videoBriefApprovedAt: string | null;
   videoBriefApprovedBy: string | null;
+  factoryLifecycle: VideoFactoryLifecycle | null;
   narrationSpec: NarrationSpec | null;
   videoPrompt: VideoPrompt | null;
   generationRequest: VideoGenerationRequest | null;
@@ -212,6 +220,7 @@ const contentOpportunityMemoryContextSchema = z.object({
 export const contentOpportunityGenerationStateSchema = z.object({
   videoBriefApprovedAt: z.string().trim().nullable().default(null),
   videoBriefApprovedBy: z.string().trim().nullable().default(null),
+  factoryLifecycle: videoFactoryLifecycleSchema.nullable().default(null),
   narrationSpec: narrationSpecSchema.nullable().default(null),
   videoPrompt: videoPromptSchema.nullable().default(null),
   generationRequest: videoGenerationRequestSchema.nullable().default(null),
@@ -648,6 +657,7 @@ function normalizeGenerationState(
       Boolean(normalizedState.videoBriefApprovedAt) !==
       Boolean(normalizedState.videoBriefApprovedBy);
     const hasGenerationArtifacts = Boolean(
+      normalizedState.factoryLifecycle ||
       normalizedState.narrationSpec ||
       normalizedState.videoPrompt ||
       normalizedState.generationRequest ||
@@ -662,6 +672,13 @@ function normalizeGenerationState(
     }
 
     if (!hasBriefApproval && !hasGenerationArtifacts) {
+      return null;
+    }
+
+    if (
+      normalizedState.factoryLifecycle &&
+      normalizedState.factoryLifecycle.videoBriefId !== approvedBrief.id
+    ) {
       return null;
     }
 
@@ -738,6 +755,38 @@ function normalizeGenerationState(
     }
 
     if (
+      normalizedState.factoryLifecycle &&
+      normalizedState.factoryLifecycle.status === "review_pending" &&
+      normalizedState.assetReview?.status !== "pending_review"
+    ) {
+      return null;
+    }
+
+    if (
+      normalizedState.factoryLifecycle &&
+      normalizedState.factoryLifecycle.status === "accepted" &&
+      normalizedState.assetReview?.status !== "accepted"
+    ) {
+      return null;
+    }
+
+    if (
+      normalizedState.factoryLifecycle &&
+      normalizedState.factoryLifecycle.status === "rejected" &&
+      normalizedState.assetReview?.status !== "rejected"
+    ) {
+      return null;
+    }
+
+    if (
+      normalizedState.factoryLifecycle &&
+      normalizedState.factoryLifecycle.status === "discarded" &&
+      normalizedState.assetReview?.status !== "discarded"
+    ) {
+      return null;
+    }
+
+    if (
       normalizedState.assetReview &&
       (!normalizedState.renderedAsset ||
         normalizedState.assetReview.renderedAssetId !== normalizedState.renderedAsset.id)
@@ -780,6 +829,7 @@ function getGenerationContext(
     generationState.videoBriefApprovedAt && generationState.videoBriefApprovedBy,
   );
   const generationStarted = Boolean(
+    generationState.factoryLifecycle ||
     generationState.generationRequest ||
     generationState.renderJob ||
     generationState.renderedAsset ||
@@ -866,6 +916,31 @@ function buildPerformanceSignalMetadata(input: {
   });
 }
 
+function buildFactoryLifecycleForQueuedAttempt(input: {
+  currentLifecycle: VideoFactoryLifecycle | null;
+  brief: VideoBrief;
+  approvedAt: string | null;
+  provider: RenderProvider;
+  renderVersion: string;
+  timestamp: string;
+}) {
+  const baseLifecycle =
+    input.currentLifecycle &&
+    input.currentLifecycle.videoBriefId === input.brief.id &&
+    input.currentLifecycle.status === "draft"
+      ? input.currentLifecycle
+      : createDraftVideoFactoryLifecycle({
+          videoBriefId: input.brief.id,
+          createdAt: input.approvedAt ?? input.timestamp,
+        });
+
+  return transitionVideoFactoryLifecycle(baseLifecycle, "queued", {
+    timestamp: input.timestamp,
+    provider: input.provider,
+    renderVersion: input.renderVersion,
+  });
+}
+
 async function runContentOpportunityVideoGeneration(input: {
   opportunityId: string;
   provider?: RenderProvider;
@@ -898,150 +973,204 @@ async function runContentOpportunityVideoGeneration(input: {
     previousRenderVersion: currentGenerationState.renderJob?.renderVersion,
     isRegenerate: input.isRegenerate,
   });
-  const orchestration = orchestrateCompiledVideoGeneration({
-    opportunity: normalizedCurrent,
+  let factoryLifecycle = buildFactoryLifecycleForQueuedAttempt({
+    currentLifecycle: currentGenerationState.factoryLifecycle,
     brief,
+    approvedAt,
     provider,
     renderVersion,
-    createdAt: timestamp,
+    timestamp,
   });
-  const compiledProductionPlan = orchestration.compiledProductionPlan;
-  const narrationSpec = orchestration.narrationSpec;
-  const videoPrompt = buildVideoPrompt(normalizedCurrent, brief);
-  const generationRequestBase = buildVideoGenerationRequest({
-    opportunity: normalizedCurrent,
-    brief,
-    narrationSpec,
-    videoPrompt,
-    approvedAt: approvedAt!,
-    approvedBy: approvedBy!,
-  });
-  const generationRequest = {
-    ...generationRequestBase,
-    status: "completed" as const,
-  };
-  const renderJobBase = createRenderJob({
-    generationRequestId: generationRequest.id,
-    provider: orchestration.renderJobInput.provider,
-    renderVersion: orchestration.renderJobInput.renderVersion,
-    compiledProductionPlan: orchestration.renderJobInput.compiledProductionPlan,
-    productionDefaultsSnapshot: orchestration.renderJobInput.productionDefaultsSnapshot,
-  });
-  const renderJob = {
-    ...renderJobBase,
-    status: "completed" as const,
-    providerJobId: orchestration.renderJobInput.providerJobId,
-    submittedAt: orchestration.renderJobInput.submittedAt,
-    completedAt: orchestration.renderJobInput.completedAt,
-  };
-  const renderedAsset = createMockRenderedAsset({
-    renderJobId: renderJob.id,
-    ...orchestration.renderedAssetInput,
-  });
-  const assetReview = createPendingAssetReview({
-    renderedAssetId: renderedAsset.id,
-  });
-  const generationSignalMetadata = buildPerformanceSignalMetadata({
-    opportunity: normalizedCurrent,
-    videoBriefId: brief.id,
-    provider,
-    renderVersion,
-    defaultsProfileId: compiledProductionPlan.defaultsSnapshot.id,
-    voiceId: compiledProductionPlan.defaultsSnapshot.voiceId,
-    aspectRatio: compiledProductionPlan.defaultsSnapshot.aspectRatio,
-    resolution: compiledProductionPlan.defaultsSnapshot.resolution,
-    trustStatus: compiledProductionPlan.trustAssessment.status,
-    trustAdjusted: compiledProductionPlan.trustAssessment.adjusted,
-  });
-  const performanceSignals = appendPerformanceSignals(
-    currentGenerationState.performanceSignals,
-    [
-      buildAssetGeneratedPerformanceSignal({
-        opportunityId: normalizedCurrent.opportunityId,
-        videoBriefId: brief.id,
-        renderedAssetId: renderedAsset.id,
-        createdAt: timestamp,
-        value: renderedAsset.durationSec ?? null,
-        metadata: generationSignalMetadata,
-      }),
-      ...(input.isRegenerate
-        ? [
-            buildAssetRegeneratedPerformanceSignal({
-              opportunityId: normalizedCurrent.opportunityId,
-              videoBriefId: brief.id,
-              renderedAssetId: renderedAsset.id,
-              createdAt: timestamp,
-              metadata: generationSignalMetadata,
-            }),
-          ]
-        : []),
-    ],
-  );
+  let currentStage: VideoFactoryStatus = "queued";
 
-  const nextGenerationState = contentOpportunityGenerationStateSchema.parse({
-    videoBriefApprovedAt: approvedAt,
-    videoBriefApprovedBy: approvedBy,
-    narrationSpec,
-    videoPrompt,
-    generationRequest,
-    renderJob,
-    renderedAsset,
-    assetReview,
-    performanceSignals,
-  });
-
-  const state = await updateOpportunity(input.opportunityId, (opportunity) => ({
-    ...opportunity,
-    generationState: nextGenerationState,
-    updatedAt: timestamp,
-  }));
-  const actionEventType = input.isRegenerate
-    ? ("CONTENT_OPPORTUNITY_VIDEO_REGENERATED" as const)
-    : ("CONTENT_OPPORTUNITY_VIDEO_GENERATION_STARTED" as const);
-  const actionSummary = input.isRegenerate
-    ? `Regenerated video for content opportunity "${current.title}".`
-    : `Started mock video generation for content opportunity "${current.title}".`;
-
-  await appendAuditEventsSafe([
-    {
-      signalId: current.signalId,
-      eventType: actionEventType,
-      actor: "operator",
-      summary: actionSummary,
-      metadata: {
-        provider,
-        renderVersion,
-        generationRequestId: generationRequest.id,
-        compiledProductionPlanId: compiledProductionPlan.id,
-        narrationSpecId: compiledProductionPlan.narrationSpec.id,
-        scenePromptCount: compiledProductionPlan.scenePrompts.length,
-        captionSpecId: compiledProductionPlan.captionSpec.id,
-        compositionSpecId: compiledProductionPlan.compositionSpec.id,
+  try {
+    const orchestration = orchestrateCompiledVideoGeneration({
+      opportunity: normalizedCurrent,
+      brief,
+      provider,
+      renderVersion,
+      createdAt: timestamp,
+      onStageChange: (status) => {
+        currentStage = status;
+        factoryLifecycle = transitionVideoFactoryLifecycle(factoryLifecycle, status, {
+          timestamp: new Date().toISOString(),
+          provider,
+          renderVersion,
+        });
       },
-    },
-    {
-      signalId: current.signalId,
-      eventType: "CONTENT_OPPORTUNITY_RENDER_COMPLETED" as const,
-      actor: "operator",
-      summary: `Completed mock render for content opportunity "${current.title}".`,
-      metadata: {
-        provider,
-        renderVersion,
-        renderJobId: renderJob.id,
-        renderedAssetId: renderedAsset.id,
-        narrationProvider: orchestration.providerResults.narration.provider,
-        narrationId: orchestration.providerResults.narration.id,
-        visualProvider: orchestration.providerResults.sceneAssets[0]?.provider ?? "runway",
-        sceneAssetCount: orchestration.providerResults.sceneAssets.length,
-        captionProvider: orchestration.providerResults.captionTrack.provider,
-        captionTrackId: orchestration.providerResults.captionTrack.id,
-        compositionProvider: orchestration.providerResults.composedVideo.provider,
-        composedVideoId: orchestration.providerResults.composedVideo.id,
+    });
+    const compiledProductionPlan = orchestration.compiledProductionPlan;
+    const narrationSpec = orchestration.narrationSpec;
+    const videoPrompt = buildVideoPrompt(normalizedCurrent, brief);
+    const generationRequestBase = buildVideoGenerationRequest({
+      opportunity: normalizedCurrent,
+      brief,
+      narrationSpec,
+      videoPrompt,
+      approvedAt: approvedAt!,
+      approvedBy: approvedBy!,
+    });
+    const generationRequest = {
+      ...generationRequestBase,
+      status: "completed" as const,
+    };
+    const renderJobBase = createRenderJob({
+      generationRequestId: generationRequest.id,
+      provider: orchestration.renderJobInput.provider,
+      renderVersion: orchestration.renderJobInput.renderVersion,
+      compiledProductionPlan: orchestration.renderJobInput.compiledProductionPlan,
+      productionDefaultsSnapshot: orchestration.renderJobInput.productionDefaultsSnapshot,
+    });
+    const renderJob = {
+      ...renderJobBase,
+      status: "completed" as const,
+      providerJobId: orchestration.renderJobInput.providerJobId,
+      submittedAt: orchestration.renderJobInput.submittedAt,
+      completedAt: orchestration.renderJobInput.completedAt,
+    };
+    const renderedAsset = createMockRenderedAsset({
+      renderJobId: renderJob.id,
+      ...orchestration.renderedAssetInput,
+    });
+    const assetReview = createPendingAssetReview({
+      renderedAssetId: renderedAsset.id,
+    });
+    factoryLifecycle = transitionVideoFactoryLifecycle(factoryLifecycle, "review_pending", {
+      timestamp: new Date().toISOString(),
+      provider,
+      renderVersion,
+    });
+    const generationSignalMetadata = buildPerformanceSignalMetadata({
+      opportunity: normalizedCurrent,
+      videoBriefId: brief.id,
+      provider,
+      renderVersion,
+      defaultsProfileId: compiledProductionPlan.defaultsSnapshot.id,
+      voiceId: compiledProductionPlan.defaultsSnapshot.voiceId,
+      aspectRatio: compiledProductionPlan.defaultsSnapshot.aspectRatio,
+      resolution: compiledProductionPlan.defaultsSnapshot.resolution,
+      trustStatus: compiledProductionPlan.trustAssessment.status,
+      trustAdjusted: compiledProductionPlan.trustAssessment.adjusted,
+      extra: {
+        factoryLifecycleStatus: factoryLifecycle.status,
       },
-    },
-  ]);
+    });
+    const performanceSignals = appendPerformanceSignals(
+      currentGenerationState.performanceSignals,
+      [
+        buildAssetGeneratedPerformanceSignal({
+          opportunityId: normalizedCurrent.opportunityId,
+          videoBriefId: brief.id,
+          renderedAssetId: renderedAsset.id,
+          createdAt: timestamp,
+          value: renderedAsset.durationSec ?? null,
+          metadata: generationSignalMetadata,
+        }),
+        ...(input.isRegenerate
+          ? [
+              buildAssetRegeneratedPerformanceSignal({
+                opportunityId: normalizedCurrent.opportunityId,
+                videoBriefId: brief.id,
+                renderedAssetId: renderedAsset.id,
+                createdAt: timestamp,
+                metadata: generationSignalMetadata,
+              }),
+            ]
+          : []),
+      ],
+    );
 
-  return state;
+    const nextGenerationState = contentOpportunityGenerationStateSchema.parse({
+      videoBriefApprovedAt: approvedAt,
+      videoBriefApprovedBy: approvedBy,
+      factoryLifecycle,
+      narrationSpec,
+      videoPrompt,
+      generationRequest,
+      renderJob,
+      renderedAsset,
+      assetReview,
+      performanceSignals,
+    });
+
+    const state = await updateOpportunity(input.opportunityId, (opportunity) => ({
+      ...opportunity,
+      generationState: nextGenerationState,
+      updatedAt: timestamp,
+    }));
+    const actionEventType = input.isRegenerate
+      ? ("CONTENT_OPPORTUNITY_VIDEO_REGENERATED" as const)
+      : ("CONTENT_OPPORTUNITY_VIDEO_GENERATION_STARTED" as const);
+    const actionSummary = input.isRegenerate
+      ? `Regenerated video for content opportunity "${current.title}".`
+      : `Started mock video generation for content opportunity "${current.title}".`;
+
+    await appendAuditEventsSafe([
+      {
+        signalId: current.signalId,
+        eventType: actionEventType,
+        actor: "operator",
+        summary: actionSummary,
+        metadata: {
+          provider,
+          renderVersion,
+          generationRequestId: generationRequest.id,
+          compiledProductionPlanId: compiledProductionPlan.id,
+          narrationSpecId: compiledProductionPlan.narrationSpec.id,
+          scenePromptCount: compiledProductionPlan.scenePrompts.length,
+          captionSpecId: compiledProductionPlan.captionSpec.id,
+          compositionSpecId: compiledProductionPlan.compositionSpec.id,
+          factoryJobId: factoryLifecycle.factoryJobId,
+          factoryLifecycleStatus: factoryLifecycle.status,
+        },
+      },
+      {
+        signalId: current.signalId,
+        eventType: "CONTENT_OPPORTUNITY_RENDER_COMPLETED" as const,
+        actor: "operator",
+        summary: `Completed mock render for content opportunity "${current.title}".`,
+        metadata: {
+          provider,
+          renderVersion,
+          renderJobId: renderJob.id,
+          renderedAssetId: renderedAsset.id,
+          narrationProvider: orchestration.providerResults.narration.provider,
+          narrationId: orchestration.providerResults.narration.id,
+          visualProvider: orchestration.providerResults.sceneAssets[0]?.provider ?? "runway-gen4",
+          sceneAssetCount: orchestration.providerResults.sceneAssets.length,
+          captionProvider: orchestration.providerResults.captionTrack.provider,
+          captionTrackId: orchestration.providerResults.captionTrack.id,
+          compositionProvider: orchestration.providerResults.composedVideo.provider,
+          composedVideoId: orchestration.providerResults.composedVideo.id,
+          factoryJobId: factoryLifecycle.factoryJobId,
+          factoryLifecycleStatus: factoryLifecycle.status,
+        },
+      },
+    ]);
+
+    return state;
+  } catch (error) {
+    const failedLifecycle = transitionVideoFactoryLifecycle(factoryLifecycle, "failed", {
+      timestamp: new Date().toISOString(),
+      provider,
+      renderVersion,
+      failureStage: currentStage,
+      failureMessage: error instanceof Error ? error.message : "Video generation failed.",
+    });
+
+    await updateOpportunity(input.opportunityId, (opportunity) => ({
+      ...opportunity,
+      generationState: {
+        ...contentOpportunityGenerationStateSchema.parse(opportunity.generationState ?? {}),
+        videoBriefApprovedAt: approvedAt,
+        videoBriefApprovedBy: approvedBy,
+        factoryLifecycle: failedLifecycle,
+      },
+      updatedAt: new Date().toISOString(),
+    }));
+
+    throw error;
+  }
 }
 
 function normalizePersistedOpportunity(opportunity: ContentOpportunity): ContentOpportunity {
@@ -1477,6 +1606,10 @@ export async function approveContentOpportunityVideoBriefForGeneration(
       ...currentGenerationState,
       videoBriefApprovedAt: timestamp,
       videoBriefApprovedBy: approvedBy,
+      factoryLifecycle: createDraftVideoFactoryLifecycle({
+        videoBriefId: brief.id,
+        createdAt: timestamp,
+      }),
       performanceSignals: appendPerformanceSignals(currentGenerationState.performanceSignals, [
         buildBriefApprovedPerformanceSignal({
           opportunityId: normalizedCurrent.opportunityId,
@@ -1617,6 +1750,17 @@ export async function reviewContentOpportunityRenderedAsset(input: {
     ...opportunity,
     generationState: {
       ...contentOpportunityGenerationStateSchema.parse(opportunity.generationState ?? {}),
+      factoryLifecycle: normalizedCurrent.generationState?.factoryLifecycle
+        ? transitionVideoFactoryLifecycle(
+            normalizedCurrent.generationState.factoryLifecycle,
+            input.status,
+            {
+              timestamp,
+              provider: normalizedCurrent.generationState.renderJob?.provider ?? null,
+              renderVersion: normalizedCurrent.generationState.renderJob?.renderVersion ?? null,
+            },
+          )
+        : null,
       assetReview: {
         ...normalizedCurrent.generationState!.assetReview!,
         status: input.status,
@@ -1715,6 +1859,17 @@ export async function discardContentOpportunityRenderedAsset(
     ...opportunity,
     generationState: {
       ...contentOpportunityGenerationStateSchema.parse(opportunity.generationState ?? {}),
+      factoryLifecycle: normalizedCurrent.generationState?.factoryLifecycle
+        ? transitionVideoFactoryLifecycle(
+            normalizedCurrent.generationState.factoryLifecycle,
+            "discarded",
+            {
+              timestamp,
+              provider: normalizedCurrent.generationState?.renderJob?.provider ?? null,
+              renderVersion: normalizedCurrent.generationState?.renderJob?.renderVersion ?? null,
+            },
+          )
+        : null,
       assetReview: {
         ...nextAssetReview,
         status: "discarded" as const,

@@ -94,7 +94,7 @@ const DEFAULT_PRODUCTION_DEFAULTS = productionDefaultsSchema.parse({
   },
   providerFallbacks: {
     narration: ["elevenlabs"],
-    visuals: ["local-default"],
+    visuals: ["runway-gen4", "kling-2"],
     captions: ["local-default"],
     composition: ["local-default"],
   },

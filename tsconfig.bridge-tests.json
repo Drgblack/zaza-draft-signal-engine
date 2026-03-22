@@ -11,9 +11,13 @@
     "lib/bridge-opportunities.ts",
     "lib/connect-bridge-fallback-quality.ts",
     "lib/connect-bridge-fallbacks.ts",
+    "lib/providers/visual-provider.ts",
+    "lib/video-factory-state.ts",
     "lib/store-sanitizer.ts",
     "lib/zaza-connect-bridge-config.ts",
     "tests/connect-bridge-fallback-quality.test.ts",
+    "tests/visual-provider.test.ts",
+    "tests/video-factory-state.test.ts",
     "tests/store-sanitizer.test.ts",
     "tests/zaza-connect-bridge-opportunities.test.ts"
   ]
