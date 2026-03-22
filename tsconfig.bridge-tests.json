@@ -9,7 +9,10 @@
   },
   "include": [
     "lib/bridge-opportunities.ts",
+    "lib/connect-bridge-fallback-quality.ts",
+    "lib/connect-bridge-fallbacks.ts",
     "lib/zaza-connect-bridge-config.ts",
+    "tests/connect-bridge-fallback-quality.test.ts",
     "tests/zaza-connect-bridge-opportunities.test.ts"
   ]
 }

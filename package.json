@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
-    "test:bridge": "node -e \"require('fs').rmSync('.test-dist',{ recursive: true, force: true })\" && npx tsc -p tsconfig.bridge-tests.json && node --test .test-dist/tests/zaza-connect-bridge-opportunities.test.js && node -e \"require('fs').rmSync('.test-dist',{ recursive: true, force: true })\""
+    "test:bridge": "node -e \"require('fs').rmSync('.test-dist',{ recursive: true, force: true })\" && npx tsc -p tsconfig.bridge-tests.json && node -e \"const { readdirSync } = require('fs'); const { execFileSync } = require('child_process'); const files = readdirSync('.test-dist/tests').filter((file) => file.endsWith('.test.js')).map((file) => `.test-dist/tests/${file}`); execFileSync(process.execPath, ['--test', ...files], { stdio: 'inherit' });\" && node -e \"require('fs').rmSync('.test-dist',{ recursive: true, force: true })\""
   },
   "dependencies": {
     "@vercel/blob": "^2.3.1",

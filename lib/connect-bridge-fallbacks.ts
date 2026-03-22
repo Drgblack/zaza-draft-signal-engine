@@ -4,6 +4,12 @@ import {
   getSignalContentContextSummary,
   type CampaignStrategy,
 } from "./campaigns";
+import {
+  firstSpecificBridgeValue,
+  getBridgeDiversityPenalty,
+  isBridgeBoilerplate,
+  normalizeBridgeText,
+} from "./connect-bridge-fallback-quality";
 import type { BridgeFallbackCandidateInput } from "./zaza-connect-bridge";
 
 const GENERIC_SUPPORT_REASONS = new Set([
@@ -13,8 +19,7 @@ const GENERIC_SUPPORT_REASONS = new Set([
 ]);
 
 function normalizeText(value: string | null | undefined): string | null {
-  const normalized = value?.replace(/\s+/g, " ").trim() ?? "";
-  return normalized.length > 0 ? normalized : null;
+  return normalizeBridgeText(value);
 }
 
 function uniquePush(target: string[], value: string | null | undefined) {
@@ -35,6 +40,16 @@ function firstSentence(value: string | null | undefined): string | null {
   return normalized.split(/(?<=[.!?])\s+/)[0]?.trim() ?? normalized;
 }
 
+function firstQuotedPhrase(value: string | null | undefined): string | null {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const quoteMatch = normalized.match(/["“”']([^"“”']{12,180})["“”']/);
+  return quoteMatch?.[1]?.trim() ?? null;
+}
+
 function isGenericSupportReason(value: string | null | undefined) {
   const normalized = normalizeText(value)?.toLowerCase();
   return normalized ? GENERIC_SUPPORT_REASONS.has(normalized) : false;
@@ -45,15 +60,59 @@ function isLowValueReason(value: string | null | undefined) {
   return normalized.startsWith("low expected value:");
 }
 
+function isLowSignalTeacherLanguage(value: string | null | undefined) {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return true;
+  }
+
+  if (normalized.length < 24) {
+    return true;
+  }
+
+  return !/[a-z]/i.test(normalized) || /^(untitled signal|signal\b)/i.test(normalized);
+}
+
 function buildTeacherLanguage(candidate: ApprovalQueueCandidate) {
   const rows: string[] = [];
 
+  uniquePush(rows, firstQuotedPhrase(candidate.signal.rawExcerpt));
+  uniquePush(rows, firstQuotedPhrase(candidate.signal.manualSummary));
   uniquePush(rows, firstSentence(candidate.signal.rawExcerpt));
   uniquePush(rows, firstSentence(candidate.signal.manualSummary));
   uniquePush(rows, firstSentence(candidate.signal.teacherPainPoint));
-  uniquePush(rows, firstSentence(candidate.signal.sourceTitle));
+  uniquePush(rows, firstSentence(candidate.signal.scenarioAngle));
 
-  return rows.slice(0, 3);
+  return rows.filter((row) => !isLowSignalTeacherLanguage(row)).slice(0, 3);
+}
+
+function buildCandidateNarrativeAnchor(candidate: ApprovalQueueCandidate) {
+  return firstSpecificBridgeValue([
+    firstSentence(candidate.signal.scenarioAngle),
+    firstSentence(candidate.signal.contentAngle),
+    firstSentence(candidate.signal.teacherPainPoint),
+    firstSentence(candidate.signal.manualSummary),
+  ]);
+}
+
+function buildTeacherTension(candidate: ApprovalQueueCandidate) {
+  return firstSpecificBridgeValue([
+    firstSentence(candidate.signal.teacherPainPoint),
+    firstSentence(candidate.signal.rawExcerpt),
+    firstSentence(candidate.signal.manualSummary),
+  ]);
+}
+
+function buildPlatformSpecificReason(candidate: ApprovalQueueCandidate) {
+  const positiveSignal = firstSpecificBridgeValue(candidate.distributionPriority.supportingSignals);
+  if (positiveSignal) {
+    return positiveSignal;
+  }
+
+  return firstSpecificBridgeValue([
+    candidate.distributionPriority.reason,
+    candidate.conversionIntent.whyChosen[0],
+  ]);
 }
 
 function buildCommercialPotential(candidate: ApprovalQueueCandidate) {
@@ -112,16 +171,22 @@ function buildRecommendedHookDirection(candidate: ApprovalQueueCandidate) {
   const hook = normalizeText(candidate.signal.hookTemplateUsed)?.replace(/\.$/, "");
   const posture = candidate.conversionIntent.posture.replaceAll("_", " ");
   const platform = candidate.distributionPriority.primaryPlatformLabel;
+  const narrativeAnchor = buildCandidateNarrativeAnchor(candidate);
+  const teacherTension = buildTeacherTension(candidate);
+
+  if (hook && narrativeAnchor && narrativeAnchor.toLowerCase() !== hook.toLowerCase()) {
+    return `Start with "${narrativeAnchor}" and land the opening with "${hook}" for ${platform} while keeping the posture ${posture}.`;
+  }
+
+  if (hook && teacherTension && teacherTension.toLowerCase() !== hook.toLowerCase()) {
+    return `Name the teacher tension "${teacherTension}" first, then pivot into "${hook}" for ${platform}.`;
+  }
 
   if (hook) {
     return `Lead with "${hook}" and keep the opening ${posture} for ${platform}.`;
   }
 
-  const opening = firstSentence(
-    candidate.signal.scenarioAngle ??
-      candidate.signal.contentAngle ??
-      candidate.signal.teacherPainPoint,
-  );
+  const opening = narrativeAnchor ?? teacherTension;
 
   return opening
     ? `Open with "${opening}" and keep the posture ${posture} for ${platform}.`
@@ -130,41 +195,40 @@ function buildRecommendedHookDirection(candidate: ApprovalQueueCandidate) {
 
 function buildReason(candidate: ApprovalQueueCandidate) {
   const nonLowExpectedReason = candidate.expectedOutcome.expectedOutcomeReasons.find(
-    (reason) => !isLowValueReason(reason),
+    (reason) => !isLowValueReason(reason) && !isBridgeBoilerplate(reason),
   );
   const preferredRankReason = candidate.rankReasons.find(
-    (reason) => !isGenericSupportReason(reason),
+    (reason) => !isGenericSupportReason(reason) && !isBridgeBoilerplate(reason),
   );
 
-  return (
-    normalizeText(candidate.signal.contentAngle) ??
-    normalizeText(candidate.signal.scenarioAngle) ??
-    normalizeText(nonLowExpectedReason) ??
-    normalizeText(candidate.hypothesis.whyItMayWork) ??
-    normalizeText(candidate.hypothesis.objective) ??
-    normalizeText(candidate.triage.reason) ??
-    normalizeText(preferredRankReason) ??
-    normalizeText(candidate.signal.manualSummary) ??
-    candidate.signal.sourceTitle
-  );
+  return firstSpecificBridgeValue([
+    candidate.signal.contentAngle,
+    candidate.signal.scenarioAngle,
+    nonLowExpectedReason,
+    buildPlatformSpecificReason(candidate),
+    candidate.hypothesis.whyItMayWork,
+    candidate.hypothesis.objective,
+    preferredRankReason,
+    candidate.signal.manualSummary,
+    candidate.signal.teacherPainPoint,
+    candidate.signal.sourceTitle,
+  ]) ?? candidate.signal.sourceTitle;
 }
 
 function buildWhyNow(candidate: ApprovalQueueCandidate) {
   const reasons: string[] = [];
   const nonLowExpectedReason = candidate.expectedOutcome.expectedOutcomeReasons.find(
-    (reason) => !isLowValueReason(reason),
+    (reason) => !isLowValueReason(reason) && !isBridgeBoilerplate(reason),
   );
 
-  uniquePush(reasons, candidate.triage.reason);
+  uniquePush(reasons, buildPlatformSpecificReason(candidate));
   uniquePush(reasons, nonLowExpectedReason);
   uniquePush(reasons, candidate.revenueAmplifierMatch?.reason);
-  uniquePush(reasons, candidate.distributionPriority.reason);
+  uniquePush(reasons, candidate.triage.reason);
   uniquePush(reasons, candidate.expectedOutcome.positiveSignals[0]);
 
-  return (
-    reasons[0] ??
-    "Current review ranking surfaced this as a timely founder-reviewed opportunity."
-  );
+  return reasons.find((reason) => !isBridgeBoilerplate(reason)) ??
+    "Current review ranking surfaced this as a timely founder-reviewed opportunity.";
 }
 
 function buildProofPoints(candidate: ApprovalQueueCandidate) {
@@ -180,7 +244,7 @@ function buildProofPoints(candidate: ApprovalQueueCandidate) {
   uniquePush(proofPoints, candidate.distributionPriority.supportingSignals[0]);
   uniquePush(proofPoints, candidate.revenueAmplifierMatch?.supportingSignals[0]);
 
-  return proofPoints.slice(0, 5);
+  return proofPoints.filter((point) => !isBridgeBoilerplate(point)).slice(0, 5);
 }
 
 function buildTrustNotes(candidate: ApprovalQueueCandidate) {
@@ -192,7 +256,7 @@ function buildTrustNotes(candidate: ApprovalQueueCandidate) {
   uniquePush(notes, candidate.assessment.strongestCaution);
   uniquePush(notes, candidate.commercialRisk.supportingSignals[0]);
 
-  return notes.slice(0, 4);
+  return notes.filter((note) => !isBridgeBoilerplate(note)).slice(0, 4);
 }
 
 function resolveCandidateContext(
@@ -363,7 +427,7 @@ export function buildFallbackBridgeCandidates(input: {
 }): BridgeFallbackCandidateInput[] {
   const limit = Math.max(1, input.limit ?? 5);
 
-  return input.candidates
+  const ranked = input.candidates
     .filter((candidate) => candidate.triage.triageState !== "suppress")
     .map((candidate, index) => {
       const bridgeCandidate = buildBridgeFallbackCandidateFromApprovalCandidate({
@@ -387,7 +451,29 @@ export function buildFallbackBridgeCandidates(input: {
       (left, right) =>
         right.exportPriority - left.exportPriority ||
         left.index - right.index,
-    )
-    .slice(0, limit)
-    .map((entry) => entry.bridgeCandidate);
+    );
+
+  const selected: BridgeFallbackCandidateInput[] = [];
+  const remaining = [...ranked];
+
+  while (selected.length < limit && remaining.length > 0) {
+    const next = [...remaining].sort(
+      (left, right) =>
+        right.exportPriority - getBridgeDiversityPenalty(right.bridgeCandidate, selected) -
+          (left.exportPriority - getBridgeDiversityPenalty(left.bridgeCandidate, selected)) ||
+        left.index - right.index,
+    )[0];
+
+    if (!next) {
+      break;
+    }
+
+    selected.push(next.bridgeCandidate);
+    const index = remaining.findIndex((entry) => entry.index === next.index);
+    if (index >= 0) {
+      remaining.splice(index, 1);
+    }
+  }
+
+  return selected;
 }
