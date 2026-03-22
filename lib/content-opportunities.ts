@@ -621,7 +621,29 @@ function normalizeGenerationState(
 
   try {
     const normalizedState = contentOpportunityGenerationStateSchema.parse(generationState);
+    const hasBriefApproval = Boolean(
+      normalizedState.videoBriefApprovedAt && normalizedState.videoBriefApprovedBy,
+    );
+    const hasPartialBriefApproval =
+      Boolean(normalizedState.videoBriefApprovedAt) !==
+      Boolean(normalizedState.videoBriefApprovedBy);
+    const hasGenerationArtifacts = Boolean(
+      normalizedState.narrationSpec ||
+      normalizedState.videoPrompt ||
+      normalizedState.generationRequest ||
+      normalizedState.renderJob ||
+      normalizedState.renderedAsset ||
+      normalizedState.assetReview,
+    );
     const approvedBrief = opportunity.selectedVideoBrief;
+
+    if (hasPartialBriefApproval || (!hasBriefApproval && hasGenerationArtifacts)) {
+      return null;
+    }
+
+    if (!hasBriefApproval && !hasGenerationArtifacts) {
+      return null;
+    }
 
     if (
       normalizedState.narrationSpec &&
@@ -679,6 +701,58 @@ function normalizeGenerationState(
   } catch {
     return null;
   }
+}
+
+function getGenerationContext(
+  opportunity: ContentOpportunity,
+  options?: {
+    requireBriefApproval?: boolean;
+    disallowExistingGeneration?: boolean;
+  },
+) {
+  if (
+    opportunity.status !== "approved_for_production" ||
+    opportunity.founderSelectionStatus !== "approved"
+  ) {
+    throw new Error("Approve for production before using generation actions.");
+  }
+
+  if (
+    !opportunity.selectedAngleId ||
+    !opportunity.selectedHookId ||
+    !opportunity.selectedVideoBrief
+  ) {
+    throw new Error("Select an angle and hook so a stable video brief exists first.");
+  }
+
+  const generationState = contentOpportunityGenerationStateSchema.parse(
+    opportunity.generationState ?? {},
+  );
+  const briefApproved = Boolean(
+    generationState.videoBriefApprovedAt && generationState.videoBriefApprovedBy,
+  );
+  const generationStarted = Boolean(
+    generationState.generationRequest ||
+    generationState.renderJob ||
+    generationState.renderedAsset ||
+    generationState.assetReview,
+  );
+
+  if (options?.requireBriefApproval && !briefApproved) {
+    throw new Error("Approve the video brief for generation before starting a render.");
+  }
+
+  if (options?.disallowExistingGeneration && generationStarted) {
+    throw new Error("This brief already has generation state. Review the current asset before running generation again.");
+  }
+
+  return {
+    brief: opportunity.selectedVideoBrief,
+    generationState,
+    briefApproved,
+    approvedAt: generationState.videoBriefApprovedAt,
+    approvedBy: generationState.videoBriefApprovedBy,
+  };
 }
 
 function normalizePersistedOpportunity(opportunity: ContentOpportunity): ContentOpportunity {
@@ -1104,23 +1178,8 @@ export async function approveContentOpportunityVideoBriefForGeneration(
   }
 
   const normalizedCurrent = normalizePersistedOpportunity(current);
-  if (
-    normalizedCurrent.status !== "approved_for_production" ||
-    normalizedCurrent.founderSelectionStatus !== "approved"
-  ) {
-    throw new Error("Approve for production before approving a brief for generation.");
-  }
-
-  if (
-    !normalizedCurrent.selectedAngleId ||
-    !normalizedCurrent.selectedHookId ||
-    !normalizedCurrent.selectedVideoBrief
-  ) {
-    throw new Error("Select an angle and hook so a stable video brief exists before approval.");
-  }
-
-  const currentGenerationState = contentOpportunityGenerationStateSchema.parse(
-    normalizedCurrent.generationState ?? {},
+  const { brief, generationState: currentGenerationState } = getGenerationContext(
+    normalizedCurrent,
   );
 
   const state = await updateOpportunity(opportunityId, (opportunity) => ({
@@ -1140,7 +1199,7 @@ export async function approveContentOpportunityVideoBriefForGeneration(
       summary: `Approved video brief for generation on content opportunity "${current.title}".`,
       metadata: {
         approvedBy,
-        videoBriefId: normalizedCurrent.selectedVideoBrief.id,
+        videoBriefId: brief.id,
       },
     },
   ]);
@@ -1165,33 +1224,23 @@ export async function generateContentOpportunityVideo(input: {
   }
 
   const normalizedCurrent = normalizePersistedOpportunity(current);
-  if (
-    !normalizedCurrent.selectedAngleId ||
-    !normalizedCurrent.selectedHookId ||
-    !normalizedCurrent.selectedVideoBrief
-  ) {
-    throw new Error("Select an angle and hook so a stable video brief exists before generation.");
-  }
-
-  if (
-    !normalizedCurrent.generationState?.videoBriefApprovedAt ||
-    !normalizedCurrent.generationState?.videoBriefApprovedBy
-  ) {
-    throw new Error("Approve the video brief for generation before starting a render.");
-  }
-
-  const brief = normalizedCurrent.selectedVideoBrief;
+  const {
+    brief,
+    approvedAt,
+    approvedBy,
+  } = getGenerationContext(normalizedCurrent, {
+    requireBriefApproval: true,
+    disallowExistingGeneration: true,
+  });
   const narrationSpec = buildNarrationSpec(normalizedCurrent, brief);
   const videoPrompt = buildVideoPrompt(normalizedCurrent, brief);
-  const approvedAt = normalizedCurrent.generationState.videoBriefApprovedAt;
-  const approvedBy = normalizedCurrent.generationState.videoBriefApprovedBy;
   const generationRequestBase = buildVideoGenerationRequest({
     opportunity: normalizedCurrent,
     brief,
     narrationSpec,
     videoPrompt,
-    approvedAt,
-    approvedBy,
+    approvedAt: approvedAt!,
+    approvedBy: approvedBy!,
   });
   const generationRequest = {
     ...generationRequestBase,
