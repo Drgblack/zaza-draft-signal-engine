@@ -19,6 +19,7 @@ import { buildInfluencerGraphState } from "@/lib/influencer-graph";
 import {
   buildZazaConnectBridgeSummary,
   buildZazaConnectExportPayload,
+  getZazaConnectBridgeStorageDiagnostics,
   importZazaConnectContext,
   listImportedZazaConnectContexts,
   listZazaConnectExports,
@@ -194,6 +195,23 @@ async function buildCurrentExportPayload() {
   });
 }
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "unknown error";
+}
+
+async function buildLatestBridgeStateSafe() {
+  try {
+    return await buildLatestBridgeState();
+  } catch (error) {
+    console.error("Zaza Connect bridge: unable to rebuild latest state", error);
+    return {
+      importedContexts: [],
+      latestExport: null,
+      summary: null,
+    };
+  }
+}
+
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null);
   const parsed = zazaConnectBridgeActionRequestSchema.safeParse(payload);
@@ -270,8 +288,54 @@ export async function POST(request: Request) {
     });
   }
 
-  const exportPayload = await buildCurrentExportPayload();
-  const savedExport = await saveZazaConnectExport(exportPayload);
+  let exportPayload;
+
+  try {
+    exportPayload = await buildCurrentExportPayload();
+  } catch (error) {
+    console.error("Zaza Connect bridge create_export failed during export build", error);
+    const state = await buildLatestBridgeStateSafe();
+
+    return NextResponse.json<ZazaConnectBridgeResponse>(
+      {
+        success: false,
+        latestExport: state.latestExport,
+        importedContext: null,
+        importedContexts: state.importedContexts,
+        summary: state.summary,
+        message: "Zaza Connect export could not be created.",
+        error: `create_export:build_failed: ${getErrorMessage(error)}`,
+      },
+      { status: 500 },
+    );
+  }
+
+  let savedExport;
+
+  try {
+    savedExport = await saveZazaConnectExport(exportPayload);
+  } catch (error) {
+    console.error("Zaza Connect bridge create_export failed during export persistence", {
+      error,
+      storage: getZazaConnectBridgeStorageDiagnostics(),
+      exportId: exportPayload.exportId,
+    });
+    const state = await buildLatestBridgeStateSafe();
+
+    return NextResponse.json<ZazaConnectBridgeResponse>(
+      {
+        success: false,
+        latestExport: state.latestExport,
+        importedContext: null,
+        importedContexts: state.importedContexts,
+        summary: state.summary,
+        message: "Zaza Connect export could not be created.",
+        error: `create_export:persist_failed: ${getErrorMessage(error)}`,
+      },
+      { status: 500 },
+    );
+  }
+
   await appendAuditEventsSafe([
     {
       signalId: `connect-bridge:${savedExport.generatedAt.slice(0, 10)}`,
@@ -288,7 +352,7 @@ export async function POST(request: Request) {
     },
   ]);
 
-  const state = await buildLatestBridgeState();
+  const state = await buildLatestBridgeStateSafe();
 
   return NextResponse.json<ZazaConnectBridgeResponse>({
     success: true,

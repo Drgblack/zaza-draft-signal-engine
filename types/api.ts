@@ -1250,7 +1250,24 @@ export interface ZazaConnectBridgeOpportunitiesResponse
     BridgeOpportunitiesResponseBody,
     "success" | "exportId" | "generatedAt" | "message" | "error"
   > {
-  opportunities: BridgeOpportunity[];
+  opportunities: Array<{
+    opportunityId: string;
+    title: string;
+    primaryPainPoint: string;
+    teacherLanguage: string[];
+    audienceSegment: string | null;
+    funnelStage: string | null;
+    commercialPotential: "high" | "medium" | "low";
+    trustRisk: "low" | "medium" | "high";
+    recommendedAngle: string;
+    recommendedHookDirection: string;
+    recommendedFormat: "text" | "carousel" | "short_video" | "multi_asset";
+    recommendedPlatforms: string[];
+    whyNow: string;
+    proofPoints: string[];
+    trustNotes: string[];
+    sourceSignalIds: string[];
+  }>;
   strongContentCandidates: BridgeOpportunity[];
 }
 

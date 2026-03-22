@@ -9,6 +9,7 @@
   },
   "include": [
     "lib/bridge-opportunities.ts",
+    "lib/zaza-connect-bridge-config.ts",
     "tests/zaza-connect-bridge-opportunities.test.ts"
   ]
 }

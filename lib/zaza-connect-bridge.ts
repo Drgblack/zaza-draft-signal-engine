@@ -1,17 +1,14 @@
-import { get, put } from "@vercel/blob";
+import { get, head, put } from "@vercel/blob";
 import { z } from "zod";
 
 import type { InfluencerGraphRow, InfluencerGraphSummary } from "@/lib/influencer-graph";
 import { RELATIONSHIP_STAGES, type RelationshipStage } from "@/lib/influencer-graph-definitions";
 import type { NarrativeSequence } from "@/lib/narrative-sequences";
 import type { WeeklyPostingPack } from "@/lib/weekly-posting-pack";
+import { getZazaConnectBridgeBlobAccess } from "@/lib/zaza-connect-bridge-config";
 import type { SignalRecord } from "@/types/signal";
 
 const ZAZA_CONNECT_BRIDGE_STORE_BLOB_PATHNAME = "zaza-connect-bridge/store.json";
-const ZAZA_CONNECT_BRIDGE_BLOB_ACCESS =
-  process.env.ZAZA_CONNECT_BRIDGE_BLOB_ACCESS === "private"
-    ? "private"
-    : "public";
 
 function normalizeText(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
@@ -45,6 +42,41 @@ function matchesKeywords(haystack: string, keywords: string[]) {
   }
 
   return keywords.some((keyword) => haystack.includes(keyword.toLowerCase()));
+}
+
+function mapRecommendedFormat(input: {
+  platform: string;
+  editorialModeLabel: string | null;
+  sequenceContext: WeeklyPostingPack["items"][number]["sequenceContext"];
+}) {
+  const platform = input.platform.trim().toLowerCase();
+  const editorialMode = input.editorialModeLabel?.trim().toLowerCase() ?? "";
+
+  if (editorialMode.includes("carousel")) {
+    return "carousel" as const;
+  }
+  if (platform === "instagram" || platform === "tiktok" || platform === "youtube") {
+    return "short_video" as const;
+  }
+  if (input.sequenceContext && input.sequenceContext.totalSteps > 1) {
+    return "multi_asset" as const;
+  }
+
+  return "text" as const;
+}
+
+function mapTrustRisk(input: {
+  expectedOutcomeTier: "high" | "medium" | "low";
+  keyCaution: string | null;
+}) {
+  if (!input.keyCaution) {
+    return "low" as const;
+  }
+  if (input.expectedOutcomeTier === "low") {
+    return "high" as const;
+  }
+
+  return "medium" as const;
 }
 
 const relationshipStageHintSchema = z.object({
@@ -107,6 +139,20 @@ const strongContentCandidateSchema = z.object({
   expectedOutcomeTier: z.enum(["high", "medium", "low"]),
   reason: z.string().trim().min(1),
   href: z.string().trim().min(1),
+  primaryPainPoint: z.string().trim().min(1).default("High-priority teacher pain point worth addressing."),
+  teacherLanguage: z.array(z.string().trim().min(1)).default([]),
+  audienceSegment: z.string().trim().nullable().default(null),
+  funnelStage: z.string().trim().nullable().default(null),
+  commercialPotential: z.enum(["high", "medium", "low"]).default("medium"),
+  trustRisk: z.enum(["low", "medium", "high"]).default("low"),
+  recommendedAngle: z.string().trim().min(1).default("Lead with the strongest teacher-facing value signal."),
+  recommendedHookDirection: z.string().trim().min(1).default("Open with the concrete classroom pain or value tension."),
+  recommendedFormat: z.enum(["text", "carousel", "short_video", "multi_asset"]).default("text"),
+  recommendedPlatforms: z.array(z.string().trim().min(1)).default([]),
+  whyNow: z.string().trim().min(1).default("Current weekly ranking surfaced this as a timely opportunity."),
+  proofPoints: z.array(z.string().trim().min(1)).default([]),
+  trustNotes: z.array(z.string().trim().min(1)).default([]),
+  sourceSignalIds: z.array(z.string().trim().min(1)).default([]),
 });
 
 const outreachRelevantThemeExportSchema = z.object({
@@ -194,6 +240,13 @@ export interface ZazaConnectBridgeSummary {
   topNotes: string[];
 }
 
+export interface ZazaConnectBridgeStorageDiagnostics {
+  backend: "blob" | "memory";
+  blobPathname: string;
+  blobAccess: "public" | "private";
+  blobConfigured: boolean;
+}
+
 let inMemoryBridgeStore: ZazaConnectBridgeStore = zazaConnectBridgeStoreSchema.parse({
   imports: [],
   exports: [],
@@ -210,6 +263,15 @@ function buildEmptyBridgeStore(): ZazaConnectBridgeStore {
 
 function isBlobBridgeStoreEnabled() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
+
+export function getZazaConnectBridgeStorageDiagnostics(): ZazaConnectBridgeStorageDiagnostics {
+  return {
+    backend: isBlobBridgeStoreEnabled() ? "blob" : "memory",
+    blobPathname: ZAZA_CONNECT_BRIDGE_STORE_BLOB_PATHNAME,
+    blobAccess: getZazaConnectBridgeBlobAccess(),
+    blobConfigured: isBlobBridgeStoreEnabled(),
+  };
 }
 
 function buildSeedImportedContexts(): ZazaConnectImportedContext[] {
@@ -275,7 +337,7 @@ async function readPersistedBridgeStore() {
 
   try {
     const blob = await get(ZAZA_CONNECT_BRIDGE_STORE_BLOB_PATHNAME, {
-      access: ZAZA_CONNECT_BRIDGE_BLOB_ACCESS,
+      access: getZazaConnectBridgeBlobAccess(),
       useCache: false,
     });
 
@@ -286,8 +348,9 @@ async function readPersistedBridgeStore() {
     const raw = await new Response(blob.stream).text();
     return zazaConnectBridgeStoreSchema.parse(JSON.parse(raw));
   } catch (error) {
+    const diagnostics = getZazaConnectBridgeStorageDiagnostics();
     throw new Error(
-      `Unable to read Zaza Connect bridge store from Vercel Blob: ${
+      `Unable to read Zaza Connect bridge store from Vercel Blob (pathname=${diagnostics.blobPathname}, access=${diagnostics.blobAccess}): ${
         error instanceof Error ? error.message : "unknown error"
       }`,
     );
@@ -307,15 +370,22 @@ async function writeBridgeStore(store: ZazaConnectBridgeStore) {
       ZAZA_CONNECT_BRIDGE_STORE_BLOB_PATHNAME,
       `${JSON.stringify(parsed, null, 2)}\n`,
       {
-        access: ZAZA_CONNECT_BRIDGE_BLOB_ACCESS,
+        access: getZazaConnectBridgeBlobAccess(),
         addRandomSuffix: false,
         allowOverwrite: true,
         contentType: "application/json; charset=utf-8",
       },
     );
+
+    const persisted = await head(ZAZA_CONNECT_BRIDGE_STORE_BLOB_PATHNAME);
+
+    if (!persisted || persisted.pathname !== ZAZA_CONNECT_BRIDGE_STORE_BLOB_PATHNAME) {
+      throw new Error("Blob write completed but the bridge store could not be verified.");
+    }
   } catch (error) {
+    const diagnostics = getZazaConnectBridgeStorageDiagnostics();
     throw new Error(
-      `Unable to write Zaza Connect bridge store to Vercel Blob: ${
+      `Unable to write Zaza Connect bridge store to Vercel Blob (pathname=${diagnostics.blobPathname}, access=${diagnostics.blobAccess}): ${
         error instanceof Error ? error.message : "unknown error"
       }`,
     );
@@ -510,6 +580,27 @@ export function buildZazaConnectExportPayload(input: {
       expectedOutcomeTier: item.expectedOutcomeTier,
       reason: item.whySelected,
       href: item.href,
+      primaryPainPoint: item.strongestValueSignal,
+      teacherLanguage: [],
+      audienceSegment: item.destinationLabel,
+      funnelStage: item.funnelStageLabel ?? item.funnelStage,
+      commercialPotential: item.expectedOutcomeTier,
+      trustRisk: mapTrustRisk({
+        expectedOutcomeTier: item.expectedOutcomeTier,
+        keyCaution: item.keyCaution,
+      }),
+      recommendedAngle: item.strongestValueSignal,
+      recommendedHookDirection: item.whySelected,
+      recommendedFormat: mapRecommendedFormat({
+        platform: item.platform,
+        editorialModeLabel: item.editorialModeLabel,
+        sequenceContext: item.sequenceContext,
+      }),
+      recommendedPlatforms: [item.platform],
+      whyNow: item.whySelected,
+      proofPoints: [...new Set([item.strongestValueSignal, ...item.includedBecause, ...item.strongestReasons])].slice(0, 5),
+      trustNotes: item.keyCaution ? [item.keyCaution] : [],
+      sourceSignalIds: [item.signalId],
     }),
   );
 
