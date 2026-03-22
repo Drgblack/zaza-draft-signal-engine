@@ -22,7 +22,7 @@ export default async function FactoryInputsPage() {
   ).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 bg-[#F0EFFF]">
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center gap-3">

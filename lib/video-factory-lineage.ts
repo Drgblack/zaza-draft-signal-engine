@@ -8,6 +8,10 @@ import {
   costEstimateSchema,
   type CostEstimate,
 } from "./video-factory-cost";
+import {
+  qualityCheckResultSchema,
+  type QualityCheckResult,
+} from "./video-factory-quality-checks";
 
 export const VIDEO_FACTORY_EXECUTION_STAGES = [
   "narration",
@@ -96,6 +100,7 @@ export const videoFactoryAttemptLineageSchema = z.object({
   renderJobId: z.string().trim().nullable().default(null),
   renderedAssetId: z.string().trim().nullable().default(null),
   costEstimate: costEstimateSchema,
+  qualityCheck: qualityCheckResultSchema.nullable().default(null),
   providerExecutions: z.array(providerExecutionRecordSchema).default([]),
   narrationArtifact: generatedNarrationArtifactSchema.nullable().default(null),
   sceneArtifacts: z.array(generatedSceneAssetArtifactSchema).default([]),
@@ -312,8 +317,9 @@ export function buildVideoFactoryAttemptLineage(input: {
   renderVersion?: string | null;
   generationRequestId: string;
   renderJobId: string;
-  renderedAssetId: string;
+  renderedAssetId?: string | null;
   costEstimate: CostEstimate;
+  qualityCheck?: QualityCheckResult | null;
   createdAt: string;
   narrationSpecId: string;
   captionSpecId: string;
@@ -355,8 +361,9 @@ export function buildVideoFactoryAttemptLineage(input: {
     renderVersion: input.renderVersion ?? null,
     generationRequestId: input.generationRequestId,
     renderJobId: input.renderJobId,
-    renderedAssetId: input.renderedAssetId,
+    renderedAssetId: input.renderedAssetId ?? null,
     costEstimate: input.costEstimate,
+    qualityCheck: input.qualityCheck ?? null,
     providerExecutions: [
       narration.providerExecution,
       ...scenes.map((scene) => scene.providerExecution),

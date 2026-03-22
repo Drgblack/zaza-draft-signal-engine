@@ -251,6 +251,26 @@ function assetReviewLabel(
   }
 }
 
+function runOutcomeLabel(outcome: string) {
+  return outcome.replaceAll("_", " ");
+}
+
+function qualityCheckLabel(
+  qualityCheck: NonNullable<
+    NonNullable<ContentOpportunity["generationState"]>["latestQualityCheck"]
+  > | null | undefined,
+) {
+  if (!qualityCheck) {
+    return "Not run";
+  }
+
+  if (qualityCheck.passed) {
+    return "Passed";
+  }
+
+  return `Failed with ${qualityCheck.failures.length} issue${qualityCheck.failures.length === 1 ? "" : "s"}`;
+}
+
 function canOpenAssetReference(url: string | null | undefined) {
   return Boolean(url && /^https?:\/\//.test(url));
 }
@@ -729,6 +749,11 @@ export function FactoryInputsPanel({
               const performanceSignalSummary = buildPerformanceSignalSummary(
                 generationState?.performanceSignals,
               );
+              const latestRunEntry = generationState?.runLedger.at(-1) ?? null;
+              const priorAttemptsCount = Math.max(
+                (generationState?.runLedger.length ?? 0) - 1,
+                0,
+              );
               const packageFeedback = packageFeedbackByOpportunityId[item.opportunityId] ?? null;
               const renderStatus = renderJob?.status ?? null;
               const productionDefaultsSnapshot =
@@ -902,7 +927,9 @@ export function FactoryInputsPanel({
                               <div
                                 key={angle.id}
                                 className={`rounded-2xl px-4 py-4 ${
-                                  isSelected ? "bg-white ring-1 ring-slate-200" : "bg-white/70"
+                                  isSelected
+                                    ? "border-2 border-[#6366f1] bg-[#EEF2FF]"
+                                    : "border border-[#E5E7EB] bg-white/70"
                                 }`}
                               >
                                 <div className="flex flex-wrap items-center gap-2">
@@ -918,12 +945,12 @@ export function FactoryInputsPanel({
                                     </Badge>
                                   ) : null}
                                   {isSelected ? (
-                                    <Badge className="bg-slate-900 text-white ring-slate-900">
+                                    <Badge className="border-2 border-[#6366f1] bg-[#EEF2FF] font-medium text-[#4338CA] ring-0">
                                       Selected
                                     </Badge>
                                   ) : null}
                                   {angleTrust.reasons.length > 0 ? (
-                                    <Badge className="bg-amber-50 text-amber-700 ring-amber-200">
+                                    <Badge className="border border-[#EAB308] bg-[#FEF08A] font-medium text-[#713F12] ring-0">
                                       Trust caution
                                     </Badge>
                                   ) : null}
@@ -978,7 +1005,7 @@ export function FactoryInputsPanel({
                                 Score {selectedHookSet.primaryHook.score}
                               </Badge>
                               {primaryHookTrust && primaryHookTrust.reasons.length > 0 ? (
-                                <Badge className="bg-amber-50 text-amber-700 ring-amber-200">
+                                <Badge className="border border-[#EAB308] bg-[#FEF08A] font-medium text-[#713F12] ring-0">
                                   Trust caution
                                 </Badge>
                               ) : null}
@@ -1012,8 +1039,8 @@ export function FactoryInputsPanel({
                                     key={variant.id}
                                     className={`rounded-2xl px-3 py-3 ${
                                       isSelected
-                                        ? "bg-slate-50 ring-1 ring-slate-200"
-                                        : "bg-slate-50/70"
+                                        ? "border-2 border-[#6366f1] bg-[#EEF2FF]"
+                                        : "border border-[#E5E7EB] bg-slate-50/70"
                                     }`}
                                   >
                                     <div className="flex flex-wrap items-center gap-2">
@@ -1024,12 +1051,12 @@ export function FactoryInputsPanel({
                                         Score {variant.score}
                                       </Badge>
                                       {isSelected ? (
-                                        <Badge className="bg-slate-900 text-white ring-slate-900">
+                                        <Badge className="border-2 border-[#6366f1] bg-[#EEF2FF] font-medium text-[#4338CA] ring-0">
                                           Selected
                                         </Badge>
                                       ) : null}
                                       {hookTrust.reasons.length > 0 ? (
-                                        <Badge className="bg-amber-50 text-amber-700 ring-amber-200">
+                                        <Badge className="border border-[#EAB308] bg-[#FEF08A] font-medium text-[#713F12] ring-0">
                                           Trust caution
                                         </Badge>
                                       ) : null}
@@ -1063,7 +1090,7 @@ export function FactoryInputsPanel({
                           </div>
 
                           {brief ? (
-                            <div className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200">
+                            <div className="rounded-2xl border-l-4 border-l-[#6366f1] bg-[#F8F7FF] px-4 py-4 ring-1 ring-slate-200">
                               <div className="flex flex-wrap items-center gap-2">
                                 <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
                                   Video brief
@@ -1075,7 +1102,7 @@ export function FactoryInputsPanel({
                                   {brief.brief.durationSec}s
                                 </Badge>
                                 {brief.diagnostics.wasSanitized ? (
-                                  <Badge className="bg-amber-50 text-amber-700 ring-amber-200">
+                                  <Badge className="border border-[#EAB308] bg-[#FEF08A] font-medium text-[#713F12] ring-0">
                                     Trust adjusted
                                   </Badge>
                                 ) : null}
@@ -1214,6 +1241,51 @@ export function FactoryInputsPanel({
                                         </Badge>
                                       ) : null}
                                     </div>
+                                  ) : null}
+                                  {latestRunEntry ? (
+                                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                      <div className="rounded-2xl bg-white/80 px-3 py-3">
+                                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                          Current attempt
+                                        </p>
+                                        <p className="mt-2 text-sm font-medium text-slate-950">
+                                          Attempt {latestRunEntry.attemptNumber}
+                                        </p>
+                                      </div>
+                                      <div className="rounded-2xl bg-white/80 px-3 py-3">
+                                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                          Prior attempts
+                                        </p>
+                                        <p className="mt-2 text-sm font-medium text-slate-950">
+                                          {priorAttemptsCount}
+                                        </p>
+                                      </div>
+                                      <div className="rounded-2xl bg-white/80 px-3 py-3">
+                                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                          Latest outcome
+                                        </p>
+                                        <p className="mt-2 text-sm font-medium text-slate-950">
+                                          {runOutcomeLabel(latestRunEntry.terminalOutcome)}
+                                        </p>
+                                      </div>
+                                      <div className="rounded-2xl bg-white/80 px-3 py-3">
+                                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                          Last updated
+                                        </p>
+                                        <p className="mt-2 text-sm font-medium text-slate-950">
+                                          {formatDateTime(latestRunEntry.lastUpdatedAt)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {generationState?.latestQualityCheck ? (
+                                    <p className="mt-2 text-xs leading-5 text-slate-500">
+                                      QC: {qualityCheckLabel(generationState.latestQualityCheck)}
+                                      {!generationState.latestQualityCheck.passed &&
+                                      generationState.latestQualityCheck.failures[0]
+                                        ? ` — ${generationState.latestQualityCheck.failures[0].message}`
+                                        : ""}
+                                    </p>
                                   ) : null}
                                   {performanceSignalSummary ? (
                                     <p className="mt-2 text-xs leading-5 text-slate-500">

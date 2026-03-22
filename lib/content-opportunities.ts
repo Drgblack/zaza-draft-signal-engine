@@ -104,6 +104,20 @@ import {
   type CostEstimate,
 } from "@/lib/video-factory-cost";
 import {
+  lifecycleStatusForQualityFailure,
+  qualityCheckResultSchema,
+  runVideoFactoryQualityChecks,
+  summarizeQualityCheckFailures,
+  type QualityCheckResult,
+} from "@/lib/video-factory-quality-checks";
+import {
+  appendFactoryRunLedgerEntry,
+  buildFactoryRunLedgerEntry,
+  factoryRunLedgerEntrySchema,
+  updateFactoryRunLedgerOutcome,
+  type FactoryRunLedgerEntry,
+} from "@/lib/video-factory-run-ledger";
+import {
   appendVideoFactoryAttemptLineage,
   buildVideoFactoryAttemptLineage,
   videoFactoryAttemptLineageSchema,
@@ -162,6 +176,8 @@ export interface ContentOpportunityGenerationState {
   videoBriefApprovedBy: string | null;
   factoryLifecycle: VideoFactoryLifecycle | null;
   latestCostEstimate: CostEstimate | null;
+  latestQualityCheck: QualityCheckResult | null;
+  runLedger: FactoryRunLedgerEntry[];
   attemptLineage: VideoFactoryAttemptLineage[];
   narrationSpec: NarrationSpec | null;
   videoPrompt: VideoPrompt | null;
@@ -235,6 +251,8 @@ export const contentOpportunityGenerationStateSchema = z.object({
   videoBriefApprovedBy: z.string().trim().nullable().default(null),
   factoryLifecycle: videoFactoryLifecycleSchema.nullable().default(null),
   latestCostEstimate: costEstimateSchema.nullable().default(null),
+  latestQualityCheck: qualityCheckResultSchema.nullable().default(null),
+  runLedger: z.array(factoryRunLedgerEntrySchema).default([]),
   attemptLineage: z.array(videoFactoryAttemptLineageSchema).default([]),
   narrationSpec: narrationSpecSchema.nullable().default(null),
   videoPrompt: videoPromptSchema.nullable().default(null),
@@ -988,6 +1006,7 @@ async function runContentOpportunityVideoGeneration(input: {
     previousRenderVersion: currentGenerationState.renderJob?.renderVersion,
     isRegenerate: input.isRegenerate,
   });
+  const attemptNumber = currentGenerationState.runLedger.length + 1;
   let factoryLifecycle = buildFactoryLifecycleForQueuedAttempt({
     currentLifecycle: currentGenerationState.factoryLifecycle,
     brief,
@@ -1033,6 +1052,11 @@ async function runContentOpportunityVideoGeneration(input: {
       compiledProductionPlan,
       estimatedAt: timestamp,
     });
+    const qualityCheck = runVideoFactoryQualityChecks({
+      compiledProductionPlan,
+      providerResults: orchestration.providerResults,
+      checkedAt: timestamp,
+    });
     const renderJobBase = createRenderJob({
       generationRequestId: generationRequest.id,
       provider: orchestration.renderJobInput.provider,
@@ -1040,7 +1064,87 @@ async function runContentOpportunityVideoGeneration(input: {
       compiledProductionPlan: orchestration.renderJobInput.compiledProductionPlan,
       productionDefaultsSnapshot: orchestration.renderJobInput.productionDefaultsSnapshot,
       costEstimate,
+      qualityCheck,
     });
+    const renderedAsset = createMockRenderedAsset({
+      renderJobId: renderJobBase.id,
+      ...orchestration.renderedAssetInput,
+    });
+    const attemptLineage = buildVideoFactoryAttemptLineage({
+      factoryJobId: factoryLifecycle.factoryJobId,
+      renderVersion,
+      generationRequestId: generationRequest.id,
+      renderJobId: renderJobBase.id,
+      renderedAssetId: qualityCheck.passed ? renderedAsset.id : null,
+      costEstimate,
+      qualityCheck,
+      createdAt: timestamp,
+      narrationSpecId: compiledProductionPlan.narrationSpec.id,
+      captionSpecId: compiledProductionPlan.captionSpec.id,
+      compositionSpecId: compiledProductionPlan.compositionSpec.id,
+      providerResults: orchestration.providerResults,
+    });
+
+    if (!qualityCheck.passed) {
+      currentStage = lifecycleStatusForQualityFailure(qualityCheck.failures[0]?.stage ?? "composition");
+      factoryLifecycle = transitionVideoFactoryLifecycle(factoryLifecycle, "failed", {
+        timestamp,
+        provider,
+        renderVersion,
+        failureStage: currentStage,
+        failureMessage: summarizeQualityCheckFailures(qualityCheck),
+      });
+      const failedRenderJob = {
+        ...renderJobBase,
+        status: "failed" as const,
+        providerJobId: orchestration.renderJobInput.providerJobId,
+        submittedAt: orchestration.renderJobInput.submittedAt,
+        completedAt: timestamp,
+        errorMessage: summarizeQualityCheckFailures(qualityCheck),
+      };
+      const failedLedgerEntry = buildFactoryRunLedgerEntry({
+        opportunityId: normalizedCurrent.opportunityId,
+        videoBriefId: brief.id,
+        attemptNumber,
+        lifecycle: factoryLifecycle,
+        renderProvider: provider,
+        generationRequestId: generationRequest.id,
+        renderJobId: failedRenderJob.id,
+        renderedAssetId: null,
+        attemptLineage,
+        estimatedCost: costEstimate,
+        qualityCheck,
+      });
+      const failedGenerationState = contentOpportunityGenerationStateSchema.parse({
+        videoBriefApprovedAt: approvedAt,
+        videoBriefApprovedBy: approvedBy,
+        factoryLifecycle,
+        latestCostEstimate: costEstimate,
+        latestQualityCheck: qualityCheck,
+        runLedger: appendFactoryRunLedgerEntry(
+          currentGenerationState.runLedger,
+          failedLedgerEntry,
+        ),
+        attemptLineage: appendVideoFactoryAttemptLineage(
+          currentGenerationState.attemptLineage,
+          attemptLineage,
+        ),
+        narrationSpec,
+        videoPrompt,
+        generationRequest,
+        renderJob: failedRenderJob,
+        renderedAsset: null,
+        assetReview: null,
+        performanceSignals: currentGenerationState.performanceSignals,
+      });
+
+      return updateOpportunity(input.opportunityId, (opportunity) => ({
+        ...opportunity,
+        generationState: failedGenerationState,
+        updatedAt: timestamp,
+      }));
+    }
+
     const renderJob = {
       ...renderJobBase,
       status: "completed" as const,
@@ -1048,30 +1152,26 @@ async function runContentOpportunityVideoGeneration(input: {
       submittedAt: orchestration.renderJobInput.submittedAt,
       completedAt: orchestration.renderJobInput.completedAt,
     };
-    const renderedAsset = createMockRenderedAsset({
-      renderJobId: renderJob.id,
-      ...orchestration.renderedAssetInput,
-    });
     const assetReview = createPendingAssetReview({
       renderedAssetId: renderedAsset.id,
-    });
-    const attemptLineage = buildVideoFactoryAttemptLineage({
-      factoryJobId: factoryLifecycle.factoryJobId,
-      renderVersion,
-      generationRequestId: generationRequest.id,
-      renderJobId: renderJob.id,
-      renderedAssetId: renderedAsset.id,
-      costEstimate,
-      createdAt: timestamp,
-      narrationSpecId: compiledProductionPlan.narrationSpec.id,
-      captionSpecId: compiledProductionPlan.captionSpec.id,
-      compositionSpecId: compiledProductionPlan.compositionSpec.id,
-      providerResults: orchestration.providerResults,
     });
     factoryLifecycle = transitionVideoFactoryLifecycle(factoryLifecycle, "review_pending", {
       timestamp: new Date().toISOString(),
       provider,
       renderVersion,
+    });
+    const runLedgerEntry = buildFactoryRunLedgerEntry({
+      opportunityId: normalizedCurrent.opportunityId,
+      videoBriefId: brief.id,
+      attemptNumber,
+      lifecycle: factoryLifecycle,
+      renderProvider: provider,
+      generationRequestId: generationRequest.id,
+      renderJobId: renderJob.id,
+      renderedAssetId: renderedAsset.id,
+      attemptLineage,
+      estimatedCost: costEstimate,
+      qualityCheck,
     });
     const generationSignalMetadata = buildPerformanceSignalMetadata({
       opportunity: normalizedCurrent,
@@ -1118,6 +1218,11 @@ async function runContentOpportunityVideoGeneration(input: {
       videoBriefApprovedBy: approvedBy,
       factoryLifecycle,
       latestCostEstimate: costEstimate,
+      latestQualityCheck: qualityCheck,
+      runLedger: appendFactoryRunLedgerEntry(
+        currentGenerationState.runLedger,
+        runLedgerEntry,
+      ),
       attemptLineage: appendVideoFactoryAttemptLineage(
         currentGenerationState.attemptLineage,
         attemptLineage,
@@ -1195,6 +1300,17 @@ async function runContentOpportunityVideoGeneration(input: {
       failureStage: currentStage,
       failureMessage: error instanceof Error ? error.message : "Video generation failed.",
     });
+    const failedGenerationState = contentOpportunityGenerationStateSchema.parse(
+      current.generationState ?? {},
+    );
+    const failedLedgerEntry = buildFactoryRunLedgerEntry({
+      opportunityId: normalizedCurrent.opportunityId,
+      videoBriefId: brief.id,
+      attemptNumber,
+      lifecycle: failedLifecycle,
+      renderProvider: provider,
+      estimatedCost: null,
+    });
 
     await updateOpportunity(input.opportunityId, (opportunity) => ({
       ...opportunity,
@@ -1203,6 +1319,10 @@ async function runContentOpportunityVideoGeneration(input: {
         videoBriefApprovedAt: approvedAt,
         videoBriefApprovedBy: approvedBy,
         factoryLifecycle: failedLifecycle,
+        runLedger: appendFactoryRunLedgerEntry(
+          failedGenerationState.runLedger,
+          failedLedgerEntry,
+        ),
       },
       updatedAt: new Date().toISOString(),
     }));
@@ -1799,6 +1919,26 @@ export async function reviewContentOpportunityRenderedAsset(input: {
             },
           )
         : null,
+      runLedger: normalizedCurrent.generationState?.factoryLifecycle
+        ? updateFactoryRunLedgerOutcome(
+            normalizedCurrent.generationState.runLedger,
+            {
+              renderJobId: normalizedCurrent.generationState.renderJob?.id ?? null,
+              renderedAssetId:
+                normalizedCurrent.generationState.renderedAsset?.id ?? null,
+              lifecycle: transitionVideoFactoryLifecycle(
+                normalizedCurrent.generationState.factoryLifecycle,
+                input.status,
+                {
+                  timestamp,
+                  provider: normalizedCurrent.generationState.renderJob?.provider ?? null,
+                  renderVersion:
+                    normalizedCurrent.generationState.renderJob?.renderVersion ?? null,
+                },
+              ),
+            },
+          )
+        : normalizedCurrent.generationState?.runLedger ?? [],
       assetReview: {
         ...normalizedCurrent.generationState!.assetReview!,
         status: input.status,
@@ -1908,6 +2048,25 @@ export async function discardContentOpportunityRenderedAsset(
             },
           )
         : null,
+      runLedger: normalizedCurrent.generationState?.factoryLifecycle
+        ? updateFactoryRunLedgerOutcome(
+            normalizedCurrent.generationState.runLedger,
+            {
+              renderJobId: normalizedCurrent.generationState?.renderJob?.id ?? null,
+              renderedAssetId: renderedAsset.id,
+              lifecycle: transitionVideoFactoryLifecycle(
+                normalizedCurrent.generationState.factoryLifecycle,
+                "discarded",
+                {
+                  timestamp,
+                  provider: normalizedCurrent.generationState?.renderJob?.provider ?? null,
+                  renderVersion:
+                    normalizedCurrent.generationState?.renderJob?.renderVersion ?? null,
+                },
+              ),
+            },
+          )
+        : normalizedCurrent.generationState?.runLedger ?? [],
       assetReview: {
         ...nextAssetReview,
         status: "discarded" as const,

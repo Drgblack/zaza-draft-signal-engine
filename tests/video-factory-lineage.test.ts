@@ -6,6 +6,18 @@ import {
   buildVideoFactoryAttemptLineage,
 } from "../lib/video-factory-lineage";
 
+const baseQualityCheck = {
+  passed: true,
+  hasAudio: true,
+  durationSeconds: 45,
+  expectedDuration: 45,
+  durationInRange: true,
+  captionsPresent: true,
+  sceneCount: 2,
+  failures: [],
+  checkedAt: "2026-03-22T10:00:00.000Z",
+};
+
 test("video factory attempt lineage records provider executions and artifacts", () => {
   const attempt = buildVideoFactoryAttemptLineage({
     factoryJobId: "factory-job-1",
@@ -23,6 +35,7 @@ test("video factory attempt lineage records provider executions and artifacts", 
       mode: "quality",
       estimatedAt: "2026-03-22T10:00:00.000Z",
     },
+    qualityCheck: baseQualityCheck,
     createdAt: "2026-03-22T10:00:00.000Z",
     narrationSpecId: "narration-spec-1",
     captionSpecId: "caption-spec-1",
@@ -73,6 +86,7 @@ test("video factory attempt lineage records provider executions and artifacts", 
   assert.equal(attempt.factoryJobId, "factory-job-1");
   assert.equal(attempt.renderJobId, "render-job-1");
   assert.equal(attempt.costEstimate.providerId, "runway-gen4");
+  assert.equal(attempt.qualityCheck?.passed, true);
   assert.equal(attempt.providerExecutions.length, 5);
   assert.equal(attempt.narrationArtifact?.artifactType, "narration_audio");
   assert.equal(attempt.sceneArtifacts.length, 2);
@@ -97,6 +111,10 @@ test("video factory attempt lineage appends regenerate attempts instead of overw
       providerId: "runway-gen4",
       mode: "quality",
       estimatedAt: "2026-03-22T10:00:00.000Z",
+    },
+    qualityCheck: {
+      ...baseQualityCheck,
+      sceneCount: 1,
     },
     createdAt: "2026-03-22T10:00:00.000Z",
     narrationSpecId: "narration-spec-1",
@@ -153,6 +171,13 @@ test("video factory attempt lineage appends regenerate attempts instead of overw
       mode: "fast",
       estimatedAt: "2026-03-22T10:10:00.000Z",
     },
+    qualityCheck: {
+      ...baseQualityCheck,
+      durationSeconds: 47,
+      expectedDuration: 47,
+      sceneCount: 1,
+      checkedAt: "2026-03-22T10:10:00.000Z",
+    },
     createdAt: "2026-03-22T10:10:00.000Z",
     narrationSpecId: "narration-spec-2",
     captionSpecId: "caption-spec-2",
@@ -200,4 +225,5 @@ test("video factory attempt lineage appends regenerate attempts instead of overw
   assert.equal(lineage[1]?.attemptId, "render-job-2:attempt-lineage");
   assert.equal(lineage[1]?.renderVersion, "phase-c-render-v2");
   assert.equal(lineage[1]?.costEstimate.providerId, "kling-2");
+  assert.equal(lineage[1]?.qualityCheck?.durationSeconds, 47);
 });
