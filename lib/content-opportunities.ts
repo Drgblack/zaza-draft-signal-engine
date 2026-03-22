@@ -98,6 +98,17 @@ import {
   type VideoFactoryLifecycle,
   type VideoFactoryStatus,
 } from "@/lib/video-factory-state";
+import {
+  buildCostEstimate,
+  costEstimateSchema,
+  type CostEstimate,
+} from "@/lib/video-factory-cost";
+import {
+  appendVideoFactoryAttemptLineage,
+  buildVideoFactoryAttemptLineage,
+  videoFactoryAttemptLineageSchema,
+  type VideoFactoryAttemptLineage,
+} from "@/lib/video-factory-lineage";
 import type { PostingPlatform } from "@/lib/posting-memory";
 
 const CONTENT_OPPORTUNITY_STORE_PATH = path.join(process.cwd(), "data", "content-opportunities.json");
@@ -150,6 +161,8 @@ export interface ContentOpportunityGenerationState {
   videoBriefApprovedAt: string | null;
   videoBriefApprovedBy: string | null;
   factoryLifecycle: VideoFactoryLifecycle | null;
+  latestCostEstimate: CostEstimate | null;
+  attemptLineage: VideoFactoryAttemptLineage[];
   narrationSpec: NarrationSpec | null;
   videoPrompt: VideoPrompt | null;
   generationRequest: VideoGenerationRequest | null;
@@ -221,6 +234,8 @@ export const contentOpportunityGenerationStateSchema = z.object({
   videoBriefApprovedAt: z.string().trim().nullable().default(null),
   videoBriefApprovedBy: z.string().trim().nullable().default(null),
   factoryLifecycle: videoFactoryLifecycleSchema.nullable().default(null),
+  latestCostEstimate: costEstimateSchema.nullable().default(null),
+  attemptLineage: z.array(videoFactoryAttemptLineageSchema).default([]),
   narrationSpec: narrationSpecSchema.nullable().default(null),
   videoPrompt: videoPromptSchema.nullable().default(null),
   generationRequest: videoGenerationRequestSchema.nullable().default(null),
@@ -1014,12 +1029,17 @@ async function runContentOpportunityVideoGeneration(input: {
       ...generationRequestBase,
       status: "completed" as const,
     };
+    const costEstimate = buildCostEstimate({
+      compiledProductionPlan,
+      estimatedAt: timestamp,
+    });
     const renderJobBase = createRenderJob({
       generationRequestId: generationRequest.id,
       provider: orchestration.renderJobInput.provider,
       renderVersion: orchestration.renderJobInput.renderVersion,
       compiledProductionPlan: orchestration.renderJobInput.compiledProductionPlan,
       productionDefaultsSnapshot: orchestration.renderJobInput.productionDefaultsSnapshot,
+      costEstimate,
     });
     const renderJob = {
       ...renderJobBase,
@@ -1034,6 +1054,19 @@ async function runContentOpportunityVideoGeneration(input: {
     });
     const assetReview = createPendingAssetReview({
       renderedAssetId: renderedAsset.id,
+    });
+    const attemptLineage = buildVideoFactoryAttemptLineage({
+      factoryJobId: factoryLifecycle.factoryJobId,
+      renderVersion,
+      generationRequestId: generationRequest.id,
+      renderJobId: renderJob.id,
+      renderedAssetId: renderedAsset.id,
+      costEstimate,
+      createdAt: timestamp,
+      narrationSpecId: compiledProductionPlan.narrationSpec.id,
+      captionSpecId: compiledProductionPlan.captionSpec.id,
+      compositionSpecId: compiledProductionPlan.compositionSpec.id,
+      providerResults: orchestration.providerResults,
     });
     factoryLifecycle = transitionVideoFactoryLifecycle(factoryLifecycle, "review_pending", {
       timestamp: new Date().toISOString(),
@@ -1084,6 +1117,11 @@ async function runContentOpportunityVideoGeneration(input: {
       videoBriefApprovedAt: approvedAt,
       videoBriefApprovedBy: approvedBy,
       factoryLifecycle,
+      latestCostEstimate: costEstimate,
+      attemptLineage: appendVideoFactoryAttemptLineage(
+        currentGenerationState.attemptLineage,
+        attemptLineage,
+      ),
       narrationSpec,
       videoPrompt,
       generationRequest,

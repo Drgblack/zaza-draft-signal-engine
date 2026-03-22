@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { compiledProductionPlanSchema } from "@/lib/prompt-compiler";
 import { productionDefaultsSchema } from "@/lib/production-defaults";
+import { costEstimateSchema } from "@/lib/video-factory-cost";
 
 export const RENDER_PROVIDERS = ["mock", "runway", "capcut", "custom"] as const;
 export const RENDER_JOB_STATUSES = [
@@ -22,6 +23,7 @@ export const renderJobSchema = z.object({
   compiledProductionPlan: compiledProductionPlanSchema.nullable().default(null),
   productionDefaultsSnapshot: productionDefaultsSchema.nullable().default(null),
   providerJobId: z.string().trim().nullable().default(null),
+  costEstimate: costEstimateSchema.nullable().default(null),
   status: z.enum(RENDER_JOB_STATUSES),
   submittedAt: z.string().trim().nullable().default(null),
   completedAt: z.string().trim().nullable().default(null),
@@ -45,6 +47,7 @@ export function createRenderJob(input: {
   renderVersion?: string | null;
   compiledProductionPlan?: z.infer<typeof compiledProductionPlanSchema> | null;
   productionDefaultsSnapshot?: z.infer<typeof productionDefaultsSchema> | null;
+  costEstimate?: z.infer<typeof costEstimateSchema> | null;
 }): RenderJob {
   return renderJobSchema.parse({
     id: renderJobId(
@@ -58,6 +61,7 @@ export function createRenderJob(input: {
     compiledProductionPlan: input.compiledProductionPlan ?? null,
     productionDefaultsSnapshot: input.productionDefaultsSnapshot ?? null,
     providerJobId: null,
+    costEstimate: input.costEstimate ?? null,
     status: "queued",
     submittedAt: null,
     completedAt: null,
