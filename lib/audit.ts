@@ -6,6 +6,11 @@ import { z } from "zod";
 import { getCopilotGuidance, type CopilotActionKey } from "@/lib/copilot";
 import type { OperatorTuningSettings } from "@/lib/tuning";
 import { mockAuditEventsSeed } from "@/lib/mock-data";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
+import { sanitizeGroupedStore } from "@/lib/store-sanitizer";
 import type { SignalRecord, SignalScoringResult } from "@/types/signal";
 
 const AUDIT_STORE_PATH = path.join(process.cwd(), "data", "signal-audit-events.json");
@@ -250,11 +255,11 @@ export const auditEventSchema = z.object({
   metadata: auditMetadataSchema,
 });
 
-const auditStoreSchema = z.record(z.string(), z.array(auditEventSchema));
-
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];
 export type AuditActor = (typeof AUDIT_ACTORS)[number];
 export type AuditEvent = z.infer<typeof auditEventSchema>;
+
+let inMemoryAuditStore: Record<string, AuditEvent[]> = {};
 
 export interface AuditEventInput {
   signalId: string;
@@ -302,13 +307,16 @@ function mergeAuditStores(
 async function readPersistedAuditStore(): Promise<Record<string, AuditEvent[]>> {
   try {
     const raw = await readFile(AUDIT_STORE_PATH, "utf8");
-    return auditStoreSchema.parse(JSON.parse(raw));
+    const parsed = sanitizeAuditStore(JSON.parse(raw));
+    inMemoryAuditStore = parsed;
+    return parsed;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return {};
+      return inMemoryAuditStore;
     }
 
-    throw error;
+    console.warn("audit: persisted audit store could not be parsed, falling back to in-memory state.", error);
+    return inMemoryAuditStore;
   }
 }
 
@@ -317,8 +325,28 @@ async function readAuditStore(): Promise<Record<string, AuditEvent[]>> {
 }
 
 async function writeAuditStore(store: Record<string, AuditEvent[]>): Promise<void> {
-  await mkdir(path.dirname(AUDIT_STORE_PATH), { recursive: true });
-  await writeFile(AUDIT_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = sanitizeAuditStore(store);
+  inMemoryAuditStore = parsed;
+
+  try {
+    await mkdir(path.dirname(AUDIT_STORE_PATH), { recursive: true });
+    await writeFile(AUDIT_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("audit", error);
+      return;
+    }
+
+    throw error;
+  }
+}
+
+export function sanitizeAuditStore(input: unknown): Record<string, AuditEvent[]> {
+  return Object.fromEntries(
+    Object.entries(
+      sanitizeGroupedStore(input, z.array(auditEventSchema), "audit"),
+    ).map(([signalId, events]) => [signalId, sortEvents(events)]),
+  );
 }
 
 function buildEvent(input: AuditEventInput): AuditEvent {
