@@ -57,6 +57,10 @@ import type { FounderOverrideState } from "@/lib/founder-overrides";
 import type { ProductionPackage } from "@/lib/production-packages";
 import type { ProductionDefaults } from "@/lib/production-defaults";
 import type {
+  BridgeOpportunity,
+  BridgeOpportunitiesResponse as BridgeOpportunitiesResponseBody,
+} from "@/lib/bridge-opportunities";
+import type {
   ContentOpportunity,
   ContentOpportunityState,
 } from "@/lib/content-opportunities";
@@ -1239,6 +1243,15 @@ export interface ZazaConnectBridgeResponse {
   summary: ZazaConnectBridgeSummary | null;
   message: string;
   error?: string;
+}
+
+export interface ZazaConnectBridgeOpportunitiesResponse
+  extends Pick<
+    BridgeOpportunitiesResponseBody,
+    "success" | "exportId" | "generatedAt" | "message" | "error"
+  > {
+  opportunities: BridgeOpportunity[];
+  strongContentCandidates: BridgeOpportunity[];
 }
 
 export function normalizeSeverityScore(value: unknown): SeverityScore | null {

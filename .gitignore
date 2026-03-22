@@ -4,6 +4,7 @@ out
 dist
 build
 coverage
+.test-dist
 .env
 .env.local
 .env.development.local

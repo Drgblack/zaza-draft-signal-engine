@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --max-warnings=0"
+    "lint": "eslint . --max-warnings=0",
+    "test:bridge": "node -e \"require('fs').rmSync('.test-dist',{ recursive: true, force: true })\" && npx tsc -p tsconfig.bridge-tests.json && node --test .test-dist/tests/zaza-connect-bridge-opportunities.test.js && node -e \"require('fs').rmSync('.test-dist',{ recursive: true, force: true })\""
   },
   "dependencies": {
     "clsx": "^2.1.1",
