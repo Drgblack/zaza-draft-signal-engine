@@ -5,6 +5,7 @@ export const ASSET_REVIEW_STATUSES = [
   "pending_review",
   "accepted",
   "rejected",
+  "discarded",
 ] as const;
 
 export const renderedAssetSchema = z.object({

@@ -25,12 +25,15 @@ function buildDerivedStatus(
     assetPendingReview: assetReviewStatus === "pending_review",
     assetAccepted: assetReviewStatus === "accepted",
     assetRejected: assetReviewStatus === "rejected",
+    assetDiscarded: assetReviewStatus === "discarded",
     renderJobStatus,
     lifecycleLabel:
       assetReviewStatus === "accepted"
         ? "accepted"
         : assetReviewStatus === "rejected"
           ? "rejected"
+          : assetReviewStatus === "discarded"
+            ? "discarded"
           : assetReviewStatus === "pending_review"
             ? "pending_review"
             : renderJobStatus === "failed"
@@ -97,6 +100,7 @@ export async function GET(request: Request) {
             assetPendingReview: false,
             assetAccepted: false,
             assetRejected: false,
+            assetDiscarded: false,
             renderJobStatus: null,
             lifecycleLabel: "awaiting_brief_approval",
           },

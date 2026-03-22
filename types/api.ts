@@ -55,6 +55,7 @@ import type { OperatorTuning } from "@/lib/tuning-definitions";
 import type { AudienceSegment, Campaign, CampaignStrategy, ContentPillar } from "@/lib/campaigns";
 import type { FounderOverrideState } from "@/lib/founder-overrides";
 import type { ProductionPackage } from "@/lib/production-packages";
+import type { ProductionDefaults } from "@/lib/production-defaults";
 import type {
   ContentOpportunity,
   ContentOpportunityState,
@@ -456,6 +457,23 @@ export type FactoryInputGenerateVideoRequest = z.infer<
   typeof factoryInputGenerateVideoRequestSchema
 >;
 
+export const factoryInputRegenerateVideoRequestSchema = z.object({
+  opportunityId: z.string().trim().min(1),
+  provider: z.enum(["mock", "runway", "capcut", "custom"]).default("mock"),
+});
+
+export type FactoryInputRegenerateVideoRequest = z.infer<
+  typeof factoryInputRegenerateVideoRequestSchema
+>;
+
+export const factoryInputDiscardAssetRequestSchema = z.object({
+  opportunityId: z.string().trim().min(1),
+});
+
+export type FactoryInputDiscardAssetRequest = z.infer<
+  typeof factoryInputDiscardAssetRequestSchema
+>;
+
 export const factoryInputRenderReviewRequestSchema = z.object({
   opportunityId: z.string().trim().min(1),
   status: z.enum(["accepted", "rejected"]),
@@ -473,6 +491,28 @@ export const factoryInputExportPackageRequestSchema = z.object({
 
 export type FactoryInputExportPackageRequest = z.infer<
   typeof factoryInputExportPackageRequestSchema
+>;
+
+export const productionDefaultsUpdateRequestSchema = z.object({
+  voiceId: z.string().trim().min(1),
+  styleAnchorPrompt: z.string().trim().min(1),
+  motionStyle: z.string().trim().min(1),
+  negativeConstraints: z.array(z.string().trim().min(1)).min(1),
+  aspectRatio: z.enum(["9:16", "1:1", "16:9"]),
+  resolution: z.enum(["720p", "1080p"]),
+  captionStyle: z.object({
+    preset: z.string().trim().min(1),
+    placement: z.enum(["center", "lower-third"]),
+    casing: z.enum(["sentence", "title", "upper"]),
+  }),
+  compositionDefaults: z.object({
+    transitionStyle: z.string().trim().min(1).optional(),
+    musicMode: z.enum(["none", "light-bed"]).optional(),
+  }),
+});
+
+export type ProductionDefaultsUpdateRequest = z.infer<
+  typeof productionDefaultsUpdateRequestSchema
 >;
 
 export const zazaConnectBridgeActionRequestSchema = z.discriminatedUnion("action", [
@@ -1014,6 +1054,7 @@ export interface FactoryInputRenderStatusResponse {
     assetPendingReview: boolean;
     assetAccepted: boolean;
     assetRejected: boolean;
+    assetDiscarded: boolean;
     renderJobStatus: "queued" | "submitted" | "rendering" | "completed" | "failed" | null;
     lifecycleLabel:
       | "awaiting_brief_approval"
@@ -1024,7 +1065,8 @@ export interface FactoryInputRenderStatusResponse {
       | "failed"
       | "pending_review"
       | "accepted"
-      | "rejected";
+      | "rejected"
+      | "discarded";
   } | null;
   message?: string;
   error?: string;
@@ -1033,6 +1075,13 @@ export interface FactoryInputRenderStatusResponse {
 export interface FactoryInputProductionPackageResponse {
   success: boolean;
   productionPackage: ProductionPackage | null;
+  message?: string;
+  error?: string;
+}
+
+export interface ProductionDefaultsResponse {
+  success: boolean;
+  productionDefaults: ProductionDefaults | null;
   message?: string;
   error?: string;
 }

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { generateContentOpportunityVideo } from "@/lib/content-opportunities";
+import { discardContentOpportunityRenderedAsset } from "@/lib/content-opportunities";
 import {
-  factoryInputGenerateVideoRequestSchema,
+  factoryInputDiscardAssetRequestSchema,
   type FactoryInputResponse,
 } from "@/types/api";
 
@@ -10,36 +10,35 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null);
-  const parsed = factoryInputGenerateVideoRequestSchema.safeParse(payload);
+  const parsed = factoryInputDiscardAssetRequestSchema.safeParse(payload);
 
   if (!parsed.success) {
     return NextResponse.json<FactoryInputResponse>(
       {
         success: false,
         state: null,
-        error: parsed.error.issues[0]?.message ?? "Invalid generate video payload.",
+        error: parsed.error.issues[0]?.message ?? "Invalid discard asset payload.",
       },
       { status: 400 },
     );
   }
 
   try {
-    const state = await generateContentOpportunityVideo({
-      opportunityId: parsed.data.opportunityId,
-      provider: parsed.data.provider,
-    });
+    const state = await discardContentOpportunityRenderedAsset(
+      parsed.data.opportunityId,
+    );
 
     return NextResponse.json<FactoryInputResponse>({
       success: true,
       state,
-      message: "Video compiled through the mock production pipeline and is ready for review.",
+      message: "Rendered asset discarded.",
     });
   } catch (error) {
     return NextResponse.json<FactoryInputResponse>(
       {
         success: false,
         state: null,
-        error: error instanceof Error ? error.message : "Unable to generate video.",
+        error: error instanceof Error ? error.message : "Unable to discard rendered asset.",
       },
       { status: 500 },
     );

@@ -225,6 +225,8 @@ function assetReviewTone(
   switch (status) {
     case "accepted":
       return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+    case "discarded":
+      return "bg-slate-100 text-slate-700 ring-slate-200";
     case "rejected":
       return "bg-rose-50 text-rose-700 ring-rose-200";
     case "pending_review":
@@ -239,6 +241,8 @@ function assetReviewLabel(
   switch (status) {
     case "accepted":
       return "Accepted";
+    case "discarded":
+      return "Discarded";
     case "rejected":
       return "Rejected";
     case "pending_review":
@@ -279,6 +283,43 @@ function trustReasonLabel(reason: string) {
     default:
       return reason.replaceAll("-", " ");
   }
+}
+
+function performanceSignalLabel(eventType: string) {
+  switch (eventType) {
+    case "brief_approved":
+      return "brief";
+    case "asset_generated":
+      return "generated";
+    case "asset_accepted":
+      return "accepted";
+    case "asset_rejected":
+      return "rejected";
+    case "asset_discarded":
+      return "discarded";
+    case "asset_regenerated":
+      return "regenerated";
+    default:
+      return eventType.replaceAll("_", " ");
+  }
+}
+
+function buildPerformanceSignalSummary(
+  signals: NonNullable<ContentOpportunity["generationState"]>["performanceSignals"] | undefined,
+) {
+  if (!signals?.length) {
+    return null;
+  }
+
+  const counts = signals.reduce<Record<string, number>>((current, signal) => {
+    current[signal.eventType] = (current[signal.eventType] ?? 0) + 1;
+    return current;
+  }, {});
+
+  return Object.entries(counts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([eventType, count]) => `${performanceSignalLabel(eventType)} ${count}`)
+    .join(" | ");
 }
 
 interface OpportunityDraftFlow {
@@ -541,6 +582,21 @@ export function FactoryInputsPanel({
             reviewNotes?: string;
             rejectionReason?: string;
           };
+        }
+      | {
+          url: "/api/factory-inputs/regenerate-video";
+          method: "POST";
+          body: {
+            opportunityId: string;
+            provider?: "mock";
+          };
+        }
+      | {
+          url: "/api/factory-inputs/discard-asset";
+          method: "POST";
+          body: {
+            opportunityId: string;
+          };
         },
   ) {
     startTransition(async () => {
@@ -670,13 +726,25 @@ export function FactoryInputsPanel({
               const renderJob = generationState?.renderJob ?? null;
               const renderedAsset = generationState?.renderedAsset ?? null;
               const assetReview = generationState?.assetReview ?? null;
+              const performanceSignalSummary = buildPerformanceSignalSummary(
+                generationState?.performanceSignals,
+              );
               const packageFeedback = packageFeedbackByOpportunityId[item.opportunityId] ?? null;
               const renderStatus = renderJob?.status ?? null;
+              const productionDefaultsSnapshot =
+                renderJob?.productionDefaultsSnapshot ??
+                renderJob?.compiledProductionPlan?.defaultsSnapshot ??
+                null;
               const canGenerateVideo =
                 briefApprovedForGeneration &&
                 !generationRequest &&
                 !renderJob &&
                 !renderedAsset;
+              const canRegenerateVideo =
+                briefApprovedForGeneration &&
+                Boolean(generationRequest || renderJob || renderedAsset);
+              const canDiscardAsset =
+                Boolean(renderedAsset) && assetReview?.status !== "discarded";
               const canExportPackage = briefApprovedForGeneration;
               const canReviewAsset =
                 Boolean(renderedAsset) &&
@@ -1123,6 +1191,35 @@ export function FactoryInputsPanel({
                                       Render submitted on {formatDateTime(renderJob.submittedAt)}.
                                     </p>
                                   ) : null}
+                                  {renderJob?.renderVersion || productionDefaultsSnapshot ? (
+                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                      {renderJob?.renderVersion ? (
+                                        <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                          {renderJob.renderVersion}
+                                        </Badge>
+                                      ) : null}
+                                      {renderJob?.provider ? (
+                                        <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                          Render {renderJob.provider}
+                                        </Badge>
+                                      ) : null}
+                                      {productionDefaultsSnapshot ? (
+                                        <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                          Voice {productionDefaultsSnapshot.voiceProvider}/{productionDefaultsSnapshot.voiceId}
+                                        </Badge>
+                                      ) : null}
+                                      {productionDefaultsSnapshot ? (
+                                        <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                                          {productionDefaultsSnapshot.aspectRatio} {productionDefaultsSnapshot.resolution}
+                                        </Badge>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                  {performanceSignalSummary ? (
+                                    <p className="mt-2 text-xs leading-5 text-slate-500">
+                                      Signals: {performanceSignalSummary}.
+                                    </p>
+                                  ) : null}
                                   {renderedAsset ? (
                                     <div className="mt-3 rounded-2xl bg-white/80 px-3 py-3">
                                       <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
@@ -1208,6 +1305,43 @@ export function FactoryInputsPanel({
                                         }
                                       >
                                         Generate video
+                                      </Button>
+                                    ) : null}
+                                    {canRegenerateVideo ? (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={isPending}
+                                        onClick={() =>
+                                          runRequest({
+                                            url: "/api/factory-inputs/regenerate-video",
+                                            method: "POST",
+                                            body: {
+                                              opportunityId: item.opportunityId,
+                                              provider: "mock",
+                                            },
+                                          })
+                                        }
+                                      >
+                                        Regenerate
+                                      </Button>
+                                    ) : null}
+                                    {canDiscardAsset ? (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={isPending}
+                                        onClick={() =>
+                                          runRequest({
+                                            url: "/api/factory-inputs/discard-asset",
+                                            method: "POST",
+                                            body: {
+                                              opportunityId: item.opportunityId,
+                                            },
+                                          })
+                                        }
+                                      >
+                                        Discard
                                       </Button>
                                     ) : null}
                                     {canExportPackage ? (
