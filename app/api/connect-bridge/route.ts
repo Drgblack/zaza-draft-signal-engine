@@ -5,6 +5,7 @@ import { appendAuditEventsSafe } from "@/lib/audit";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
+import { buildFallbackBridgeCandidates } from "@/lib/connect-bridge-fallbacks";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import {
   filterSignalsForActiveReviewQueue,
@@ -17,7 +18,6 @@ import { listFeedbackEntries } from "@/lib/feedback";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { buildInfluencerGraphState } from "@/lib/influencer-graph";
 import {
-  type BridgeFallbackCandidateInput,
   buildZazaConnectBridgeSummary,
   buildZazaConnectExportPayload,
   getZazaConnectBridgeStorageDiagnostics,
@@ -43,198 +43,6 @@ import {
   zazaConnectBridgeActionRequestSchema,
   type ZazaConnectBridgeResponse,
 } from "@/types/api";
-
-function getFallbackPlatform(signal: Awaited<ReturnType<typeof listSignalsWithFallback>>["signals"][number]) {
-  const platformPriority = signal.platformPriority?.toLowerCase() ?? "";
-
-  if (platformPriority.includes("linkedin")) {
-    return {
-      primary: "LinkedIn",
-      platforms: ["linkedin"],
-    };
-  }
-
-  if (platformPriority.includes("reddit")) {
-    return {
-      primary: "Reddit",
-      platforms: ["reddit"],
-    };
-  }
-
-  if (platformPriority.includes("multi")) {
-    return {
-      primary: "Multi-platform",
-      platforms: ["linkedin", "x"],
-    };
-  }
-
-  return {
-    primary: "X",
-    platforms: ["x"],
-  };
-}
-
-function getFallbackAssessmentPriority(
-  decision: ReturnType<typeof assessAutonomousSignal>["decision"],
-) {
-  switch (decision) {
-    case "approval_ready":
-      return 4;
-    case "advance":
-      return 3;
-    case "hold":
-      return 2;
-    case "skip":
-    default:
-      return 0;
-  }
-}
-
-function getFallbackOutcomePriority(expectedOutcomeTier: "high" | "medium" | "low") {
-  switch (expectedOutcomeTier) {
-    case "high":
-      return 3;
-    case "medium":
-      return 2;
-    case "low":
-    default:
-      return 1;
-  }
-}
-
-function getFallbackRiskPriority(decision: string) {
-  switch (decision) {
-    case "allow":
-      return 3;
-    case "suggest_fix":
-      return 2;
-    case "block":
-    default:
-      return 0;
-  }
-}
-
-function getFallbackCompletenessPriority(completenessState: string) {
-  switch (completenessState) {
-    case "complete":
-      return 2;
-    case "mostly_complete":
-      return 1;
-    case "incomplete":
-    default:
-      return 0;
-  }
-}
-
-function getFallbackTriagePriority(triageState: string) {
-  switch (triageState) {
-    case "approve_ready":
-      return 3;
-    case "repairable":
-      return 2;
-    case "needs_judgement":
-      return 1;
-    case "stale_but_reusable":
-    default:
-      return 0;
-  }
-}
-
-function chooseFallbackReason(candidate: ReturnType<typeof rankApprovalCandidates>[number]) {
-  const preferredRankReason = candidate.rankReasons.find(
-    (reason) =>
-      reason !== "Playbook support exists" &&
-      reason !== "Pattern support exists" &&
-      reason !== "Bundle context exists",
-  );
-
-  return (
-    preferredRankReason ??
-    candidate.rankReasons[0] ??
-    candidate.signal.contentAngle ??
-    candidate.signal.manualSummary ??
-    "Current review ranking surfaced this for founder judgement."
-  );
-}
-
-function buildFallbackBridgeCandidates(input: {
-  candidates: ReturnType<typeof rankApprovalCandidates>;
-}): BridgeFallbackCandidateInput[] {
-  return input.candidates
-    .filter((candidate) => candidate.triage.triageState !== "suppress")
-    .map((candidate, index) => ({
-      candidate,
-      index,
-      exportPriority:
-        getFallbackAssessmentPriority(candidate.assessment.decision) * 100 +
-        getFallbackOutcomePriority(candidate.expectedOutcome.expectedOutcomeTier) * 10 +
-        getFallbackRiskPriority(candidate.commercialRisk.decision) * 10 +
-        getFallbackCompletenessPriority(candidate.completeness.completenessState) * 5 +
-        getFallbackTriagePriority(candidate.triage.triageState),
-    }))
-    .sort(
-      (left, right) =>
-        right.exportPriority - left.exportPriority ||
-        left.index - right.index,
-    )
-    .slice(0, 5)
-    .map(({ candidate }) => {
-      const platform = getFallbackPlatform(candidate.signal);
-      const primaryPainPoint =
-        candidate.signal.teacherPainPoint ??
-        candidate.signal.contentAngle ??
-        candidate.signal.scenarioAngle ??
-        candidate.signal.manualSummary ??
-        candidate.signal.sourceTitle;
-      const reason = chooseFallbackReason(candidate);
-
-      return {
-        candidateId: `review-candidate:${candidate.signal.recordId}`,
-        signalId: candidate.signal.recordId,
-        sourceTitle: candidate.signal.sourceTitle,
-        platform: platform.primary,
-        expectedOutcomeTier: candidate.expectedOutcome.expectedOutcomeTier,
-        reason,
-        href: `/signals/${candidate.signal.recordId}/review`,
-        primaryPainPoint,
-        teacherLanguage: [],
-        audienceSegment: candidate.signal.audienceSegmentId ?? null,
-        funnelStage: candidate.signal.funnelStage ?? null,
-        commercialPotential: candidate.expectedOutcome.expectedOutcomeTier,
-        trustRisk:
-          candidate.assessment.decision === "advance"
-            ? "low"
-            : candidate.assessment.decision === "hold"
-              ? "medium"
-              : "high",
-        recommendedAngle:
-          candidate.signal.contentAngle ??
-          candidate.signal.scenarioAngle ??
-          primaryPainPoint,
-        recommendedHookDirection:
-          candidate.signal.scenarioAngle ??
-          candidate.signal.contentAngle ??
-          reason,
-        recommendedFormat:
-          candidate.signal.suggestedFormatPriority === "Carousel"
-            ? "carousel"
-            : candidate.signal.suggestedFormatPriority === "Video"
-              ? "short_video"
-              : candidate.signal.suggestedFormatPriority === "Multi-format"
-                ? "multi_asset"
-                : "text",
-        recommendedPlatforms: platform.platforms,
-        whyNow: reason,
-        proofPoints: [
-          candidate.signal.teacherPainPoint,
-          candidate.signal.contentAngle,
-          ...candidate.rankReasons,
-        ].filter((value): value is string => Boolean(value)).slice(0, 5),
-        trustNotes: candidate.commercialRisk.supportingSignals.slice(0, 3),
-        sourceSignalIds: [candidate.signal.recordId],
-      };
-    });
-}
 
 async function buildLatestBridgeState() {
   const [importedContexts, exports] = await Promise.all([
@@ -411,6 +219,7 @@ async function buildCurrentExportPayload() {
         experiments,
       },
     ),
+    strategy,
   });
 
   return buildZazaConnectExportPayload({
