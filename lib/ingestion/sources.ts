@@ -9,9 +9,14 @@ import {
   type IngestionSourceDefinition,
   type IngestionSourceOverride,
 } from "@/lib/ingestion/types";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 
 const SOURCE_OVERRIDES_PATH = path.join(process.cwd(), "data", "ingestion-source-overrides.json");
 const sourceOverridesFileSchema = z.array(ingestionSourceOverrideSchema);
+let inMemorySourceOverrides: IngestionSourceOverride[] = [];
 
 const defaultSourceRegistry = [
   {
@@ -244,10 +249,12 @@ export function buildIngestionSourceLabel(source: IngestionSourceDefinition): st
 async function readSourceOverrides(): Promise<IngestionSourceOverride[]> {
   try {
     const raw = await readFile(SOURCE_OVERRIDES_PATH, "utf8");
-    return sourceOverridesFileSchema.parse(JSON.parse(raw));
+    const overrides = sourceOverridesFileSchema.parse(JSON.parse(raw));
+    inMemorySourceOverrides = overrides;
+    return overrides;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return [];
+      return inMemorySourceOverrides;
     }
 
     throw error;
@@ -255,11 +262,23 @@ async function readSourceOverrides(): Promise<IngestionSourceOverride[]> {
 }
 
 async function writeSourceOverrides(overrides: IngestionSourceOverride[]): Promise<void> {
-  await mkdir(path.dirname(SOURCE_OVERRIDES_PATH), { recursive: true });
   const ordered = [...overrides].sort(
     (left, right) => (defaultSourceOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (defaultSourceOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER),
   );
-  await writeFile(SOURCE_OVERRIDES_PATH, `${JSON.stringify(ordered, null, 2)}\n`, "utf8");
+  const parsed = sourceOverridesFileSchema.parse(ordered);
+  inMemorySourceOverrides = parsed;
+
+  try {
+    await mkdir(path.dirname(SOURCE_OVERRIDES_PATH), { recursive: true });
+    await writeFile(SOURCE_OVERRIDES_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("ingestion-sources", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 function mergeSources(overrides: IngestionSourceOverride[]): IngestionSourceDefinition[] {

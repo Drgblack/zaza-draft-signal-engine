@@ -12,6 +12,10 @@ import type { ExceptionInboxState } from "@/lib/exception-inbox";
 import type { GrowthScorecardSummary } from "@/lib/growth-scorecard";
 import type { InfluencerGraphSummary } from "@/lib/influencer-graph";
 import type { RevenueSignalInsights } from "@/lib/revenue-signals";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import type { SourceAutopilotV2State } from "@/lib/source-autopilot-v2";
 import type { WeeklyExecutionFlow } from "@/lib/weekly-execution";
 import type { WeeklyRecap } from "@/lib/weekly-recap";
@@ -80,6 +84,8 @@ const tuningStoreSchema = z.object({
   generatedAt: z.string().trim().min(1),
   entries: z.array(tuningEntrySchema).length(RECOMMENDATION_FAMILIES.length),
 });
+
+let inMemoryRecommendationTuningStore: RecommendationTuningStore | null = null;
 
 function roundWeight(value: number) {
   return Math.round(value * 100) / 100;
@@ -190,10 +196,12 @@ function topNotes(entries: RecommendationTuningEntry[]) {
 async function readPersistedStore(): Promise<RecommendationTuningStore | null> {
   try {
     const raw = await readFile(RECOMMENDATION_TUNING_STORE_PATH, "utf8");
-    return tuningStoreSchema.parse(JSON.parse(raw));
+    const store = tuningStoreSchema.parse(JSON.parse(raw));
+    inMemoryRecommendationTuningStore = store;
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return null;
+      return inMemoryRecommendationTuningStore;
     }
 
     throw error;
@@ -201,8 +209,20 @@ async function readPersistedStore(): Promise<RecommendationTuningStore | null> {
 }
 
 async function writePersistedStore(store: RecommendationTuningStore) {
-  await mkdir(path.dirname(RECOMMENDATION_TUNING_STORE_PATH), { recursive: true });
-  await writeFile(RECOMMENDATION_TUNING_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = tuningStoreSchema.parse(store);
+  inMemoryRecommendationTuningStore = parsed;
+
+  try {
+    await mkdir(path.dirname(RECOMMENDATION_TUNING_STORE_PATH), { recursive: true });
+    await writeFile(RECOMMENDATION_TUNING_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("recommendation-tuning", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export function getRecommendationWeight(

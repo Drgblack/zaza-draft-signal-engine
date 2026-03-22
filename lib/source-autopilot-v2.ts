@@ -11,6 +11,10 @@ import { listIngestionSources, updateIngestionSource } from "@/lib/ingestion/sou
 import type { IngestionSourceDefinition, IngestionSourceKind, ManagedIngestionSource } from "@/lib/ingestion/types";
 import { listPostingLogEntries, type PostingLogEntry } from "@/lib/posting-log";
 import { listPostingOutcomes, type PostingOutcome } from "@/lib/outcomes";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import type { StrategicOutcome } from "@/lib/strategic-outcome-memory";
 import type { SignalDataSource, SignalRecord } from "@/types/signal";
@@ -79,6 +83,8 @@ const sourceChangeProposalStoreSchema = z.array(sourceChangeProposalSchema);
 export type SourceChangeProposal = z.infer<typeof sourceChangeProposalSchema>;
 export type SourceChangeProposalAction = z.infer<typeof sourceChangeProposalActionSchema>;
 export type SourceChangeProposalSummary = z.infer<typeof sourceChangeProposalSummarySchema>;
+
+let inMemorySourceProposalStore: SourceChangeProposal[] = [];
 
 export interface SourceAutopilotV2State {
   source: SignalDataSource;
@@ -532,10 +538,12 @@ function draftSourceChangeProposals(metricsRows: SourceDraftMetrics[]): SourceCh
 async function readProposalStore(): Promise<SourceChangeProposal[]> {
   try {
     const raw = await readFile(SOURCE_PROPOSAL_STORE_PATH, "utf8");
-    return sourceChangeProposalStoreSchema.parse(JSON.parse(raw));
+    const store = sourceChangeProposalStoreSchema.parse(JSON.parse(raw));
+    inMemorySourceProposalStore = store;
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return [];
+      return inMemorySourceProposalStore;
     }
 
     throw error;
@@ -543,8 +551,20 @@ async function readProposalStore(): Promise<SourceChangeProposal[]> {
 }
 
 async function writeProposalStore(proposals: SourceChangeProposal[]): Promise<void> {
-  await mkdir(path.dirname(SOURCE_PROPOSAL_STORE_PATH), { recursive: true });
-  await writeFile(SOURCE_PROPOSAL_STORE_PATH, `${JSON.stringify(proposals, null, 2)}\n`, "utf8");
+  const parsed = sourceChangeProposalStoreSchema.parse(proposals);
+  inMemorySourceProposalStore = parsed;
+
+  try {
+    await mkdir(path.dirname(SOURCE_PROPOSAL_STORE_PATH), { recursive: true });
+    await writeFile(SOURCE_PROPOSAL_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("source-autopilot-v2", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 function countByStatus(

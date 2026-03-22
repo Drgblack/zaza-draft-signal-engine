@@ -17,6 +17,7 @@ import { listFeedbackEntries } from "@/lib/feedback";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { buildInfluencerGraphState } from "@/lib/influencer-graph";
 import {
+  type BridgeFallbackCandidateInput,
   buildZazaConnectBridgeSummary,
   buildZazaConnectExportPayload,
   getZazaConnectBridgeStorageDiagnostics,
@@ -42,6 +43,104 @@ import {
   zazaConnectBridgeActionRequestSchema,
   type ZazaConnectBridgeResponse,
 } from "@/types/api";
+
+function getFallbackPlatform(signal: Awaited<ReturnType<typeof listSignalsWithFallback>>["signals"][number]) {
+  const platformPriority = signal.platformPriority?.toLowerCase() ?? "";
+
+  if (platformPriority.includes("linkedin")) {
+    return {
+      primary: "LinkedIn",
+      platforms: ["linkedin"],
+    };
+  }
+
+  if (platformPriority.includes("reddit")) {
+    return {
+      primary: "Reddit",
+      platforms: ["reddit"],
+    };
+  }
+
+  if (platformPriority.includes("multi")) {
+    return {
+      primary: "Multi-platform",
+      platforms: ["linkedin", "x"],
+    };
+  }
+
+  return {
+    primary: "X",
+    platforms: ["x"],
+  };
+}
+
+function buildFallbackBridgeCandidates(input: {
+  candidates: ReturnType<typeof rankApprovalCandidates>;
+}): BridgeFallbackCandidateInput[] {
+  return input.candidates
+    .filter((candidate) => candidate.triage.triageState !== "suppress")
+    .slice(0, 5)
+    .map((candidate) => {
+      const platform = getFallbackPlatform(candidate.signal);
+      const primaryPainPoint =
+        candidate.signal.teacherPainPoint ??
+        candidate.signal.contentAngle ??
+        candidate.signal.scenarioAngle ??
+        candidate.signal.manualSummary ??
+        candidate.signal.sourceTitle;
+      const reason =
+        candidate.rankReasons[0] ??
+        candidate.signal.contentAngle ??
+        candidate.signal.manualSummary ??
+        "Current review ranking surfaced this for founder judgement.";
+
+      return {
+        candidateId: `review-candidate:${candidate.signal.recordId}`,
+        signalId: candidate.signal.recordId,
+        sourceTitle: candidate.signal.sourceTitle,
+        platform: platform.primary,
+        expectedOutcomeTier: candidate.expectedOutcome.expectedOutcomeTier,
+        reason,
+        href: `/signals/${candidate.signal.recordId}/review`,
+        primaryPainPoint,
+        teacherLanguage: [],
+        audienceSegment: candidate.signal.audienceSegmentId ?? null,
+        funnelStage: candidate.signal.funnelStage ?? null,
+        commercialPotential: candidate.expectedOutcome.expectedOutcomeTier,
+        trustRisk:
+          candidate.assessment.decision === "advance"
+            ? "low"
+            : candidate.assessment.decision === "hold"
+              ? "medium"
+              : "high",
+        recommendedAngle:
+          candidate.signal.contentAngle ??
+          candidate.signal.scenarioAngle ??
+          primaryPainPoint,
+        recommendedHookDirection:
+          candidate.signal.scenarioAngle ??
+          candidate.signal.contentAngle ??
+          reason,
+        recommendedFormat:
+          candidate.signal.suggestedFormatPriority === "Carousel"
+            ? "carousel"
+            : candidate.signal.suggestedFormatPriority === "Video"
+              ? "short_video"
+              : candidate.signal.suggestedFormatPriority === "Multi-format"
+                ? "multi_asset"
+                : "text",
+        recommendedPlatforms: platform.platforms,
+        whyNow: reason,
+        proofPoints: [
+          candidate.signal.teacherPainPoint,
+          candidate.signal.contentAngle,
+          ...candidate.rankReasons,
+        ].filter((value): value is string => Boolean(value)).slice(0, 5),
+        trustNotes: candidate.commercialRisk.supportingSignals.slice(0, 3),
+        sourceSignalIds: [candidate.signal.recordId],
+      };
+    });
+}
 
 async function buildLatestBridgeState() {
   const [importedContexts, exports] = await Promise.all([
@@ -187,11 +286,44 @@ async function buildCurrentExportPayload() {
     strategy,
     maxSequences: 12,
   });
+  const fallbackCandidates = buildFallbackBridgeCandidates({
+    candidates: rankApprovalCandidates(
+      visibleSignals
+        .map((signal) => {
+          const guidance = buildUnifiedGuidanceModel({
+            signal,
+            guidance: guidanceBySignalId[signal.recordId],
+            context: "review",
+            tuning: tuning.settings,
+          });
+
+          return {
+            signal,
+            guidance,
+            assessment: assessAutonomousSignal(signal, guidance),
+          };
+        }),
+      12,
+      {
+        strategy,
+        cadence,
+        weeklyPlan,
+        weeklyPlanState,
+        confirmedClustersByCanonicalSignalId,
+        allSignals: signalResult.signals,
+        postingEntries,
+        postingOutcomes,
+        strategicOutcomes,
+        experiments,
+      },
+    ),
+  });
 
   return buildZazaConnectExportPayload({
     weeklyPostingPack,
     sequences,
     influencerGraph,
+    fallbackCandidates,
   });
 }
 

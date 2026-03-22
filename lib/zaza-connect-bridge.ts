@@ -79,6 +79,30 @@ function mapTrustRisk(input: {
   return "medium" as const;
 }
 
+export interface BridgeFallbackCandidateInput {
+  candidateId: string;
+  signalId: string;
+  sourceTitle: string;
+  platform: string;
+  expectedOutcomeTier: "high" | "medium" | "low";
+  reason: string;
+  href: string;
+  primaryPainPoint?: string | null;
+  teacherLanguage?: string[];
+  audienceSegment?: string | null;
+  funnelStage?: string | null;
+  commercialPotential?: "high" | "medium" | "low";
+  trustRisk?: "low" | "medium" | "high";
+  recommendedAngle?: string | null;
+  recommendedHookDirection?: string | null;
+  recommendedFormat?: "text" | "carousel" | "short_video" | "multi_asset";
+  recommendedPlatforms?: string[];
+  whyNow?: string | null;
+  proofPoints?: string[];
+  trustNotes?: string[];
+  sourceSignalIds?: string[];
+}
+
 const relationshipStageHintSchema = z.object({
   hintId: z.string().trim().min(1),
   influencerId: z.string().trim().nullable().default(null),
@@ -567,42 +591,82 @@ export function buildZazaConnectExportPayload(input: {
     rows: InfluencerGraphRow[];
     summary: InfluencerGraphSummary;
   };
+  fallbackCandidates?: BridgeFallbackCandidateInput[];
   now?: Date;
 }) {
   const now = input.now ?? new Date();
   const items = input.weeklyPostingPack.items;
-  const strongContentCandidates = items.slice(0, 5).map((item) =>
-    strongContentCandidateSchema.parse({
-      candidateId: item.itemId,
-      signalId: item.signalId,
-      sourceTitle: item.sourceTitle,
-      platform: item.platformLabel,
-      expectedOutcomeTier: item.expectedOutcomeTier,
-      reason: item.whySelected,
-      href: item.href,
-      primaryPainPoint: item.strongestValueSignal,
-      teacherLanguage: [],
-      audienceSegment: item.destinationLabel,
-      funnelStage: item.funnelStageLabel ?? item.funnelStage,
-      commercialPotential: item.expectedOutcomeTier,
-      trustRisk: mapTrustRisk({
-        expectedOutcomeTier: item.expectedOutcomeTier,
-        keyCaution: item.keyCaution,
-      }),
-      recommendedAngle: item.strongestValueSignal,
-      recommendedHookDirection: item.whySelected,
-      recommendedFormat: mapRecommendedFormat({
-        platform: item.platform,
-        editorialModeLabel: item.editorialModeLabel,
-        sequenceContext: item.sequenceContext,
-      }),
-      recommendedPlatforms: [item.platform],
-      whyNow: item.whySelected,
-      proofPoints: [...new Set([item.strongestValueSignal, ...item.includedBecause, ...item.strongestReasons])].slice(0, 5),
-      trustNotes: item.keyCaution ? [item.keyCaution] : [],
-      sourceSignalIds: [item.signalId],
-    }),
-  );
+  const strongContentCandidates =
+    items.length > 0
+      ? items.slice(0, 5).map((item) =>
+          strongContentCandidateSchema.parse({
+            candidateId: item.itemId,
+            signalId: item.signalId,
+            sourceTitle: item.sourceTitle,
+            platform: item.platformLabel,
+            expectedOutcomeTier: item.expectedOutcomeTier,
+            reason: item.whySelected,
+            href: item.href,
+            primaryPainPoint: item.strongestValueSignal,
+            teacherLanguage: [],
+            audienceSegment: item.destinationLabel,
+            funnelStage: item.funnelStageLabel ?? item.funnelStage,
+            commercialPotential: item.expectedOutcomeTier,
+            trustRisk: mapTrustRisk({
+              expectedOutcomeTier: item.expectedOutcomeTier,
+              keyCaution: item.keyCaution,
+            }),
+            recommendedAngle: item.strongestValueSignal,
+            recommendedHookDirection: item.whySelected,
+            recommendedFormat: mapRecommendedFormat({
+              platform: item.platform,
+              editorialModeLabel: item.editorialModeLabel,
+              sequenceContext: item.sequenceContext,
+            }),
+            recommendedPlatforms: [item.platform],
+            whyNow: item.whySelected,
+            proofPoints: [...new Set([item.strongestValueSignal, ...item.includedBecause, ...item.strongestReasons])].slice(0, 5),
+            trustNotes: item.keyCaution ? [item.keyCaution] : [],
+            sourceSignalIds: [item.signalId],
+          }),
+        )
+      : (input.fallbackCandidates ?? []).slice(0, 5).map((candidate) =>
+          strongContentCandidateSchema.parse({
+            candidateId: candidate.candidateId,
+            signalId: candidate.signalId,
+            sourceTitle: candidate.sourceTitle,
+            platform: candidate.platform,
+            expectedOutcomeTier: candidate.expectedOutcomeTier,
+            reason: candidate.reason,
+            href: candidate.href,
+            primaryPainPoint:
+              normalizeText(candidate.primaryPainPoint) ??
+              "High-priority teacher pain point worth addressing.",
+            teacherLanguage: candidate.teacherLanguage ?? [],
+            audienceSegment: candidate.audienceSegment ?? null,
+            funnelStage: candidate.funnelStage ?? null,
+            commercialPotential:
+              candidate.commercialPotential ?? candidate.expectedOutcomeTier,
+            trustRisk: candidate.trustRisk ?? "medium",
+            recommendedAngle:
+              normalizeText(candidate.recommendedAngle) ??
+              normalizeText(candidate.primaryPainPoint) ??
+              "Lead with the strongest teacher-facing value signal.",
+            recommendedHookDirection:
+              normalizeText(candidate.recommendedHookDirection) ??
+              normalizeText(candidate.reason) ??
+              "Open with the concrete classroom pain or value tension.",
+            recommendedFormat: candidate.recommendedFormat ?? "text",
+            recommendedPlatforms: candidate.recommendedPlatforms ?? [],
+            whyNow:
+              normalizeText(candidate.whyNow) ??
+              normalizeText(candidate.reason) ??
+              "Current review ranking surfaced this as a timely opportunity.",
+            proofPoints: candidate.proofPoints ?? [],
+            trustNotes: candidate.trustNotes ?? [],
+            sourceSignalIds: candidate.sourceSignalIds ?? [candidate.signalId],
+          }),
+        );
 
   const outreachRelevantThemes = [...new Map(
     items
