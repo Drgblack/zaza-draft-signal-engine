@@ -27,7 +27,10 @@ import {
   inspectVideoBriefTrust,
 } from "@/lib/video-briefs";
 import { formatDateTime } from "@/lib/utils";
-import type { FactoryInputResponse } from "@/types/api";
+import type {
+  FactoryInputProductionPackageResponse,
+  FactoryInputResponse,
+} from "@/types/api";
 
 function priorityTone(priority: ContentOpportunity["priority"]) {
   if (priority === "high") {
@@ -248,6 +251,15 @@ function canOpenAssetReference(url: string | null | undefined) {
   return Boolean(url && /^https?:\/\//.test(url));
 }
 
+function buildProductionPackageFilename(title: string) {
+  const normalized = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return `${normalized || "production-package"}.json`;
+}
+
 function trustReasonLabel(reason: string) {
   switch (reason) {
     case "blocked-language":
@@ -377,6 +389,9 @@ export function FactoryInputsPanel({
 }) {
   const [state, setState] = useState(initialState);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [packageFeedbackByOpportunityId, setPackageFeedbackByOpportunityId] = useState<
+    Record<string, string>
+  >({});
   const [expandedByOpportunityId, setExpandedByOpportunityId] = useState<
     Record<string, boolean>
   >({});
@@ -438,6 +453,55 @@ export function FactoryInputsPanel({
         selectedAngleId: angleId,
         selectedHookId: hookId,
       },
+    });
+  }
+
+  function exportProductionPackage(opportunityId: string) {
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/factory-inputs/export-package", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ opportunityId }),
+        });
+        const data =
+          (await response.json().catch(() => null)) as FactoryInputProductionPackageResponse | null;
+
+        if (!response.ok || !data?.success || !data.productionPackage) {
+          throw new Error(data?.error ?? "Unable to export production package.");
+        }
+
+        const productionPackage = data.productionPackage;
+        const blob = new Blob([`${JSON.stringify(productionPackage, null, 2)}\n`], {
+          type: "application/json",
+        });
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = downloadUrl;
+        link.download = buildProductionPackageFilename(productionPackage.title);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+
+        setPackageFeedbackByOpportunityId((current) => ({
+          ...current,
+          [opportunityId]: `Production package exported: ${productionPackage.title}.`,
+        }));
+        setFeedback(
+          data.message ?? `Production package exported: ${productionPackage.title}.`,
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unable to export production package.";
+        setPackageFeedbackByOpportunityId((current) => ({
+          ...current,
+          [opportunityId]: message,
+        }));
+        setFeedback(message);
+      }
     });
   }
 
@@ -606,12 +670,14 @@ export function FactoryInputsPanel({
               const renderJob = generationState?.renderJob ?? null;
               const renderedAsset = generationState?.renderedAsset ?? null;
               const assetReview = generationState?.assetReview ?? null;
+              const packageFeedback = packageFeedbackByOpportunityId[item.opportunityId] ?? null;
               const renderStatus = renderJob?.status ?? null;
               const canGenerateVideo =
                 briefApprovedForGeneration &&
                 !generationRequest &&
                 !renderJob &&
                 !renderedAsset;
+              const canExportPackage = briefApprovedForGeneration;
               const canReviewAsset =
                 Boolean(renderedAsset) &&
                 assetReview?.status === "pending_review";
@@ -1144,6 +1210,16 @@ export function FactoryInputsPanel({
                                         Generate video
                                       </Button>
                                     ) : null}
+                                    {canExportPackage ? (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={isPending}
+                                        onClick={() => exportProductionPackage(item.opportunityId)}
+                                      >
+                                        Export package
+                                      </Button>
+                                    ) : null}
                                     {canReviewAsset ? (
                                       <Button
                                         size="sm"
@@ -1183,6 +1259,11 @@ export function FactoryInputsPanel({
                                       </Button>
                                     ) : null}
                                   </div>
+                                  {packageFeedback ? (
+                                    <p className="mt-2 text-xs leading-5 text-slate-500">
+                                      {packageFeedback}
+                                    </p>
+                                  ) : null}
                                 </div>
 
                               {brief.brief.productionNotes?.length ? (

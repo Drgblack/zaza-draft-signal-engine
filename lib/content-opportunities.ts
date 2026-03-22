@@ -33,6 +33,10 @@ import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import {
+  buildProductionPackage,
+  type ProductionPackage,
+} from "@/lib/production-packages";
+import {
   buildNarrationSpec,
   narrationSpecSchema,
   type NarrationSpec,
@@ -1362,6 +1366,39 @@ export async function reviewContentOpportunityRenderedAsset(input: {
   ]);
 
   return state;
+}
+
+export async function exportContentOpportunityProductionPackage(
+  opportunityId: string,
+): Promise<ProductionPackage> {
+  const store = await readPersistedStore();
+  const current = store.opportunities.find((item) => item.opportunityId === opportunityId);
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const normalizedCurrent = normalizePersistedOpportunity(current);
+  const { brief } = getGenerationContext(normalizedCurrent, {
+    requireBriefApproval: true,
+  });
+  const productionPackage = buildProductionPackage({
+    opportunity: normalizedCurrent,
+  });
+
+  await appendAuditEventsSafe([
+    {
+      signalId: current.signalId,
+      eventType: "CONTENT_OPPORTUNITY_PRODUCTION_PACKAGE_EXPORTED" as const,
+      actor: "operator",
+      summary: `Exported production package for content opportunity "${current.title}".`,
+      metadata: {
+        videoBriefId: brief.id,
+        hasRenderedAsset: Boolean(normalizedCurrent.generationState?.renderedAsset),
+      },
+    },
+  ]);
+
+  return productionPackage;
 }
 
 export async function refreshContentOpportunityStateFromSystem() {

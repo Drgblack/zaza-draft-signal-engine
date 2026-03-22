@@ -54,6 +54,7 @@ import type { ScenarioAngleAssessment, ScenarioAngleSuggestion } from "@/lib/sce
 import type { OperatorTuning } from "@/lib/tuning-definitions";
 import type { AudienceSegment, Campaign, CampaignStrategy, ContentPillar } from "@/lib/campaigns";
 import type { FounderOverrideState } from "@/lib/founder-overrides";
+import type { ProductionPackage } from "@/lib/production-packages";
 import type {
   ContentOpportunity,
   ContentOpportunityState,
@@ -464,6 +465,14 @@ export const factoryInputRenderReviewRequestSchema = z.object({
 
 export type FactoryInputRenderReviewRequest = z.infer<
   typeof factoryInputRenderReviewRequestSchema
+>;
+
+export const factoryInputExportPackageRequestSchema = z.object({
+  opportunityId: z.string().trim().min(1),
+});
+
+export type FactoryInputExportPackageRequest = z.infer<
+  typeof factoryInputExportPackageRequestSchema
 >;
 
 export const zazaConnectBridgeActionRequestSchema = z.discriminatedUnion("action", [
@@ -1017,6 +1026,13 @@ export interface FactoryInputRenderStatusResponse {
       | "accepted"
       | "rejected";
   } | null;
+  message?: string;
+  error?: string;
+}
+
+export interface FactoryInputProductionPackageResponse {
+  success: boolean;
+  productionPackage: ProductionPackage | null;
   message?: string;
   error?: string;
 }
