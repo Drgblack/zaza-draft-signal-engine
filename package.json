@@ -11,6 +11,9 @@
     "test:bridge": "node -e \"require('fs').rmSync('.test-dist',{ recursive: true, force: true })\" && npx tsc -p tsconfig.bridge-tests.json && node -e \"const { readdirSync } = require('fs'); const { execFileSync } = require('child_process'); const files = readdirSync('.test-dist/tests').filter((file) => file.endsWith('.test.js')).map((file) => `.test-dist/tests/${file}`); execFileSync(process.execPath, ['--test', ...files], { stdio: 'inherit' });\" && node -e \"require('fs').rmSync('.test-dist',{ recursive: true, force: true })\""
   },
   "dependencies": {
+    "@radix-ui/react-checkbox": "^1.3.3",
+    "@radix-ui/react-collapsible": "^1.1.12",
+    "@radix-ui/react-radio-group": "^1.3.8",
     "@vercel/blob": "^2.3.1",
     "clsx": "^2.1.1",
     "fast-xml-parser": "^5.5.6",
