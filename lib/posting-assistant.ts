@@ -30,6 +30,10 @@ import {
   type SafePostingEligibilityAssessment,
   type SafePostingExecutionSource,
 } from "@/lib/safe-posting";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import type { AssetPrimaryType, SignalRecord } from "@/types/signal";
 
 const POSTING_ASSISTANT_STORE_PATH = path.join(process.cwd(), "data", "posting-assistant.json");
@@ -123,6 +127,12 @@ export const postingAssistantActionRequestSchema = z.discriminatedUnion("action"
 export type PostingAssistantPackage = z.infer<typeof postingAssistantPackageSchema>;
 export type PostingAssistantActionRequest = z.infer<typeof postingAssistantActionRequestSchema>;
 
+let inMemoryPostingAssistantStore: z.infer<typeof postingAssistantStoreSchema> =
+  postingAssistantStoreSchema.parse({
+    packages: [],
+    updatedAt: null,
+  });
+
 function normalizeText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
@@ -176,22 +186,74 @@ function sortPackages(packages: PostingAssistantPackage[]) {
 async function readPersistedStore() {
   try {
     const raw = await readFile(POSTING_ASSISTANT_STORE_PATH, "utf8");
-    return postingAssistantStoreSchema.parse(JSON.parse(raw));
+    const parsed = sanitizePostingAssistantStore(JSON.parse(raw));
+    inMemoryPostingAssistantStore = parsed;
+    return parsed;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return postingAssistantStoreSchema.parse({
-        packages: [],
-        updatedAt: null,
-      });
+      return inMemoryPostingAssistantStore;
+    }
+
+    console.warn(
+      "posting-assistant: persisted store could not be parsed, falling back to in-memory state.",
+      error,
+    );
+    return inMemoryPostingAssistantStore;
+  }
+}
+
+async function writeStore(store: z.infer<typeof postingAssistantStoreSchema>) {
+  const parsed = sanitizePostingAssistantStore(store);
+  inMemoryPostingAssistantStore = parsed;
+
+  try {
+    await mkdir(path.dirname(POSTING_ASSISTANT_STORE_PATH), { recursive: true });
+    await writeFile(POSTING_ASSISTANT_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("posting-assistant", error);
+      return;
     }
 
     throw error;
   }
 }
 
-async function writeStore(store: z.infer<typeof postingAssistantStoreSchema>) {
-  await mkdir(path.dirname(POSTING_ASSISTANT_STORE_PATH), { recursive: true });
-  await writeFile(POSTING_ASSISTANT_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+function sanitizePostingAssistantStore(input: unknown): z.infer<typeof postingAssistantStoreSchema> {
+  const parsed = postingAssistantStoreSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  const fallbackInput =
+    input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const packages = Array.isArray((fallbackInput as { packages?: unknown }).packages)
+    ? (fallbackInput as { packages?: unknown[] }).packages ?? []
+    : [];
+  const updatedAt =
+    typeof (fallbackInput as { updatedAt?: unknown }).updatedAt === "string"
+      ? ((fallbackInput as { updatedAt?: string }).updatedAt ?? null)
+      : null;
+
+  const sanitizedPackages = packages
+    .map((pkg, index) => {
+      const parsedPackage = postingAssistantPackageSchema.safeParse(pkg);
+      if (!parsedPackage.success) {
+        console.warn(
+          `posting-assistant: dropping invalid persisted package at index ${index}.`,
+          parsedPackage.error,
+        );
+        return null;
+      }
+
+      return parsedPackage.data;
+    })
+    .filter((pkg): pkg is PostingAssistantPackage => Boolean(pkg));
+
+  return postingAssistantStoreSchema.parse({
+    packages: sortPackages(sanitizedPackages),
+    updatedAt,
+  });
 }
 
 export async function listPostingAssistantPackages(options?: {

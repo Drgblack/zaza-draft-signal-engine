@@ -19,6 +19,10 @@ import type { FunnelEngineState } from "@/lib/funnel-engine";
 import type { PostingAssistantPackage } from "@/lib/posting-assistant";
 import { stagePostingAssistantPackage } from "@/lib/posting-assistant";
 import type { PostingPlatform } from "@/lib/posting-memory";
+import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
 import type { WeeklyPostingPack, WeeklyPostingPackItem } from "@/lib/weekly-posting-pack";
 
 const WEEKLY_EXECUTION_STORE_PATH = path.join(process.cwd(), "data", "weekly-execution.json");
@@ -127,6 +131,12 @@ const weeklyExecutionStoreSchema = z.object({
   updatedAt: z.string().trim().nullable().default(null),
 });
 
+let inMemoryWeeklyExecutionStore: z.infer<typeof weeklyExecutionStoreSchema> =
+  weeklyExecutionStoreSchema.parse({
+    flowsByWeekStartDate: {},
+    updatedAt: null,
+  });
+
 function normalizeReason(value: string | null | undefined) {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
@@ -152,22 +162,76 @@ function sortPackages(packages: PostingAssistantPackage[]) {
 async function readPersistedStore() {
   try {
     const raw = await readFile(WEEKLY_EXECUTION_STORE_PATH, "utf8");
-    return weeklyExecutionStoreSchema.parse(JSON.parse(raw));
+    const parsed = sanitizeWeeklyExecutionStore(JSON.parse(raw));
+    inMemoryWeeklyExecutionStore = parsed;
+    return parsed;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return weeklyExecutionStoreSchema.parse({
-        flowsByWeekStartDate: {},
-        updatedAt: null,
-      });
+      return inMemoryWeeklyExecutionStore;
+    }
+
+    console.warn(
+      "weekly-execution: persisted store could not be parsed, falling back to in-memory state.",
+      error,
+    );
+    return inMemoryWeeklyExecutionStore;
+  }
+}
+
+async function writePersistedStore(store: z.infer<typeof weeklyExecutionStoreSchema>) {
+  const parsed = sanitizeWeeklyExecutionStore(store);
+  inMemoryWeeklyExecutionStore = parsed;
+
+  try {
+    await mkdir(path.dirname(WEEKLY_EXECUTION_STORE_PATH), { recursive: true });
+    await writeFile(WEEKLY_EXECUTION_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("weekly-execution", error);
+      return;
     }
 
     throw error;
   }
 }
 
-async function writePersistedStore(store: z.infer<typeof weeklyExecutionStoreSchema>) {
-  await mkdir(path.dirname(WEEKLY_EXECUTION_STORE_PATH), { recursive: true });
-  await writeFile(WEEKLY_EXECUTION_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+function sanitizeWeeklyExecutionStore(
+  input: unknown,
+): z.infer<typeof weeklyExecutionStoreSchema> {
+  const parsed = weeklyExecutionStoreSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  const fallbackInput =
+    input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const flowsByWeekStartDate =
+    (fallbackInput as { flowsByWeekStartDate?: unknown }).flowsByWeekStartDate;
+  const updatedAt =
+    typeof (fallbackInput as { updatedAt?: unknown }).updatedAt === "string"
+      ? ((fallbackInput as { updatedAt?: string }).updatedAt ?? null)
+      : null;
+  const sanitizedFlows: Record<string, WeeklyExecutionFlow> = {};
+
+  if (flowsByWeekStartDate && typeof flowsByWeekStartDate === "object" && !Array.isArray(flowsByWeekStartDate)) {
+    for (const [weekStartDate, flow] of Object.entries(flowsByWeekStartDate)) {
+      const parsedFlow = weeklyExecutionFlowSchema.safeParse(flow);
+      if (!parsedFlow.success) {
+        console.warn(
+          `weekly-execution: dropping invalid persisted flow for ${weekStartDate}.`,
+          parsedFlow.error,
+        );
+        continue;
+      }
+
+      sanitizedFlows[weekStartDate] = parsedFlow.data;
+    }
+  }
+
+  return weeklyExecutionStoreSchema.parse({
+    flowsByWeekStartDate: sanitizedFlows,
+    updatedAt,
+  });
 }
 
 function getActivePackage(
