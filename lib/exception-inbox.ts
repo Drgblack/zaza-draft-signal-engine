@@ -388,7 +388,7 @@ function groupItems(items: ExceptionInboxItem[]): ExceptionInboxGroup[] {
       issueType,
       label: issueTypeLabel(issueType),
       count: filtered.length,
-      items: filtered,
+      items: filtered.slice(0, 100),
     };
   }).filter((group) => group.count > 0);
 }
