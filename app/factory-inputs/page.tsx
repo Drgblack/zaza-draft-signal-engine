@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { FactoryInputsPanel } from "@/components/factory/factory-inputs-panel";
+import { VideoFactoryReviewConnected } from "@/components/video-factory/video-factory-review-connected";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,8 +10,19 @@ import { formatDateTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function FactoryInputsPage() {
+export default async function FactoryInputsPage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   const state = await listContentOpportunityState();
+  const requestedOpportunityId = Array.isArray(searchParams?.opportunityId)
+    ? searchParams?.opportunityId[0]
+    : searchParams?.opportunityId;
+  const selectedOpportunity =
+    state.opportunities.find((item) => item.opportunityId === requestedOpportunityId) ??
+    state.opportunities.find((item) => item.selectedVideoBrief) ??
+    null;
   const readyNowCount = state.opportunities.filter(
     (item) => item.status === "open" && item.priority === "high" && item.trustRisk !== "high",
   ).length;
@@ -87,6 +99,21 @@ export default async function FactoryInputsPage() {
         </div>
       ) : null}
 
+      {selectedOpportunity?.selectedVideoBrief ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Video Factory Review</CardTitle>
+            <CardDescription>
+              Connected review flow for the currently selected brief, using the persisted
+              factory state, attempt timeline, and review actions.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <VideoFactoryReviewConnected initialOpportunity={selectedOpportunity} />
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Production Opportunity Queue</CardTitle>
@@ -95,7 +122,7 @@ export default async function FactoryInputsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <FactoryInputsPanel initialState={state} />
+          <FactoryInputsPanel key={state.generatedAt} initialState={state} />
         </CardContent>
       </Card>
     </div>

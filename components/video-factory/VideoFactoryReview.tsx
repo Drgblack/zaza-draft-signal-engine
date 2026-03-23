@@ -10,90 +10,20 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
-
-// ============================================================================
-// DATA TYPES
-// ============================================================================
-
-export type GenerationMode = "fast" | "quality"
-
-export type PreTriageConcern =
-  | "voice_concern"
-  | "visual_mood_concern"
-  | "scene_setting_concern"
-  | "pacing_concern"
-  | "trust_concern"
-  | "no_concern"
-
-export type RegenerationReason =
-  | "wrong_visual_setting"
-  | "wrong_mood"
-  | "wrong_subject"
-  | "poor_narration_quality"
-  | "trust_concern"
-  | "off_brand"
-  | "other"
-
-export type RenderJobStatus =
-  | "queued"
-  | "narration_generating"
-  | "narration_done"
-  | "transcription_generating"
-  | "transcription_done"
-  | "visuals_generating"
-  | "visuals_done"
-  | "quality_checking"
-  | "compositing"
-  | "uploading"
-  | "completed"
-  | "failed"
-  | "failed_permanent"
-
-export interface VideoBriefSummary {
-  briefId: string
-  primaryHook: string
-  scriptBeat1: string
-  scriptBeat2: string
-  scriptBeat3: string
-  softClose: string
-  trustGuardrails: string[]
-  audience: string
-}
-
-export interface CostEstimate {
-  estimatedTotalUsd: number
-  narrationCostUsd: number
-  visualsCostUsd: number
-  transcriptionCostUsd: number
-  mode: GenerationMode
-}
-
-export interface RenderJobProgress {
-  jobId: string
-  status: RenderJobStatus
-  regenerationCount: number
-  regenerationBudgetMax: number
-  budgetExhausted: boolean
-  costEstimate: CostEstimate
-  actualCostUsd: number | null
-  finalVideoUrl: string | null
-  thumbnailUrl: string | null
-  lastError: string | null
-  steps: {
-    narration: "pending" | "running" | "done" | "failed"
-    transcription: "pending" | "running" | "done" | "failed"
-    visuals: "pending" | "running" | "done" | "failed"
-    qualityCheck: "pending" | "running" | "done" | "failed"
-    composition: "pending" | "running" | "done" | "failed"
-    upload: "pending" | "running" | "done" | "failed"
-  }
-}
+import type {
+  CostEstimate,
+  PreTriageConcern,
+  RegenerationReason,
+  RenderJobProgress,
+  VideoBriefSummary,
+} from "@/lib/video-factory-review-model"
 
 export interface VideoFactoryReviewProps {
   brief: VideoBriefSummary
   job: RenderJobProgress | null
   onGenerate: (preTriage: PreTriageConcern) => void
   onApprove: () => void
+  onReject: () => void
   onRegenerate: (reason: RegenerationReason) => void
   onEditBrief: () => void
   onDiscard: () => void
@@ -162,6 +92,14 @@ function StepIndicator({ status }: { status: "pending" | "running" | "done" | "f
 
 function SectionDivider() {
   return <hr className="border-t my-2" style={{ borderColor: '#E5E7EB' }} />
+}
+
+function formatLabel(value: string | null | undefined) {
+  if (!value) {
+    return "Not available"
+  }
+
+  return value.replaceAll("_", " ")
 }
 
 // ============================================================================
@@ -534,6 +472,7 @@ interface ReviewStateProps {
   brief: VideoBriefSummary
   job: RenderJobProgress
   onApprove: () => void
+  onReject: () => void
   onRegenerate: (reason: RegenerationReason) => void
   onEditBrief: () => void
   onDiscard: () => void
@@ -543,6 +482,7 @@ function ReviewState({
   brief,
   job,
   onApprove,
+  onReject,
   onRegenerate,
   onEditBrief,
   onDiscard,
@@ -614,8 +554,44 @@ function ReviewState({
             Regeneration {job.regenerationCount} of {job.regenerationBudgetMax}
           </p>
           <p className="text-xs" style={{ color: '#9CA3AF' }}>
-            Provider: Runway Gen-4
+            Attempt {job.currentAttempt || 0} · Prior attempts {job.priorAttemptsCount}
           </p>
+          <p className="text-xs" style={{ color: '#9CA3AF' }}>
+            Lifecycle: {formatLabel(job.lifecycleLabel)}
+          </p>
+          <p className="text-xs" style={{ color: '#9CA3AF' }}>
+            Latest outcome: {formatLabel(job.terminalOutcome)}
+          </p>
+          <p className="text-xs" style={{ color: '#9CA3AF' }}>
+            Provider: {job.providerLabel}
+          </p>
+          {job.qualitySummary ? (
+            <p className="text-xs" style={{ color: '#9CA3AF' }}>
+              QC: {job.qualitySummary}
+            </p>
+          ) : null}
+          {job.lastUpdatedAt ? (
+            <p className="text-xs" style={{ color: '#9CA3AF' }}>
+              Updated: {job.lastUpdatedAt}
+            </p>
+          ) : null}
+          <div className="space-y-1 pt-1">
+            {job.narrationAudioUrl ? (
+              <p className="text-xs" style={{ color: '#9CA3AF' }}>
+                Narration artifact ready
+              </p>
+            ) : null}
+            {job.captionTrackUrl ? (
+              <p className="text-xs" style={{ color: '#9CA3AF' }}>
+                Caption artifact ready
+              </p>
+            ) : null}
+          {job.sceneAssetCount > 0 ? (
+            <p className="text-xs" style={{ color: '#9CA3AF' }}>
+              Scene assets: {job.sceneAssetCount}
+            </p>
+          ) : null}
+          </div>
         </div>
 
         {/* Right Column: Brief and Decision */}
@@ -694,15 +670,24 @@ function ReviewState({
           <div className="space-y-3">
             {/* Approve Button */}
             <div>
-              <Button 
-                className="w-full shadow-md hover:bg-[#4F46E5]"
-                style={{ backgroundColor: '#6366f1' }}
-                onClick={onApprove}
-              >
-                Approve for use
-              </Button>
+              <div className="space-y-2">
+                <Button 
+                  className="w-full shadow-md hover:bg-[#4F46E5]"
+                  style={{ backgroundColor: '#6366f1' }}
+                  onClick={onApprove}
+                >
+                  Approve for use
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={onReject}
+                >
+                  Reject
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground mt-1.5 text-center">
-                Moves to export queue. Cannot be undone.
+                Approve moves to export queue. Reject keeps the brief and marks this attempt as rejected.
               </p>
             </div>
 
@@ -846,6 +831,7 @@ export default function VideoFactoryReview({
   job,
   onGenerate,
   onApprove,
+  onReject,
   onRegenerate,
   onEditBrief,
   onDiscard,
@@ -853,8 +839,7 @@ export default function VideoFactoryReview({
   // Determine which state to show
   const getState = (): "pre-generation" | "generating" | "review" => {
     if (job === null) return "pre-generation"
-    if (job.status === "completed") return "review"
-    return "generating"
+    return job.viewState
   }
 
   const state = getState()
@@ -895,6 +880,7 @@ export default function VideoFactoryReview({
           brief={brief}
           job={job}
           onApprove={onApprove}
+          onReject={onReject}
           onRegenerate={onRegenerate}
           onEditBrief={onEditBrief}
           onDiscard={onDiscard}
@@ -926,10 +912,18 @@ export const DEMO_PROPS: VideoFactoryReviewProps = {
   },
   job: {
     jobId: "job-789",
+    viewState: "review",
     status: "completed",
     regenerationCount: 1,
     regenerationBudgetMax: 3,
     budgetExhausted: false,
+    currentAttempt: 2,
+    priorAttemptsCount: 1,
+    lifecycleLabel: "review_pending",
+    terminalOutcome: "review_pending",
+    lastUpdatedAt: "2026-03-23T10:00:00.000Z",
+    providerLabel: "Narration elevenlabs | Visuals runway-gen4 | Captions assemblyai | Composition ffmpeg",
+    qualitySummary: "Passed",
     costEstimate: {
       estimatedTotalUsd: 0.75,
       narrationCostUsd: 0.18,
@@ -940,6 +934,9 @@ export const DEMO_PROPS: VideoFactoryReviewProps = {
     actualCostUsd: 0.68,
     finalVideoUrl: "https://www.w3schools.com/html/mov_bbb.mp4",
     thumbnailUrl: null,
+    narrationAudioUrl: "https://example.com/narration.mp3",
+    captionTrackUrl: "https://example.com/captions.vtt",
+    sceneAssetCount: 4,
     lastError: null,
     steps: {
       narration: "done",
@@ -952,6 +949,7 @@ export const DEMO_PROPS: VideoFactoryReviewProps = {
   },
   onGenerate: (preTriage) => console.log("Generate with triage:", preTriage),
   onApprove: () => console.log("Approved"),
+  onReject: () => console.log("Rejected"),
   onRegenerate: (reason) => console.log("Regenerate with reason:", reason),
   onEditBrief: () => console.log("Edit brief"),
   onDiscard: () => console.log("Discarded"),

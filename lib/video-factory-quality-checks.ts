@@ -83,6 +83,15 @@ export function summarizeQualityCheckFailures(result: QualityCheckResult): strin
   return result.failures.map((failure) => failure.message).join(" ");
 }
 
+export function isRetryableQualityCheckResult(
+  result: QualityCheckResult,
+): boolean {
+  return (
+    result.failures.length > 0 &&
+    result.failures.every((failure) => failure.stage !== "compiled_plan")
+  );
+}
+
 export function runVideoFactoryQualityChecks(input: {
   compiledProductionPlan: CompiledProductionPlan;
   providerResults: {

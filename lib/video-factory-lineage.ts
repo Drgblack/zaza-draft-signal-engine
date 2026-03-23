@@ -5,6 +5,10 @@ import type { GeneratedCaptionTrack } from "@/lib/providers/caption-provider";
 import type { GeneratedNarration } from "@/lib/providers/narration-provider";
 import type { GeneratedSceneAsset } from "@/lib/providers/visual-provider";
 import {
+  videoFactoryPersistedArtifactRefSchema,
+  type VideoFactoryPersistedArtifactRef,
+} from "./video-factory-artifact-storage";
+import {
   costEstimateSchema,
   type CostEstimate,
 } from "./video-factory-cost";
@@ -12,6 +16,10 @@ import {
   qualityCheckResultSchema,
   type QualityCheckResult,
 } from "./video-factory-quality-checks";
+import {
+  videoFactoryRetryStateSchema,
+  type VideoFactoryRetryState,
+} from "./video-factory-retry";
 
 export const VIDEO_FACTORY_EXECUTION_STAGES = [
   "narration",
@@ -36,6 +44,7 @@ export const providerExecutionRecordSchema = z.object({
   startedAt: z.string().trim().min(1),
   completedAt: z.string().trim().nullable().default(null),
   errorMessage: z.string().trim().nullable().default(null),
+  retryState: videoFactoryRetryStateSchema.nullable().default(null),
 });
 
 export const generatedNarrationArtifactSchema = z.object({
@@ -47,6 +56,7 @@ export const generatedNarrationArtifactSchema = z.object({
   narrationSpecId: z.string().trim().min(1),
   providerId: z.string().trim().min(1),
   audioUrl: z.string().trim().min(1),
+  storage: videoFactoryPersistedArtifactRefSchema.nullable().default(null),
   durationSec: z.number().int().positive().nullable().default(null),
   createdAt: z.string().trim().min(1),
 });
@@ -60,6 +70,7 @@ export const generatedSceneAssetArtifactSchema = z.object({
   scenePromptId: z.string().trim().min(1),
   providerId: z.string().trim().min(1),
   assetUrl: z.string().trim().min(1),
+  storage: videoFactoryPersistedArtifactRefSchema.nullable().default(null),
   order: z.number().int().positive(),
   createdAt: z.string().trim().min(1),
 });
@@ -75,6 +86,18 @@ export const generatedCaptionTrackArtifactSchema = z.object({
   providerId: z.string().trim().min(1),
   transcriptText: z.string().trim().min(1),
   captionUrl: z.string().trim().nullable().default(null),
+  storage: videoFactoryPersistedArtifactRefSchema.nullable().default(null),
+  createdAt: z.string().trim().min(1),
+});
+
+export const generatedThumbnailArtifactSchema = z.object({
+  artifactId: z.string().trim().min(1),
+  artifactType: z.literal("thumbnail_image"),
+  renderJobId: z.string().trim().min(1),
+  renderVersion: z.string().trim().nullable().default(null),
+  providerId: z.string().trim().min(1),
+  imageUrl: z.string().trim().min(1),
+  storage: videoFactoryPersistedArtifactRefSchema.nullable().default(null),
   createdAt: z.string().trim().min(1),
 });
 
@@ -88,6 +111,7 @@ export const composedVideoArtifactSchema = z.object({
   providerId: z.string().trim().min(1),
   videoUrl: z.string().trim().min(1),
   thumbnailUrl: z.string().trim().nullable().default(null),
+  storage: videoFactoryPersistedArtifactRefSchema.nullable().default(null),
   durationSec: z.number().int().positive().nullable().default(null),
   createdAt: z.string().trim().min(1),
 });
@@ -101,11 +125,13 @@ export const videoFactoryAttemptLineageSchema = z.object({
   renderedAssetId: z.string().trim().nullable().default(null),
   costEstimate: costEstimateSchema,
   qualityCheck: qualityCheckResultSchema.nullable().default(null),
+  retryState: videoFactoryRetryStateSchema.nullable().default(null),
   providerExecutions: z.array(providerExecutionRecordSchema).default([]),
   narrationArtifact: generatedNarrationArtifactSchema.nullable().default(null),
   sceneArtifacts: z.array(generatedSceneAssetArtifactSchema).default([]),
   captionArtifact: generatedCaptionTrackArtifactSchema.nullable().default(null),
   composedVideoArtifact: composedVideoArtifactSchema.nullable().default(null),
+  thumbnailArtifact: generatedThumbnailArtifactSchema.nullable().default(null),
   createdAt: z.string().trim().min(1),
 });
 
@@ -113,6 +139,7 @@ export type ProviderExecutionRecord = z.infer<typeof providerExecutionRecordSche
 export type GeneratedNarrationArtifact = z.infer<typeof generatedNarrationArtifactSchema>;
 export type GeneratedSceneAssetArtifact = z.infer<typeof generatedSceneAssetArtifactSchema>;
 export type GeneratedCaptionTrackArtifact = z.infer<typeof generatedCaptionTrackArtifactSchema>;
+export type GeneratedThumbnailArtifact = z.infer<typeof generatedThumbnailArtifactSchema>;
 export type ComposedVideoArtifact = z.infer<typeof composedVideoArtifactSchema>;
 export type VideoFactoryAttemptLineage = z.infer<typeof videoFactoryAttemptLineageSchema>;
 
@@ -142,6 +169,8 @@ function buildNarrationArtifacts(input: {
   renderVersion?: string | null;
   narrationSpecId: string;
   narration: GeneratedNarration;
+  storage?: VideoFactoryPersistedArtifactRef | null;
+  retryState?: VideoFactoryRetryState | null;
 }) {
   const providerExecutionId = executionId(
     input.renderJobId,
@@ -155,12 +184,13 @@ function buildNarrationArtifacts(input: {
     stage: "narration",
     providerId: input.narration.provider,
     status: "completed",
-    providerJobId: input.narration.id,
+    providerJobId: input.narration.providerJobId ?? input.narration.id,
     inputIds: [input.narrationSpecId],
     outputArtifactIds: [narrationArtifactId],
     startedAt: input.narration.createdAt,
     completedAt: input.narration.createdAt,
     errorMessage: null,
+    retryState: input.retryState ?? null,
   });
 
   const artifact = generatedNarrationArtifactSchema.parse({
@@ -172,6 +202,7 @@ function buildNarrationArtifacts(input: {
     narrationSpecId: input.narrationSpecId,
     providerId: input.narration.provider,
     audioUrl: input.narration.audioUrl,
+    storage: input.storage ?? null,
     durationSec: input.narration.durationSec ?? null,
     createdAt: input.narration.createdAt,
   });
@@ -183,6 +214,8 @@ function buildSceneArtifacts(input: {
   renderJobId: string;
   renderVersion?: string | null;
   sceneAssets: GeneratedSceneAsset[];
+  storage?: Array<VideoFactoryPersistedArtifactRef | null | undefined>;
+  retryState?: VideoFactoryRetryState | null;
 }) {
   return input.sceneAssets.map((sceneAsset, index) => {
     const providerExecutionId = executionId(
@@ -203,12 +236,13 @@ function buildSceneArtifacts(input: {
         stage: "visuals",
         providerId: sceneAsset.provider,
         status: "completed",
-        providerJobId: sceneAsset.id,
+        providerJobId: sceneAsset.providerJobId ?? sceneAsset.id,
         inputIds: [sceneAsset.scenePromptId],
         outputArtifactIds: [sceneArtifactId],
         startedAt: sceneAsset.createdAt,
         completedAt: sceneAsset.createdAt,
         errorMessage: null,
+        retryState: input.retryState ?? null,
       }),
       artifact: generatedSceneAssetArtifactSchema.parse({
         artifactId: sceneArtifactId,
@@ -219,6 +253,7 @@ function buildSceneArtifacts(input: {
         scenePromptId: sceneAsset.scenePromptId,
         providerId: sceneAsset.provider,
         assetUrl: sceneAsset.assetUrl,
+        storage: input.storage?.[index] ?? null,
         order: index + 1,
         createdAt: sceneAsset.createdAt,
       }),
@@ -231,6 +266,8 @@ function buildCaptionArtifacts(input: {
   renderVersion?: string | null;
   captionSpecId: string;
   captionTrack: GeneratedCaptionTrack;
+  storage?: VideoFactoryPersistedArtifactRef | null;
+  retryState?: VideoFactoryRetryState | null;
 }) {
   const providerExecutionId = executionId(
     input.renderJobId,
@@ -244,12 +281,13 @@ function buildCaptionArtifacts(input: {
     stage: "captions",
     providerId: input.captionTrack.provider,
     status: "completed",
-    providerJobId: input.captionTrack.id,
+    providerJobId: input.captionTrack.providerJobId ?? input.captionTrack.id,
     inputIds: [input.captionTrack.sourceNarrationId, input.captionSpecId],
     outputArtifactIds: [captionArtifactId],
     startedAt: input.captionTrack.createdAt,
     completedAt: input.captionTrack.createdAt,
     errorMessage: null,
+    retryState: input.retryState ?? null,
   });
 
   const artifact = generatedCaptionTrackArtifactSchema.parse({
@@ -263,6 +301,7 @@ function buildCaptionArtifacts(input: {
     providerId: input.captionTrack.provider,
     transcriptText: input.captionTrack.transcriptText,
     captionUrl: input.captionTrack.captionUrl ?? null,
+    storage: input.storage ?? null,
     createdAt: input.captionTrack.createdAt,
   });
 
@@ -274,6 +313,9 @@ function buildComposedVideoArtifacts(input: {
   renderVersion?: string | null;
   compositionSpecId: string;
   composedVideo: ComposedVideoResult;
+  storage?: VideoFactoryPersistedArtifactRef | null;
+  thumbnailStorage?: VideoFactoryPersistedArtifactRef | null;
+  retryState?: VideoFactoryRetryState | null;
 }) {
   const providerExecutionId = executionId(
     input.renderJobId,
@@ -293,6 +335,7 @@ function buildComposedVideoArtifacts(input: {
     startedAt: input.composedVideo.createdAt,
     completedAt: input.composedVideo.createdAt,
     errorMessage: null,
+    retryState: input.retryState ?? null,
   });
 
   const artifact = composedVideoArtifactSchema.parse({
@@ -305,11 +348,25 @@ function buildComposedVideoArtifacts(input: {
     providerId: input.composedVideo.provider,
     videoUrl: input.composedVideo.videoUrl,
     thumbnailUrl: input.composedVideo.thumbnailUrl ?? null,
+    storage: input.storage ?? null,
     durationSec: input.composedVideo.durationSec ?? null,
     createdAt: input.composedVideo.createdAt,
   });
 
-  return { providerExecution, artifact };
+  const thumbnailArtifact = input.composedVideo.thumbnailUrl
+    ? generatedThumbnailArtifactSchema.parse({
+        artifactId: artifactId(input.renderJobId, "thumbnail-image"),
+        artifactType: "thumbnail_image",
+        renderJobId: input.renderJobId,
+        renderVersion: input.renderVersion ?? null,
+        providerId: input.composedVideo.provider,
+        imageUrl: input.composedVideo.thumbnailUrl,
+        storage: input.thumbnailStorage ?? null,
+        createdAt: input.composedVideo.createdAt,
+      })
+    : null;
+
+  return { providerExecution, artifact, thumbnailArtifact };
 }
 
 export function buildVideoFactoryAttemptLineage(input: {
@@ -320,6 +377,20 @@ export function buildVideoFactoryAttemptLineage(input: {
   renderedAssetId?: string | null;
   costEstimate: CostEstimate;
   qualityCheck?: QualityCheckResult | null;
+  retryState?: VideoFactoryRetryState | null;
+  stageRetryStates?: {
+    narration?: VideoFactoryRetryState | null;
+    visuals?: VideoFactoryRetryState | null;
+    captions?: VideoFactoryRetryState | null;
+    composition?: VideoFactoryRetryState | null;
+  };
+  persistedArtifacts?: {
+    narration?: VideoFactoryPersistedArtifactRef | null;
+    sceneAssets?: Array<VideoFactoryPersistedArtifactRef | null | undefined>;
+    caption?: VideoFactoryPersistedArtifactRef | null;
+    composedVideo?: VideoFactoryPersistedArtifactRef | null;
+    thumbnail?: VideoFactoryPersistedArtifactRef | null;
+  };
   createdAt: string;
   narrationSpecId: string;
   captionSpecId: string;
@@ -336,23 +407,32 @@ export function buildVideoFactoryAttemptLineage(input: {
     renderVersion: input.renderVersion,
     narrationSpecId: input.narrationSpecId,
     narration: input.providerResults.narration,
+    storage: input.persistedArtifacts?.narration ?? null,
+    retryState: input.stageRetryStates?.narration ?? null,
   });
   const scenes = buildSceneArtifacts({
     renderJobId: input.renderJobId,
     renderVersion: input.renderVersion,
     sceneAssets: input.providerResults.sceneAssets,
+    storage: input.persistedArtifacts?.sceneAssets,
+    retryState: input.stageRetryStates?.visuals ?? null,
   });
   const captions = buildCaptionArtifacts({
     renderJobId: input.renderJobId,
     renderVersion: input.renderVersion,
     captionSpecId: input.captionSpecId,
     captionTrack: input.providerResults.captionTrack,
+    storage: input.persistedArtifacts?.caption ?? null,
+    retryState: input.stageRetryStates?.captions ?? null,
   });
   const composition = buildComposedVideoArtifacts({
     renderJobId: input.renderJobId,
     renderVersion: input.renderVersion,
     compositionSpecId: input.compositionSpecId,
     composedVideo: input.providerResults.composedVideo,
+    storage: input.persistedArtifacts?.composedVideo ?? null,
+    thumbnailStorage: input.persistedArtifacts?.thumbnail ?? null,
+    retryState: input.stageRetryStates?.composition ?? null,
   });
 
   return videoFactoryAttemptLineageSchema.parse({
@@ -364,6 +444,7 @@ export function buildVideoFactoryAttemptLineage(input: {
     renderedAssetId: input.renderedAssetId ?? null,
     costEstimate: input.costEstimate,
     qualityCheck: input.qualityCheck ?? null,
+    retryState: input.retryState ?? null,
     providerExecutions: [
       narration.providerExecution,
       ...scenes.map((scene) => scene.providerExecution),
@@ -374,6 +455,7 @@ export function buildVideoFactoryAttemptLineage(input: {
     sceneArtifacts: scenes.map((scene) => scene.artifact),
     captionArtifact: captions.artifact,
     composedVideoArtifact: composition.artifact,
+    thumbnailArtifact: composition.thumbnailArtifact,
     createdAt: input.createdAt,
   });
 }

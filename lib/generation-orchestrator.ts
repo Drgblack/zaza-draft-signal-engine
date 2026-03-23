@@ -12,6 +12,10 @@ import {
   type GeneratedSceneAsset,
 } from "@/lib/providers/visual-provider";
 import type { VideoBrief } from "@/lib/video-briefs";
+import {
+  executeWithRetry,
+  type VideoFactoryRetryState,
+} from "@/lib/video-factory-retry";
 import type { VideoFactoryStatus } from "@/lib/video-factory-state";
 
 export interface CompiledGenerationOrchestration {
@@ -28,14 +32,21 @@ export interface CompiledGenerationOrchestration {
   };
   renderedAssetInput: Omit<Parameters<typeof createMockRenderedAsset>[0], "renderJobId">;
   providerResults: {
-    narration: ReturnType<typeof elevenLabsNarrationProvider.generateNarration>;
+    narration: Awaited<ReturnType<typeof elevenLabsNarrationProvider.generateNarration>>;
     sceneAssets: GeneratedSceneAsset[];
-    captionTrack: ReturnType<typeof assemblyAiCaptionProvider.generateCaptionTrack>;
-    composedVideo: ReturnType<typeof ffmpegCompositionProvider.composeVideo>;
+    captionTrack: Awaited<ReturnType<typeof assemblyAiCaptionProvider.generateCaptionTrack>>;
+    composedVideo: Awaited<ReturnType<typeof ffmpegCompositionProvider.composeVideo>>;
+  };
+  stageRetryStates: {
+    preparing: VideoFactoryRetryState;
+    generating_narration: VideoFactoryRetryState;
+    generating_visuals: VideoFactoryRetryState;
+    generating_captions: VideoFactoryRetryState;
+    composing: VideoFactoryRetryState;
   };
 }
 
-export function orchestrateCompiledVideoGeneration(input: {
+export async function orchestrateCompiledVideoGeneration(input: {
   opportunity: ContentOpportunity;
   brief: VideoBrief;
   provider: RenderProvider;
@@ -50,52 +61,81 @@ export function orchestrateCompiledVideoGeneration(input: {
     | "composing"
     | "generated"
   >) => void;
-}): CompiledGenerationOrchestration {
-  if (input.provider !== "mock") {
-    throw new Error(`Render provider "${input.provider}" is not available yet.`);
-  }
-
+}): Promise<CompiledGenerationOrchestration> {
   input.onStageChange?.("preparing");
-  const compiledProductionPlan = compileVideoBriefForProduction({
-    opportunity: input.opportunity,
-    brief: input.brief,
-  });
+  const { value: compiledProductionPlan, retryState: preparingRetryState } =
+    await executeWithRetry({
+      stage: "preparing",
+      step: async () =>
+        compileVideoBriefForProduction({
+          opportunity: input.opportunity,
+          brief: input.brief,
+        }),
+      isRetryableFailure: () => false,
+    });
   const visualProvider = getVisualProvider(
     compiledProductionPlan.defaultsSnapshot.providerFallbacks.visuals[0] ?? null,
   );
   input.onStageChange?.("generating_narration");
-  const narration = elevenLabsNarrationProvider.generateNarration({
-    narrationSpec: compiledProductionPlan.narrationSpec,
-    createdAt: input.createdAt,
+  const { value: narration, retryState: narrationRetryState } = await executeWithRetry({
+    stage: "generating_narration",
+    step: async () =>
+      elevenLabsNarrationProvider.generateNarration({
+        narrationSpec: compiledProductionPlan.narrationSpec,
+        voiceId: compiledProductionPlan.defaultsSnapshot.voiceId,
+        voiceSettings: compiledProductionPlan.defaultsSnapshot.voiceSettings,
+        createdAt: input.createdAt,
+      }),
   });
   input.onStageChange?.("generating_visuals");
-  const sceneAssets = compiledProductionPlan.scenePrompts.map((scenePrompt) =>
-    visualProvider.generateScene({
-      scenePrompt,
-      createdAt: input.createdAt,
-    }),
-  );
+  const { value: sceneAssets, retryState: visualsRetryState } = await executeWithRetry({
+    stage: "generating_visuals",
+    step: async () =>
+      Promise.all(
+        compiledProductionPlan.scenePrompts.map((scenePrompt) =>
+          visualProvider.generateScene({
+            scenePrompt,
+            aspectRatio: compiledProductionPlan.defaultsSnapshot.aspectRatio,
+            createdAt: input.createdAt,
+          }),
+        ),
+      ),
+  });
   input.onStageChange?.("generating_captions");
-  const captionTrack = assemblyAiCaptionProvider.generateCaptionTrack({
-    captionSpec: compiledProductionPlan.captionSpec,
-    narration,
-    createdAt: input.createdAt,
+  const { value: captionTrack, retryState: captionsRetryState } = await executeWithRetry({
+    stage: "generating_captions",
+    step: async () =>
+      assemblyAiCaptionProvider.generateCaptionTrack({
+        captionSpec: compiledProductionPlan.captionSpec,
+        narration,
+        createdAt: input.createdAt,
+      }),
   });
   input.onStageChange?.("composing");
-  const composedVideo = ffmpegCompositionProvider.composeVideo({
-    compositionSpec: compiledProductionPlan.compositionSpec,
-    narration,
-    sceneAssets,
-    captionTrack,
-    createdAt: input.createdAt,
+  const { value: composedVideo, retryState: composingRetryState } = await executeWithRetry({
+    stage: "composing",
+    step: async () =>
+      ffmpegCompositionProvider.composeVideo({
+        compositionSpec: compiledProductionPlan.compositionSpec,
+        narration,
+        sceneAssets,
+        captionTrack,
+        createdAt: input.createdAt,
+      }),
   });
   input.onStageChange?.("generated");
+
+  const resolvedRenderProvider: RenderProvider = sceneAssets.some(
+    (asset) => asset.provider === "runway-gen4" && !asset.assetUrl.startsWith("mock://"),
+  )
+    ? "runway"
+    : "mock";
 
   return {
     compiledProductionPlan,
     narrationSpec: compiledProductionPlan.narrationSpec,
     renderJobInput: {
-      provider: input.provider,
+      provider: resolvedRenderProvider,
       renderVersion: input.renderVersion,
       compiledProductionPlan,
       productionDefaultsSnapshot: compiledProductionPlan.defaultsSnapshot,
@@ -114,6 +154,13 @@ export function orchestrateCompiledVideoGeneration(input: {
       sceneAssets,
       captionTrack,
       composedVideo,
+    },
+    stageRetryStates: {
+      preparing: preparingRetryState,
+      generating_narration: narrationRetryState,
+      generating_visuals: visualsRetryState,
+      generating_captions: captionsRetryState,
+      composing: composingRetryState,
     },
   };
 }

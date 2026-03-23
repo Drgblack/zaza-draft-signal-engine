@@ -93,6 +93,10 @@ import type { SafePostingEligibilityAssessment } from "@/lib/safe-posting";
 import type { OutreachResult } from "@/lib/outreach";
 import type { DistributionBundle } from "@/lib/distribution";
 import type { RevenueSignal } from "@/lib/revenue-signals";
+import {
+  RENDER_JOB_PRE_TRIAGE_CONCERNS,
+  RENDER_JOB_REGENERATION_REASONS,
+} from "@/lib/render-jobs";
 import type {
   ZazaConnectBridgeSummary,
   ZazaConnectExportPayload,
@@ -455,6 +459,7 @@ export const factoryInputActionRequestSchema = z.discriminatedUnion("action", [
 export const factoryInputGenerateVideoRequestSchema = z.object({
   opportunityId: z.string().trim().min(1),
   provider: z.enum(["mock", "runway", "capcut", "custom"]).default("mock"),
+  preTriageConcern: z.enum(RENDER_JOB_PRE_TRIAGE_CONCERNS).nullable().optional(),
 });
 
 export type FactoryInputGenerateVideoRequest = z.infer<
@@ -464,6 +469,7 @@ export type FactoryInputGenerateVideoRequest = z.infer<
 export const factoryInputRegenerateVideoRequestSchema = z.object({
   opportunityId: z.string().trim().min(1),
   provider: z.enum(["mock", "runway", "capcut", "custom"]).default("mock"),
+  regenerationReason: z.enum(RENDER_JOB_REGENERATION_REASONS).nullable().optional(),
 });
 
 export type FactoryInputRegenerateVideoRequest = z.infer<

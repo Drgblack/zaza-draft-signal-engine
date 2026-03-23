@@ -27,12 +27,13 @@ export async function POST(request: Request) {
     const state = await generateContentOpportunityVideo({
       opportunityId: parsed.data.opportunityId,
       provider: parsed.data.provider,
+      preTriageConcern: parsed.data.preTriageConcern ?? null,
     });
 
     return NextResponse.json<FactoryInputResponse>({
       success: true,
       state,
-      message: "Video compiled through the mock production pipeline and is ready for review.",
+      message: "Video generation started through the factory pipeline.",
     });
   } catch (error) {
     return NextResponse.json<FactoryInputResponse>(

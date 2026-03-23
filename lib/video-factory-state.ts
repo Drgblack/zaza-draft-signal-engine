@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { videoFactoryRetryStateSchema } from "./video-factory-retry";
+
 const VIDEO_FACTORY_RENDER_PROVIDERS = ["mock", "runway", "capcut", "custom"] as const;
 
 export const VIDEO_FACTORY_STATUSES = [
@@ -42,6 +44,7 @@ export const videoFactoryLifecycleSchema = z.object({
   lastUpdatedAt: z.string().trim().min(1),
   failureStage: z.enum(VIDEO_FACTORY_STATUSES).nullable().default(null),
   failureMessage: z.string().trim().nullable().default(null),
+  retryState: videoFactoryRetryStateSchema.nullable().default(null),
 });
 
 export type VideoFactoryLifecycle = z.infer<typeof videoFactoryLifecycleSchema>;
@@ -127,6 +130,7 @@ export function createDraftVideoFactoryLifecycle(input: {
     lastUpdatedAt: input.createdAt,
     failureStage: null,
     failureMessage: null,
+    retryState: null,
   });
 }
 
@@ -139,6 +143,7 @@ export function transitionVideoFactoryLifecycle(
     renderVersion?: string | null;
     failureStage?: VideoFactoryStatus | null;
     failureMessage?: string | null;
+    retryState?: z.infer<typeof videoFactoryRetryStateSchema> | null;
   },
 ): VideoFactoryLifecycle {
   if (!canTransition(lifecycle.status, nextStatus)) {
@@ -164,6 +169,8 @@ export function transitionVideoFactoryLifecycle(
     lastUpdatedAt: input.timestamp,
     failureStage: nextStatus === "failed" ? input.failureStage ?? lifecycle.status : null,
     failureMessage: nextStatus === "failed" ? input.failureMessage ?? null : null,
+    retryState:
+      input.retryState === undefined ? lifecycle.retryState : input.retryState ?? null,
     [timestampField]:
       lifecycle[timestampField] ?? input.timestamp,
   };

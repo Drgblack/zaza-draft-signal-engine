@@ -18,6 +18,17 @@ const baseQualityCheck = {
   checkedAt: "2026-03-22T10:00:00.000Z",
 };
 
+const baseRetryState = {
+  retryCount: 1,
+  maxRetries: 2,
+  backoffDelayMs: 3000,
+  nextRetryAt: "2026-03-22T10:00:03.000Z",
+  lastFailureAt: "2026-03-22T10:00:00.000Z",
+  retryStage: "generating_visuals",
+  failureMode: "retryable" as const,
+  exhausted: false,
+};
+
 test("video factory attempt lineage records provider executions and artifacts", () => {
   const attempt = buildVideoFactoryAttemptLineage({
     factoryJobId: "factory-job-1",
@@ -36,6 +47,89 @@ test("video factory attempt lineage records provider executions and artifacts", 
       estimatedAt: "2026-03-22T10:00:00.000Z",
     },
     qualityCheck: baseQualityCheck,
+    retryState: baseRetryState,
+    stageRetryStates: {
+      narration: {
+        ...baseRetryState,
+        retryCount: 0,
+        backoffDelayMs: null,
+        nextRetryAt: null,
+        lastFailureAt: null,
+        retryStage: "generating_narration",
+        failureMode: "none",
+      },
+      visuals: baseRetryState,
+      captions: {
+        ...baseRetryState,
+        retryCount: 0,
+        backoffDelayMs: null,
+        nextRetryAt: null,
+        lastFailureAt: null,
+        retryStage: "generating_captions",
+        failureMode: "none",
+      },
+      composition: {
+        ...baseRetryState,
+        retryCount: 0,
+        backoffDelayMs: null,
+        nextRetryAt: null,
+        lastFailureAt: null,
+        retryStage: "composing",
+        failureMode: "none",
+      },
+    },
+    persistedArtifacts: {
+      narration: {
+        backend: "blob",
+        pathname: "video-factory/opportunity-1/brief-1/factory-job-1/attempt-1-phase-c-render-v1/narration-audio/generated-narration-1.json",
+        url: "https://blob.example/narration-1.json",
+        sourceUrl: "mock://elevenlabs/narration/generated-narration-1.mp3",
+        contentType: "application/json; charset=utf-8",
+        persistedAt: "2026-03-22T10:00:00.000Z",
+      },
+      sceneAssets: [
+        {
+          backend: "blob",
+          pathname: "video-factory/opportunity-1/brief-1/factory-job-1/attempt-1-phase-c-render-v1/scene-video/scene-asset-1.json",
+          url: "https://blob.example/scene-asset-1.json",
+          sourceUrl: "mock://runway-gen4/scene-assets/scene-asset-1.mp4",
+          contentType: "application/json; charset=utf-8",
+          persistedAt: "2026-03-22T10:00:00.000Z",
+        },
+        {
+          backend: "blob",
+          pathname: "video-factory/opportunity-1/brief-1/factory-job-1/attempt-1-phase-c-render-v1/scene-video/scene-asset-2.json",
+          url: "https://blob.example/scene-asset-2.json",
+          sourceUrl: "mock://kling-2/scene-assets/scene-asset-2.mp4",
+          contentType: "application/json; charset=utf-8",
+          persistedAt: "2026-03-22T10:00:00.000Z",
+        },
+      ],
+      caption: {
+        backend: "blob",
+        pathname: "video-factory/opportunity-1/brief-1/factory-job-1/attempt-1-phase-c-render-v1/caption-track/caption-track-1.vtt",
+        url: "https://blob.example/caption-track-1.vtt",
+        sourceUrl: "mock://assemblyai/captions/caption-track-1.vtt",
+        contentType: "text/vtt; charset=utf-8",
+        persistedAt: "2026-03-22T10:00:00.000Z",
+      },
+      composedVideo: {
+        backend: "blob",
+        pathname: "video-factory/opportunity-1/brief-1/factory-job-1/attempt-1-phase-c-render-v1/composed-video/composed-video-1.json",
+        url: "https://blob.example/composed-video-1.json",
+        sourceUrl: "mock://ffmpeg/composed-videos/composed-video-1.mp4",
+        contentType: "application/json; charset=utf-8",
+        persistedAt: "2026-03-22T10:00:00.000Z",
+      },
+      thumbnail: {
+        backend: "blob",
+        pathname: "video-factory/opportunity-1/brief-1/factory-job-1/attempt-1-phase-c-render-v1/thumbnail-image/composed-video-1-thumbnail.json",
+        url: "https://blob.example/composed-video-1-thumbnail.json",
+        sourceUrl: "mock://ffmpeg/composed-videos/composed-video-1.jpg",
+        contentType: "application/json; charset=utf-8",
+        persistedAt: "2026-03-22T10:00:00.000Z",
+      },
+    },
     createdAt: "2026-03-22T10:00:00.000Z",
     narrationSpecId: "narration-spec-1",
     captionSpecId: "caption-spec-1",
@@ -45,6 +139,9 @@ test("video factory attempt lineage records provider executions and artifacts", 
         id: "generated-narration-1",
         provider: "elevenlabs",
         audioUrl: "mock://elevenlabs/narration/generated-narration-1.mp3",
+        providerJobId: null,
+        audioMimeType: null,
+        audioBase64: null,
         durationSec: 45,
         createdAt: "2026-03-22T10:00:00.000Z",
       },
@@ -54,6 +151,7 @@ test("video factory attempt lineage records provider executions and artifacts", 
           provider: "runway-gen4",
           scenePromptId: "scene-prompt-1",
           assetUrl: "mock://runway-gen4/scene-assets/scene-asset-1.mp4",
+          providerJobId: null,
           createdAt: "2026-03-22T10:00:00.000Z",
         },
         {
@@ -61,6 +159,7 @@ test("video factory attempt lineage records provider executions and artifacts", 
           provider: "kling-2",
           scenePromptId: "scene-prompt-2",
           assetUrl: "mock://kling-2/scene-assets/scene-asset-2.mp4",
+          providerJobId: null,
           createdAt: "2026-03-22T10:00:00.000Z",
         },
       ],
@@ -70,6 +169,8 @@ test("video factory attempt lineage records provider executions and artifacts", 
         sourceNarrationId: "generated-narration-1",
         transcriptText: "A transcript for the mock caption track.",
         captionUrl: "mock://assemblyai/captions/caption-track-1.vtt",
+        providerJobId: null,
+        captionVtt: null,
         createdAt: "2026-03-22T10:00:00.000Z",
       },
       composedVideo: {
@@ -87,12 +188,16 @@ test("video factory attempt lineage records provider executions and artifacts", 
   assert.equal(attempt.renderJobId, "render-job-1");
   assert.equal(attempt.costEstimate.providerId, "runway-gen4");
   assert.equal(attempt.qualityCheck?.passed, true);
+  assert.equal(attempt.retryState?.retryCount, 1);
   assert.equal(attempt.providerExecutions.length, 5);
+  assert.equal(attempt.providerExecutions[1]?.retryState?.retryStage, "generating_visuals");
   assert.equal(attempt.narrationArtifact?.artifactType, "narration_audio");
   assert.equal(attempt.sceneArtifacts.length, 2);
   assert.equal(attempt.sceneArtifacts[0]?.artifactType, "scene_video");
+  assert.equal(attempt.sceneArtifacts[0]?.storage?.backend, "blob");
   assert.equal(attempt.captionArtifact?.artifactType, "caption_track");
   assert.equal(attempt.composedVideoArtifact?.artifactType, "composed_video");
+  assert.equal(attempt.thumbnailArtifact?.artifactType, "thumbnail_image");
 });
 
 test("video factory attempt lineage appends regenerate attempts instead of overwriting", () => {
@@ -116,6 +221,13 @@ test("video factory attempt lineage appends regenerate attempts instead of overw
       ...baseQualityCheck,
       sceneCount: 1,
     },
+    persistedArtifacts: {
+      narration: null,
+      sceneAssets: [null],
+      caption: null,
+      composedVideo: null,
+      thumbnail: null,
+    },
     createdAt: "2026-03-22T10:00:00.000Z",
     narrationSpecId: "narration-spec-1",
     captionSpecId: "caption-spec-1",
@@ -125,6 +237,9 @@ test("video factory attempt lineage appends regenerate attempts instead of overw
         id: "generated-narration-1",
         provider: "elevenlabs",
         audioUrl: "mock://elevenlabs/narration/generated-narration-1.mp3",
+        providerJobId: null,
+        audioMimeType: null,
+        audioBase64: null,
         durationSec: 45,
         createdAt: "2026-03-22T10:00:00.000Z",
       },
@@ -134,6 +249,7 @@ test("video factory attempt lineage appends regenerate attempts instead of overw
           provider: "runway-gen4",
           scenePromptId: "scene-prompt-1",
           assetUrl: "mock://runway-gen4/scene-assets/scene-asset-1.mp4",
+          providerJobId: null,
           createdAt: "2026-03-22T10:00:00.000Z",
         },
       ],
@@ -143,6 +259,8 @@ test("video factory attempt lineage appends regenerate attempts instead of overw
         sourceNarrationId: "generated-narration-1",
         transcriptText: "A transcript for the first mock caption track.",
         captionUrl: "mock://assemblyai/captions/caption-track-1.vtt",
+        providerJobId: null,
+        captionVtt: null,
         createdAt: "2026-03-22T10:00:00.000Z",
       },
       composedVideo: {
@@ -178,6 +296,13 @@ test("video factory attempt lineage appends regenerate attempts instead of overw
       sceneCount: 1,
       checkedAt: "2026-03-22T10:10:00.000Z",
     },
+    persistedArtifacts: {
+      narration: null,
+      sceneAssets: [null],
+      caption: null,
+      composedVideo: null,
+      thumbnail: null,
+    },
     createdAt: "2026-03-22T10:10:00.000Z",
     narrationSpecId: "narration-spec-2",
     captionSpecId: "caption-spec-2",
@@ -187,6 +312,9 @@ test("video factory attempt lineage appends regenerate attempts instead of overw
         id: "generated-narration-2",
         provider: "elevenlabs",
         audioUrl: "mock://elevenlabs/narration/generated-narration-2.mp3",
+        providerJobId: null,
+        audioMimeType: null,
+        audioBase64: null,
         durationSec: 47,
         createdAt: "2026-03-22T10:10:00.000Z",
       },
@@ -196,6 +324,7 @@ test("video factory attempt lineage appends regenerate attempts instead of overw
           provider: "kling-2",
           scenePromptId: "scene-prompt-2",
           assetUrl: "mock://kling-2/scene-assets/scene-asset-2.mp4",
+          providerJobId: null,
           createdAt: "2026-03-22T10:10:00.000Z",
         },
       ],
@@ -205,6 +334,8 @@ test("video factory attempt lineage appends regenerate attempts instead of overw
         sourceNarrationId: "generated-narration-2",
         transcriptText: "A transcript for the regenerated mock caption track.",
         captionUrl: "mock://assemblyai/captions/caption-track-2.vtt",
+        providerJobId: null,
+        captionVtt: null,
         createdAt: "2026-03-22T10:10:00.000Z",
       },
       composedVideo: {

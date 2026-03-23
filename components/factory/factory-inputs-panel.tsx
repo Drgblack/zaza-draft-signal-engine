@@ -780,7 +780,11 @@ export function FactoryInputsPanel({
                   : null;
 
               return (
-              <div key={item.opportunityId} className="rounded-2xl bg-white/84 px-4 py-4">
+              <div
+                key={item.opportunityId}
+                id={`opportunity-${item.opportunityId}`}
+                className="rounded-2xl bg-white/84 px-4 py-4"
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge className={priorityTone(item.priority)}>{item.priority}</Badge>
                   <Badge className={typeTone(item.opportunityType)}>
@@ -1415,6 +1419,15 @@ export function FactoryInputsPanel({
                                       >
                                         Discard
                                       </Button>
+                                    ) : null}
+                                    {item.selectedVideoBrief ? (
+                                      <Link
+                                        href={`/factory-inputs?opportunityId=${encodeURIComponent(item.opportunityId)}#review`}
+                                      >
+                                        <Button size="sm" variant="ghost">
+                                          Open review flow
+                                        </Button>
+                                      </Link>
                                     ) : null}
                                     {canExportPackage ? (
                                       <Button

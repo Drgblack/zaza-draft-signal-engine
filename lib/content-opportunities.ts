@@ -103,13 +103,23 @@ import {
   costEstimateSchema,
   type CostEstimate,
 } from "@/lib/video-factory-cost";
+import { persistVideoFactoryArtifacts } from "@/lib/video-factory-artifact-storage";
 import {
   lifecycleStatusForQualityFailure,
+  isRetryableQualityCheckResult,
   qualityCheckResultSchema,
   runVideoFactoryQualityChecks,
   summarizeQualityCheckFailures,
   type QualityCheckResult,
 } from "@/lib/video-factory-quality-checks";
+import {
+  executeWithRetry,
+  VideoFactoryRetryExecutionError,
+  VideoFactoryRetryableError,
+  summarizeVideoFactoryRetryStates,
+  videoFactoryRetryStateSchema,
+  type VideoFactoryRetryState,
+} from "@/lib/video-factory-retry";
 import {
   appendFactoryRunLedgerEntry,
   buildFactoryRunLedgerEntry,
@@ -177,6 +187,7 @@ export interface ContentOpportunityGenerationState {
   factoryLifecycle: VideoFactoryLifecycle | null;
   latestCostEstimate: CostEstimate | null;
   latestQualityCheck: QualityCheckResult | null;
+  latestRetryState: VideoFactoryRetryState | null;
   runLedger: FactoryRunLedgerEntry[];
   attemptLineage: VideoFactoryAttemptLineage[];
   narrationSpec: NarrationSpec | null;
@@ -252,6 +263,7 @@ export const contentOpportunityGenerationStateSchema = z.object({
   factoryLifecycle: videoFactoryLifecycleSchema.nullable().default(null),
   latestCostEstimate: costEstimateSchema.nullable().default(null),
   latestQualityCheck: qualityCheckResultSchema.nullable().default(null),
+  latestRetryState: videoFactoryRetryStateSchema.nullable().default(null),
   runLedger: z.array(factoryRunLedgerEntrySchema).default([]),
   attemptLineage: z.array(videoFactoryAttemptLineageSchema).default([]),
   narrationSpec: narrationSpecSchema.nullable().default(null),
@@ -978,6 +990,8 @@ async function runContentOpportunityVideoGeneration(input: {
   opportunityId: string;
   provider?: RenderProvider;
   isRegenerate: boolean;
+  preTriageConcern?: RenderJob["preTriageConcern"];
+  regenerationReason?: RenderJob["regenerationReason"];
 }) {
   const provider = input.provider ?? "mock";
   const timestamp = new Date().toISOString();
@@ -1018,7 +1032,7 @@ async function runContentOpportunityVideoGeneration(input: {
   let currentStage: VideoFactoryStatus = "queued";
 
   try {
-    const orchestration = orchestrateCompiledVideoGeneration({
+    const orchestration = await orchestrateCompiledVideoGeneration({
       opportunity: normalizedCurrent,
       brief,
       provider,
@@ -1052,23 +1066,91 @@ async function runContentOpportunityVideoGeneration(input: {
       compiledProductionPlan,
       estimatedAt: timestamp,
     });
-    const qualityCheck = runVideoFactoryQualityChecks({
-      compiledProductionPlan,
-      providerResults: orchestration.providerResults,
-      checkedAt: timestamp,
-    });
+    let qualityCheck: QualityCheckResult | null = null;
+    let qualityCheckRetryState: VideoFactoryRetryState | null = null;
+
+    try {
+      const qualityCheckExecution = await executeWithRetry({
+        stage: "quality_check",
+        step: async () => {
+          const result = runVideoFactoryQualityChecks({
+            compiledProductionPlan,
+            providerResults: orchestration.providerResults,
+            checkedAt: timestamp,
+          });
+
+          if (!result.passed) {
+            throw new VideoFactoryRetryableError(
+              summarizeQualityCheckFailures(result),
+              {
+                retryable: isRetryableQualityCheckResult(result),
+                details: result,
+              },
+            );
+          }
+
+          return result;
+        },
+      });
+
+      qualityCheck = qualityCheckExecution.value;
+      qualityCheckRetryState = qualityCheckExecution.retryState;
+    } catch (error) {
+      if (!(error instanceof VideoFactoryRetryExecutionError)) {
+        throw error;
+      }
+
+      qualityCheckRetryState = error.retryState;
+      const parsedQualityCheck = qualityCheckResultSchema.safeParse(error.details);
+      if (parsedQualityCheck.success) {
+        qualityCheck = parsedQualityCheck.data;
+      } else {
+        throw error;
+      }
+    }
+
+    const attemptRetryState = summarizeVideoFactoryRetryStates([
+      orchestration.stageRetryStates.preparing,
+      orchestration.stageRetryStates.generating_narration,
+      orchestration.stageRetryStates.generating_visuals,
+      orchestration.stageRetryStates.generating_captions,
+      orchestration.stageRetryStates.composing,
+      qualityCheckRetryState,
+    ]);
+    if (!qualityCheck) {
+      throw new Error("Quality check did not return a result.");
+    }
     const renderJobBase = createRenderJob({
       generationRequestId: generationRequest.id,
       provider: orchestration.renderJobInput.provider,
       renderVersion: orchestration.renderJobInput.renderVersion,
       compiledProductionPlan: orchestration.renderJobInput.compiledProductionPlan,
       productionDefaultsSnapshot: orchestration.renderJobInput.productionDefaultsSnapshot,
+      preTriageConcern: input.preTriageConcern ?? null,
+      regenerationReason: input.regenerationReason ?? null,
       costEstimate,
       qualityCheck,
+      retryState: attemptRetryState,
+    });
+    const persistedArtifacts = await persistVideoFactoryArtifacts({
+      opportunityId: normalizedCurrent.opportunityId,
+      videoBriefId: brief.id,
+      factoryJobId: factoryLifecycle.factoryJobId,
+      attemptNumber,
+      renderVersion,
+      persistedAt: timestamp,
+      providerResults: orchestration.providerResults,
     });
     const renderedAsset = createMockRenderedAsset({
       renderJobId: renderJobBase.id,
       ...orchestration.renderedAssetInput,
+      url:
+        persistedArtifacts.composedVideo.url ??
+        orchestration.renderedAssetInput.url,
+      thumbnailUrl:
+        persistedArtifacts.thumbnail?.url ??
+        orchestration.renderedAssetInput.thumbnailUrl ??
+        null,
     });
     const attemptLineage = buildVideoFactoryAttemptLineage({
       factoryJobId: factoryLifecycle.factoryJobId,
@@ -1078,6 +1160,14 @@ async function runContentOpportunityVideoGeneration(input: {
       renderedAssetId: qualityCheck.passed ? renderedAsset.id : null,
       costEstimate,
       qualityCheck,
+      retryState: attemptRetryState,
+      stageRetryStates: {
+        narration: orchestration.stageRetryStates.generating_narration,
+        visuals: orchestration.stageRetryStates.generating_visuals,
+        captions: orchestration.stageRetryStates.generating_captions,
+        composition: orchestration.stageRetryStates.composing,
+      },
+      persistedArtifacts,
       createdAt: timestamp,
       narrationSpecId: compiledProductionPlan.narrationSpec.id,
       captionSpecId: compiledProductionPlan.captionSpec.id,
@@ -1093,6 +1183,7 @@ async function runContentOpportunityVideoGeneration(input: {
         renderVersion,
         failureStage: currentStage,
         failureMessage: summarizeQualityCheckFailures(qualityCheck),
+        retryState: attemptRetryState,
       });
       const failedRenderJob = {
         ...renderJobBase,
@@ -1101,6 +1192,7 @@ async function runContentOpportunityVideoGeneration(input: {
         submittedAt: orchestration.renderJobInput.submittedAt,
         completedAt: timestamp,
         errorMessage: summarizeQualityCheckFailures(qualityCheck),
+        retryState: attemptRetryState,
       };
       const failedLedgerEntry = buildFactoryRunLedgerEntry({
         opportunityId: normalizedCurrent.opportunityId,
@@ -1114,6 +1206,7 @@ async function runContentOpportunityVideoGeneration(input: {
         attemptLineage,
         estimatedCost: costEstimate,
         qualityCheck,
+        retryState: attemptRetryState,
       });
       const failedGenerationState = contentOpportunityGenerationStateSchema.parse({
         videoBriefApprovedAt: approvedAt,
@@ -1121,6 +1214,7 @@ async function runContentOpportunityVideoGeneration(input: {
         factoryLifecycle,
         latestCostEstimate: costEstimate,
         latestQualityCheck: qualityCheck,
+        latestRetryState: attemptRetryState,
         runLedger: appendFactoryRunLedgerEntry(
           currentGenerationState.runLedger,
           failedLedgerEntry,
@@ -1159,6 +1253,7 @@ async function runContentOpportunityVideoGeneration(input: {
       timestamp: new Date().toISOString(),
       provider,
       renderVersion,
+      retryState: attemptRetryState,
     });
     const runLedgerEntry = buildFactoryRunLedgerEntry({
       opportunityId: normalizedCurrent.opportunityId,
@@ -1172,6 +1267,7 @@ async function runContentOpportunityVideoGeneration(input: {
       attemptLineage,
       estimatedCost: costEstimate,
       qualityCheck,
+      retryState: attemptRetryState,
     });
     const generationSignalMetadata = buildPerformanceSignalMetadata({
       opportunity: normalizedCurrent,
@@ -1219,6 +1315,7 @@ async function runContentOpportunityVideoGeneration(input: {
       factoryLifecycle,
       latestCostEstimate: costEstimate,
       latestQualityCheck: qualityCheck,
+      latestRetryState: attemptRetryState,
       runLedger: appendFactoryRunLedgerEntry(
         currentGenerationState.runLedger,
         runLedgerEntry,
@@ -1293,12 +1390,18 @@ async function runContentOpportunityVideoGeneration(input: {
 
     return state;
   } catch (error) {
+    const retryState =
+      error instanceof VideoFactoryRetryExecutionError ? error.retryState : null;
+    if (retryState?.retryStage) {
+      currentStage = retryState.retryStage as VideoFactoryStatus;
+    }
     const failedLifecycle = transitionVideoFactoryLifecycle(factoryLifecycle, "failed", {
       timestamp: new Date().toISOString(),
       provider,
       renderVersion,
       failureStage: currentStage,
       failureMessage: error instanceof Error ? error.message : "Video generation failed.",
+      retryState,
     });
     const failedGenerationState = contentOpportunityGenerationStateSchema.parse(
       current.generationState ?? {},
@@ -1310,6 +1413,7 @@ async function runContentOpportunityVideoGeneration(input: {
       lifecycle: failedLifecycle,
       renderProvider: provider,
       estimatedCost: null,
+      retryState,
     });
 
     await updateOpportunity(input.opportunityId, (opportunity) => ({
@@ -1319,6 +1423,7 @@ async function runContentOpportunityVideoGeneration(input: {
         videoBriefApprovedAt: approvedAt,
         videoBriefApprovedBy: approvedBy,
         factoryLifecycle: failedLifecycle,
+        latestRetryState: retryState,
         runLedger: appendFactoryRunLedgerEntry(
           failedGenerationState.runLedger,
           failedLedgerEntry,
@@ -1804,22 +1909,26 @@ export async function approveContentOpportunityVideoBriefForGeneration(
 export async function generateContentOpportunityVideo(input: {
   opportunityId: string;
   provider?: RenderProvider;
+  preTriageConcern?: RenderJob["preTriageConcern"];
 }) {
   return runContentOpportunityVideoGeneration({
     opportunityId: input.opportunityId,
     provider: input.provider,
     isRegenerate: false,
+    preTriageConcern: input.preTriageConcern ?? null,
   });
 }
 
 export async function regenerateContentOpportunityVideo(input: {
   opportunityId: string;
   provider?: RenderProvider;
+  regenerationReason?: RenderJob["regenerationReason"];
 }) {
   return runContentOpportunityVideoGeneration({
     opportunityId: input.opportunityId,
     provider: input.provider,
     isRegenerate: true,
+    regenerationReason: input.regenerationReason ?? null,
   });
 }
 

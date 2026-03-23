@@ -30,6 +30,17 @@ const baseQualityCheck = {
   checkedAt: "2026-03-22T10:00:00.000Z",
 };
 
+const baseRetryState = {
+  retryCount: 1,
+  maxRetries: 2,
+  backoffDelayMs: 3000,
+  nextRetryAt: "2026-03-22T10:00:03.000Z",
+  lastFailureAt: "2026-03-22T10:00:00.000Z",
+  retryStage: "generating_visuals",
+  failureMode: "retryable" as const,
+  exhausted: false,
+};
+
 const baseLifecycle = {
   factoryJobId: "brief-1:factory-job:phase-c-render-v1",
   videoBriefId: "brief-1",
@@ -52,6 +63,7 @@ const baseLifecycle = {
   lastUpdatedAt: "2026-03-22T10:00:06.000Z",
   failureStage: null,
   failureMessage: null,
+  retryState: null,
 };
 
 test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artifacts", () => {
@@ -66,6 +78,7 @@ test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artif
     renderedAssetId: "rendered-asset-1",
     estimatedCost: baseCostEstimate,
     qualityCheck: baseQualityCheck,
+    retryState: baseRetryState,
     attemptLineage: {
       attemptId: "render-job-1:attempt-lineage",
       factoryJobId: baseLifecycle.factoryJobId,
@@ -75,6 +88,7 @@ test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artif
       renderedAssetId: "rendered-asset-1",
       costEstimate: baseCostEstimate,
       qualityCheck: baseQualityCheck,
+      retryState: baseRetryState,
       providerExecutions: [],
       narrationArtifact: {
         artifactId: "narration-1",
@@ -85,6 +99,7 @@ test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artif
         narrationSpecId: "narration-spec-1",
         providerId: "elevenlabs",
         audioUrl: "mock://elevenlabs/audio.mp3",
+        storage: null,
         durationSec: 45,
         createdAt: "2026-03-22T10:00:01.000Z",
       },
@@ -98,6 +113,7 @@ test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artif
           scenePromptId: "scene-prompt-1",
           providerId: "runway-gen4",
           assetUrl: "mock://runway/scene-1.mp4",
+          storage: null,
           order: 1,
           createdAt: "2026-03-22T10:00:02.000Z",
         },
@@ -113,6 +129,7 @@ test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artif
         providerId: "assemblyai",
         transcriptText: "Transcript",
         captionUrl: "mock://assemblyai/caption.vtt",
+        storage: null,
         createdAt: "2026-03-22T10:00:03.000Z",
       },
       composedVideoArtifact: {
@@ -125,7 +142,18 @@ test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artif
         providerId: "ffmpeg",
         videoUrl: "mock://ffmpeg/video.mp4",
         thumbnailUrl: "mock://ffmpeg/video.jpg",
+        storage: null,
         durationSec: 45,
+        createdAt: "2026-03-22T10:00:04.000Z",
+      },
+      thumbnailArtifact: {
+        artifactId: "thumbnail-1",
+        artifactType: "thumbnail_image",
+        renderJobId: "render-job-1",
+        renderVersion: "phase-c-render-v1",
+        providerId: "ffmpeg",
+        imageUrl: "mock://ffmpeg/video.jpg",
+        storage: null,
         createdAt: "2026-03-22T10:00:04.000Z",
       },
       createdAt: "2026-03-22T10:00:06.000Z",
@@ -141,7 +169,8 @@ test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artif
   assert.equal(entry.terminalOutcome, "review_pending");
   assert.equal(entry.estimatedCost?.estimatedTotalUsd, 0.9234);
   assert.equal(entry.qualityCheck?.passed, true);
-  assert.deepEqual(entry.artifactIds, ["narration-1", "scene-1", "caption-1", "video-1"]);
+  assert.equal(entry.retryState?.retryCount, 1);
+  assert.deepEqual(entry.artifactIds, ["narration-1", "scene-1", "caption-1", "video-1", "thumbnail-1"]);
   assert.equal(entry.lifecycleTransitions.length, 9);
 });
 
