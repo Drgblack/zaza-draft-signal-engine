@@ -52,6 +52,9 @@ export async function orchestrateCompiledVideoGeneration(input: {
   provider: RenderProvider;
   renderVersion: string;
   createdAt: string;
+  onCompiledPlan?: (
+    compiledProductionPlan: ReturnType<typeof compileVideoBriefForProduction>,
+  ) => Promise<void> | void;
   onStageChange?: (status: Extract<
     VideoFactoryStatus,
     | "preparing"
@@ -60,9 +63,9 @@ export async function orchestrateCompiledVideoGeneration(input: {
     | "generating_captions"
     | "composing"
     | "generated"
-  >) => void;
+  >) => Promise<void> | void;
 }): Promise<CompiledGenerationOrchestration> {
-  input.onStageChange?.("preparing");
+  await input.onStageChange?.("preparing");
   const { value: compiledProductionPlan, retryState: preparingRetryState } =
     await executeWithRetry({
       stage: "preparing",
@@ -73,10 +76,11 @@ export async function orchestrateCompiledVideoGeneration(input: {
         }),
       isRetryableFailure: () => false,
     });
+  await input.onCompiledPlan?.(compiledProductionPlan);
   const visualProvider = getVisualProvider(
     compiledProductionPlan.defaultsSnapshot.providerFallbacks.visuals[0] ?? null,
   );
-  input.onStageChange?.("generating_narration");
+  await input.onStageChange?.("generating_narration");
   const { value: narration, retryState: narrationRetryState } = await executeWithRetry({
     stage: "generating_narration",
     step: async () =>
@@ -87,7 +91,7 @@ export async function orchestrateCompiledVideoGeneration(input: {
         createdAt: input.createdAt,
       }),
   });
-  input.onStageChange?.("generating_visuals");
+  await input.onStageChange?.("generating_visuals");
   const { value: sceneAssets, retryState: visualsRetryState } = await executeWithRetry({
     stage: "generating_visuals",
     step: async () =>
@@ -101,7 +105,7 @@ export async function orchestrateCompiledVideoGeneration(input: {
         ),
       ),
   });
-  input.onStageChange?.("generating_captions");
+  await input.onStageChange?.("generating_captions");
   const { value: captionTrack, retryState: captionsRetryState } = await executeWithRetry({
     stage: "generating_captions",
     step: async () =>
@@ -111,7 +115,7 @@ export async function orchestrateCompiledVideoGeneration(input: {
         createdAt: input.createdAt,
       }),
   });
-  input.onStageChange?.("composing");
+  await input.onStageChange?.("composing");
   const { value: composedVideo, retryState: composingRetryState } = await executeWithRetry({
     stage: "composing",
     step: async () =>
@@ -123,7 +127,7 @@ export async function orchestrateCompiledVideoGeneration(input: {
         createdAt: input.createdAt,
       }),
   });
-  input.onStageChange?.("generated");
+  await input.onStageChange?.("generated");
 
   const resolvedRenderProvider: RenderProvider = sceneAssets.some(
     (asset) => asset.provider === "runway-gen4" && !asset.assetUrl.startsWith("mock://"),

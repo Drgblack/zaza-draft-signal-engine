@@ -86,6 +86,11 @@ export interface RenderJobProgress {
   };
 }
 
+type SelectedReviewAttempt = {
+  selectedAttempt: NonNullable<ContentOpportunity["generationState"]>["attemptLineage"][number] | null;
+  selectedRunEntry: NonNullable<ContentOpportunity["generationState"]>["runLedger"][number] | null;
+};
+
 const DEFAULT_REGENERATION_BUDGET_MAX = 3;
 
 function buildDefaultCostEstimate(): CostEstimate {
@@ -115,11 +120,59 @@ function buildQualitySummary(qualityCheck: QualityCheckResult | null | undefined
   return `Failed with ${qualityCheck.failures.length} issue${qualityCheck.failures.length === 1 ? "" : "s"}`;
 }
 
+function findMatchingAttempt(
+  opportunity: ContentOpportunity,
+): SelectedReviewAttempt {
+  const generationState = opportunity.generationState;
+  if (!generationState) {
+    return {
+      selectedAttempt: null,
+      selectedRunEntry: null,
+    };
+  }
+
+  const currentRenderJobId = generationState.renderJob?.id ?? null;
+  const currentRenderedAssetId = generationState.renderedAsset?.id ?? null;
+
+  for (let index = generationState.attemptLineage.length - 1; index >= 0; index -= 1) {
+    const attempt = generationState.attemptLineage[index] ?? null;
+    if (!attempt) {
+      continue;
+    }
+
+    const renderJobMatches =
+      currentRenderJobId && attempt.renderJobId === currentRenderJobId;
+    const renderedAssetMatches =
+      currentRenderedAssetId && attempt.renderedAssetId === currentRenderedAssetId;
+
+    if (renderJobMatches || renderedAssetMatches) {
+      const selectedRunEntry =
+        generationState.runLedger.find((entry) => {
+          const sameRenderJob =
+            currentRenderJobId && entry.renderJobId === currentRenderJobId;
+          const sameRenderedAsset =
+            currentRenderedAssetId && entry.renderedAssetId === currentRenderedAssetId;
+          return sameRenderJob || sameRenderedAsset;
+        }) ?? null;
+
+      return {
+        selectedAttempt: attempt,
+        selectedRunEntry,
+      };
+    }
+  }
+
+  return {
+    selectedAttempt: generationState.attemptLineage.at(-1) ?? null,
+    selectedRunEntry: generationState.runLedger.at(-1) ?? null,
+  };
+}
+
 function buildProviderLabel(
   opportunity: ContentOpportunity,
+  selectedRunEntry: SelectedReviewAttempt["selectedRunEntry"],
 ): string {
-  const latestRunEntry = opportunity.generationState?.runLedger.at(-1) ?? null;
-  const providerSet = latestRunEntry?.providerSet;
+  const providerSet = selectedRunEntry?.providerSet;
   if (!providerSet) {
     return opportunity.generationState?.renderJob?.provider ?? "Factory providers";
   }
@@ -227,9 +280,9 @@ function failedStageMatches(
 
 function inferStepStatus(
   opportunity: ContentOpportunity,
+  selectedAttempt: SelectedReviewAttempt["selectedAttempt"],
 ): RenderJobProgress["steps"] {
   const generationState = opportunity.generationState;
-  const latestAttempt = generationState?.attemptLineage.at(-1) ?? null;
   const lifecycleStatus = generationState?.factoryLifecycle?.status ?? null;
   const qualityCheck = generationState?.latestQualityCheck ?? null;
   const renderedAsset = generationState?.renderedAsset ?? null;
@@ -237,21 +290,21 @@ function inferStepStatus(
   return {
     narration: failedStageMatches(opportunity, "generating_narration")
       ? "failed"
-      : latestAttempt?.narrationArtifact
+      : selectedAttempt?.narrationArtifact
         ? "done"
         : lifecycleStatus === "generating_narration"
           ? "running"
           : "pending",
     transcription: failedStageMatches(opportunity, "generating_captions")
       ? "failed"
-      : latestAttempt?.captionArtifact
+      : selectedAttempt?.captionArtifact
         ? "done"
         : lifecycleStatus === "generating_captions"
           ? "running"
           : "pending",
     visuals: failedStageMatches(opportunity, "generating_visuals")
       ? "failed"
-      : latestAttempt && latestAttempt.sceneArtifacts.length > 0
+      : selectedAttempt && selectedAttempt.sceneArtifacts.length > 0
         ? "done"
         : lifecycleStatus === "generating_visuals"
           ? "running"
@@ -262,12 +315,12 @@ function inferStepStatus(
         ? qualityCheck.passed
           ? "done"
           : "failed"
-        : latestAttempt?.sceneArtifacts.length
+        : selectedAttempt?.sceneArtifacts.length
           ? "running"
           : "pending",
     composition: failedStageMatches(opportunity, "composing")
       ? "failed"
-      : latestAttempt?.composedVideoArtifact
+      : selectedAttempt?.composedVideoArtifact
         ? "done"
         : lifecycleStatus === "composing"
           ? "running"
@@ -310,12 +363,19 @@ export function buildVideoFactoryReviewJob(
     return null;
   }
 
-  const latestRunEntry = generationState.runLedger.at(-1) ?? null;
-  const latestAttempt = generationState.attemptLineage.at(-1) ?? null;
-  const currentAttempt = latestRunEntry?.attemptNumber ?? 0;
+  const { selectedAttempt, selectedRunEntry } = findMatchingAttempt(opportunity);
+  const currentAttempt =
+    selectedRunEntry?.attemptNumber ??
+    generationState.runLedger.at(-1)?.attemptNumber ??
+    generationState.attemptLineage.length;
   const priorAttemptsCount = Math.max(currentAttempt - 1, 0);
   const regenerationBudgetMax = DEFAULT_REGENERATION_BUDGET_MAX;
-  const qualitySummary = buildQualitySummary(generationState.latestQualityCheck);
+  const qualitySummary = buildQualitySummary(
+    generationState.renderJob?.qualityCheck ??
+      selectedRunEntry?.qualityCheck ??
+      selectedAttempt?.qualityCheck ??
+      generationState.latestQualityCheck,
+  );
   const costEstimate = generationState.latestCostEstimate
     ? {
         estimatedTotalUsd: generationState.latestCostEstimate.estimatedTotalUsd,
@@ -325,16 +385,21 @@ export function buildVideoFactoryReviewJob(
         mode: generationState.latestCostEstimate.mode,
       }
     : buildDefaultCostEstimate();
+  const actualCostUsd =
+    generationState.latestActualCost?.actualCostUsd ??
+    selectedRunEntry?.actualCost?.actualCostUsd ??
+    selectedAttempt?.actualCost?.actualCostUsd ??
+    null;
   const finalVideoUrl =
     generationState.renderedAsset?.url ??
-    latestAttempt?.composedVideoArtifact?.storage?.url ??
-    latestAttempt?.composedVideoArtifact?.videoUrl ??
+    selectedAttempt?.composedVideoArtifact?.storage?.url ??
+    selectedAttempt?.composedVideoArtifact?.videoUrl ??
     null;
   const thumbnailUrl =
     generationState.renderedAsset?.thumbnailUrl ??
-    latestAttempt?.thumbnailArtifact?.storage?.url ??
-    latestAttempt?.thumbnailArtifact?.imageUrl ??
-    latestAttempt?.composedVideoArtifact?.thumbnailUrl ??
+    selectedAttempt?.thumbnailArtifact?.storage?.url ??
+    selectedAttempt?.thumbnailArtifact?.imageUrl ??
+    selectedAttempt?.composedVideoArtifact?.thumbnailUrl ??
     null;
 
   return {
@@ -351,35 +416,35 @@ export function buildVideoFactoryReviewJob(
     priorAttemptsCount,
     lifecycleLabel: generationState.factoryLifecycle?.status ?? "draft",
     terminalOutcome:
-      latestRunEntry?.terminalOutcome ??
+      selectedRunEntry?.terminalOutcome ??
       generationState.assetReview?.status ??
       generationState.factoryLifecycle?.status ??
       null,
     lastUpdatedAt:
-      latestRunEntry?.lastUpdatedAt ??
+      selectedRunEntry?.lastUpdatedAt ??
       generationState.factoryLifecycle?.lastUpdatedAt ??
       generationState.renderJob?.completedAt ??
       generationState.renderJob?.submittedAt ??
       null,
-    providerLabel: buildProviderLabel(opportunity),
+    providerLabel: buildProviderLabel(opportunity, selectedRunEntry),
     qualitySummary,
     costEstimate,
-    actualCostUsd: generationState.latestCostEstimate?.estimatedTotalUsd ?? null,
+    actualCostUsd,
     finalVideoUrl,
     thumbnailUrl,
     narrationAudioUrl:
-      latestAttempt?.narrationArtifact?.storage?.url ??
-      latestAttempt?.narrationArtifact?.audioUrl ??
+      selectedAttempt?.narrationArtifact?.storage?.url ??
+      selectedAttempt?.narrationArtifact?.audioUrl ??
       null,
     captionTrackUrl:
-      latestAttempt?.captionArtifact?.storage?.url ??
-      latestAttempt?.captionArtifact?.captionUrl ??
+      selectedAttempt?.captionArtifact?.storage?.url ??
+      selectedAttempt?.captionArtifact?.captionUrl ??
       null,
-    sceneAssetCount: latestAttempt?.sceneArtifacts.length ?? 0,
+    sceneAssetCount: selectedAttempt?.sceneArtifacts.length ?? 0,
     lastError:
       generationState.renderJob?.errorMessage ??
       generationState.factoryLifecycle?.failureMessage ??
       null,
-    steps: inferStepStatus(opportunity),
+    steps: inferStepStatus(opportunity, selectedAttempt),
   };
 }

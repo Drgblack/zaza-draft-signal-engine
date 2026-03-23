@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listContentOpportunityState } from "@/lib/content-opportunities";
+import { getVideoFactoryDiagnostics } from "@/lib/video-factory-diagnostics";
 import { formatDateTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ export default async function FactoryInputsPage({
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const state = await listContentOpportunityState();
+  const diagnostics = getVideoFactoryDiagnostics();
   const requestedOpportunityId = Array.isArray(searchParams?.opportunityId)
     ? searchParams?.opportunityId[0]
     : searchParams?.opportunityId;
@@ -98,6 +100,62 @@ export default async function FactoryInputsPage({
           ))}
         </div>
       ) : null}
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge
+              className={
+                diagnostics.status === "ready"
+                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                  : diagnostics.status === "degraded"
+                    ? "bg-amber-50 text-amber-700 ring-amber-200"
+                    : "bg-rose-50 text-rose-700 ring-rose-200"
+              }
+            >
+              Factory {diagnostics.status}
+            </Badge>
+            <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+              Mode {diagnostics.providerMode}
+            </Badge>
+          </div>
+          <CardTitle>Factory Health</CardTitle>
+          <CardDescription>
+            Narrow runtime diagnostics for provider configuration, Blob readiness, and ffmpeg composition assumptions.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {diagnostics.checks.map((check) => (
+              <div key={check.key} className="rounded-2xl bg-white/84 px-4 py-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{check.label}</p>
+                  <Badge
+                    className={
+                      check.status === "ready"
+                        ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                        : check.status === "degraded"
+                          ? "bg-amber-50 text-amber-700 ring-amber-200"
+                          : "bg-rose-50 text-rose-700 ring-rose-200"
+                    }
+                  >
+                    {check.status}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-sm font-medium text-slate-950">
+                  {check.configured ? "Configured" : "Not configured"}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  {check.messages[0]}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs leading-5 text-slate-500">
+            Checked {formatDateTime(diagnostics.checkedAt)}. Route: <span className="font-mono">/api/factory-inputs/diagnostics</span>
+          </p>
+        </CardContent>
+      </Card>
 
       {selectedOpportunity?.selectedVideoBrief ? (
         <Card>

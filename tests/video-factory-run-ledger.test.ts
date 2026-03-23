@@ -87,6 +87,8 @@ test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artif
       renderJobId: "render-job-1",
       renderedAssetId: "rendered-asset-1",
       costEstimate: baseCostEstimate,
+      actualCost: null,
+      budgetGuard: null,
       qualityCheck: baseQualityCheck,
       retryState: baseRetryState,
       providerExecutions: [],

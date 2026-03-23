@@ -97,6 +97,7 @@ import {
   RENDER_JOB_PRE_TRIAGE_CONCERNS,
   RENDER_JOB_REGENERATION_REASONS,
 } from "@/lib/render-jobs";
+import type { VideoFactoryDiagnostics } from "@/lib/video-factory-diagnostics";
 import type {
   ZazaConnectBridgeSummary,
   ZazaConnectExportPayload,
@@ -1086,6 +1087,12 @@ export interface FactoryInputProductionPackageResponse {
   success: boolean;
   productionPackage: ProductionPackage | null;
   message?: string;
+  error?: string;
+}
+
+export interface FactoryInputDiagnosticsResponse {
+  success: boolean;
+  diagnostics: VideoFactoryDiagnostics | null;
   error?: string;
 }
 

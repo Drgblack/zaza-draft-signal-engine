@@ -2,7 +2,11 @@ import { z } from "zod";
 
 import { compiledProductionPlanSchema } from "@/lib/prompt-compiler";
 import { productionDefaultsSchema } from "@/lib/production-defaults";
-import { costEstimateSchema } from "@/lib/video-factory-cost";
+import {
+  costEstimateSchema,
+  jobCostRecordSchema,
+  videoFactoryBudgetGuardSchema,
+} from "@/lib/video-factory-cost";
 import { qualityCheckResultSchema } from "@/lib/video-factory-quality-checks";
 import { videoFactoryRetryStateSchema } from "@/lib/video-factory-retry";
 
@@ -37,6 +41,7 @@ export type RenderProvider = (typeof RENDER_PROVIDERS)[number];
 export const renderJobSchema = z.object({
   id: z.string().trim().min(1),
   generationRequestId: z.string().trim().min(1),
+  idempotencyKey: z.string().trim().min(1),
   provider: z.enum(RENDER_PROVIDERS),
   renderVersion: z.string().trim().nullable().default(null),
   compiledProductionPlan: compiledProductionPlanSchema.nullable().default(null),
@@ -45,6 +50,8 @@ export const renderJobSchema = z.object({
   preTriageConcern: z.enum(RENDER_JOB_PRE_TRIAGE_CONCERNS).nullable().default(null),
   regenerationReason: z.enum(RENDER_JOB_REGENERATION_REASONS).nullable().default(null),
   costEstimate: costEstimateSchema.nullable().default(null),
+  actualCost: jobCostRecordSchema.nullable().default(null),
+  budgetGuard: videoFactoryBudgetGuardSchema.nullable().default(null),
   qualityCheck: qualityCheckResultSchema.nullable().default(null),
   retryState: videoFactoryRetryStateSchema.nullable().default(null),
   status: z.enum(RENDER_JOB_STATUSES),
@@ -66,6 +73,7 @@ function renderJobId(
 
 export function createRenderJob(input: {
   generationRequestId: string;
+  idempotencyKey: string;
   provider: RenderProvider;
   renderVersion?: string | null;
   compiledProductionPlan?: z.infer<typeof compiledProductionPlanSchema> | null;
@@ -73,6 +81,8 @@ export function createRenderJob(input: {
   preTriageConcern?: (typeof RENDER_JOB_PRE_TRIAGE_CONCERNS)[number] | null;
   regenerationReason?: (typeof RENDER_JOB_REGENERATION_REASONS)[number] | null;
   costEstimate?: z.infer<typeof costEstimateSchema> | null;
+  actualCost?: z.infer<typeof jobCostRecordSchema> | null;
+  budgetGuard?: z.infer<typeof videoFactoryBudgetGuardSchema> | null;
   qualityCheck?: z.infer<typeof qualityCheckResultSchema> | null;
   retryState?: z.infer<typeof videoFactoryRetryStateSchema> | null;
 }): RenderJob {
@@ -83,6 +93,7 @@ export function createRenderJob(input: {
       input.renderVersion ?? null,
     ),
     generationRequestId: input.generationRequestId,
+    idempotencyKey: input.idempotencyKey,
     provider: input.provider,
     renderVersion: input.renderVersion ?? null,
     compiledProductionPlan: input.compiledProductionPlan ?? null,
@@ -91,6 +102,8 @@ export function createRenderJob(input: {
     preTriageConcern: input.preTriageConcern ?? null,
     regenerationReason: input.regenerationReason ?? null,
     costEstimate: input.costEstimate ?? null,
+    actualCost: input.actualCost ?? null,
+    budgetGuard: input.budgetGuard ?? null,
     qualityCheck: input.qualityCheck ?? null,
     retryState: input.retryState ?? null,
     status: "queued",

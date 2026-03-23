@@ -10,7 +10,11 @@ import {
 } from "./video-factory-artifact-storage";
 import {
   costEstimateSchema,
+  jobCostRecordSchema,
+  videoFactoryBudgetGuardSchema,
   type CostEstimate,
+  type JobCostRecord,
+  type VideoFactoryBudgetGuard,
 } from "./video-factory-cost";
 import {
   qualityCheckResultSchema,
@@ -124,6 +128,8 @@ export const videoFactoryAttemptLineageSchema = z.object({
   renderJobId: z.string().trim().nullable().default(null),
   renderedAssetId: z.string().trim().nullable().default(null),
   costEstimate: costEstimateSchema,
+  actualCost: jobCostRecordSchema.nullable().default(null),
+  budgetGuard: videoFactoryBudgetGuardSchema.nullable().default(null),
   qualityCheck: qualityCheckResultSchema.nullable().default(null),
   retryState: videoFactoryRetryStateSchema.nullable().default(null),
   providerExecutions: z.array(providerExecutionRecordSchema).default([]),
@@ -376,6 +382,8 @@ export function buildVideoFactoryAttemptLineage(input: {
   renderJobId: string;
   renderedAssetId?: string | null;
   costEstimate: CostEstimate;
+  actualCost?: JobCostRecord | null;
+  budgetGuard?: VideoFactoryBudgetGuard | null;
   qualityCheck?: QualityCheckResult | null;
   retryState?: VideoFactoryRetryState | null;
   stageRetryStates?: {
@@ -443,6 +451,8 @@ export function buildVideoFactoryAttemptLineage(input: {
     renderJobId: input.renderJobId,
     renderedAssetId: input.renderedAssetId ?? null,
     costEstimate: input.costEstimate,
+    actualCost: input.actualCost ?? null,
+    budgetGuard: input.budgetGuard ?? null,
     qualityCheck: input.qualityCheck ?? null,
     retryState: input.retryState ?? null,
     providerExecutions: [

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { generateContentOpportunityVideo } from "@/lib/content-opportunities";
+import { VideoFactoryActiveRunError } from "@/lib/video-factory-idempotency";
+import { scheduleVideoFactoryRun } from "@/lib/video-factory-runner";
 import {
   factoryInputGenerateVideoRequestSchema,
   type FactoryInputResponse,
@@ -29,11 +31,14 @@ export async function POST(request: Request) {
       provider: parsed.data.provider,
       preTriageConcern: parsed.data.preTriageConcern ?? null,
     });
+    scheduleVideoFactoryRun({
+      opportunityId: parsed.data.opportunityId,
+    });
 
     return NextResponse.json<FactoryInputResponse>({
       success: true,
       state,
-      message: "Video generation started through the factory pipeline.",
+      message: "Video generation queued and handed to the factory runner.",
     });
   } catch (error) {
     return NextResponse.json<FactoryInputResponse>(
@@ -42,7 +47,9 @@ export async function POST(request: Request) {
         state: null,
         error: error instanceof Error ? error.message : "Unable to generate video.",
       },
-      { status: 500 },
+      {
+        status: error instanceof VideoFactoryActiveRunError ? 409 : 500,
+      },
     );
   }
 }

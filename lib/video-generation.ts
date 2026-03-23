@@ -1,8 +1,6 @@
 import { z } from "zod";
 
 import type { ContentOpportunity } from "@/lib/content-opportunities";
-import type { NarrationSpec } from "@/lib/narration-specs";
-import type { VideoPrompt } from "@/lib/video-prompts";
 import type { VideoBrief } from "@/lib/video-briefs";
 
 export const VIDEO_GENERATION_STATUSES = [
@@ -20,6 +18,8 @@ export const videoGenerationRequestSchema = z.object({
   id: z.string().trim().min(1),
   opportunityId: z.string().trim().min(1),
   videoBriefId: z.string().trim().min(1),
+  renderVersion: z.string().trim().nullable().default(null),
+  idempotencyKey: z.string().trim().min(1),
   narrationSpecId: z.string().trim().min(1),
   videoPromptId: z.string().trim().min(1),
   approvedAt: z.string().trim().min(1),
@@ -36,19 +36,24 @@ function videoGenerationRequestId(videoBriefId: string): string {
 export function buildVideoGenerationRequest(input: {
   opportunity: ContentOpportunity;
   brief: VideoBrief;
-  narrationSpec: NarrationSpec;
-  videoPrompt: VideoPrompt;
+  renderVersion?: string | null;
+  idempotencyKey: string;
+  narrationSpecId: string;
+  videoPromptId: string;
   approvedBy: string;
   approvedAt: string;
+  status?: VideoGenerationStatus;
 }): VideoGenerationRequest {
   return videoGenerationRequestSchema.parse({
     id: videoGenerationRequestId(input.brief.id),
     opportunityId: input.opportunity.opportunityId,
     videoBriefId: input.brief.id,
-    narrationSpecId: input.narrationSpec.id,
-    videoPromptId: input.videoPrompt.id,
+    renderVersion: input.renderVersion ?? null,
+    idempotencyKey: input.idempotencyKey,
+    narrationSpecId: input.narrationSpecId,
+    videoPromptId: input.videoPromptId,
     approvedAt: input.approvedAt,
     approvedBy: input.approvedBy,
-    status: "approved",
+    status: input.status ?? "approved",
   });
 }

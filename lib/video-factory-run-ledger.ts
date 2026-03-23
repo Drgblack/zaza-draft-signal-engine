@@ -6,7 +6,11 @@ import {
 } from "./video-factory-state";
 import {
   costEstimateSchema,
+  jobCostRecordSchema,
+  videoFactoryBudgetGuardSchema,
   type CostEstimate,
+  type JobCostRecord,
+  type VideoFactoryBudgetGuard,
 } from "./video-factory-cost";
 import {
   qualityCheckResultSchema,
@@ -52,6 +56,8 @@ export const factoryRunLedgerEntrySchema = z.object({
   lifecycleTransitions: z.array(factoryRunTransitionSchema).min(1),
   artifactIds: z.array(z.string().trim().min(1)).default([]),
   estimatedCost: costEstimateSchema.nullable().default(null),
+  actualCost: jobCostRecordSchema.nullable().default(null),
+  budgetGuard: videoFactoryBudgetGuardSchema.nullable().default(null),
   qualityCheck: qualityCheckResultSchema.nullable().default(null),
   retryState: videoFactoryRetryStateSchema.nullable().default(null),
   terminalOutcome: z.enum(FACTORY_RUN_TERMINAL_OUTCOMES),
@@ -137,6 +143,8 @@ export function buildFactoryRunLedgerEntry(input: {
   renderedAssetId?: string | null;
   attemptLineage?: VideoFactoryAttemptLineage | null;
   estimatedCost?: CostEstimate | null;
+  actualCost?: JobCostRecord | null;
+  budgetGuard?: VideoFactoryBudgetGuard | null;
   qualityCheck?: QualityCheckResult | null;
   retryState?: VideoFactoryRetryState | null;
 }): FactoryRunLedgerEntry {
@@ -156,6 +164,8 @@ export function buildFactoryRunLedgerEntry(input: {
     lifecycleTransitions: buildLifecycleTransitions(input.lifecycle),
     artifactIds: buildArtifactIds(input.attemptLineage ?? null),
     estimatedCost: input.estimatedCost ?? null,
+    actualCost: input.actualCost ?? input.attemptLineage?.actualCost ?? null,
+    budgetGuard: input.budgetGuard ?? input.attemptLineage?.budgetGuard ?? null,
     qualityCheck: input.qualityCheck ?? input.attemptLineage?.qualityCheck ?? null,
     retryState:
       input.retryState ??

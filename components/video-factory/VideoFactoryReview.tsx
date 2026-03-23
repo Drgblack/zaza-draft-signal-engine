@@ -27,6 +27,7 @@ export interface VideoFactoryReviewProps {
   onRegenerate: (reason: RegenerationReason) => void
   onEditBrief: () => void
   onDiscard: () => void
+  actionsDisabled?: boolean
 }
 
 // ============================================================================
@@ -115,6 +116,7 @@ interface PreGenerationStateProps {
   onGenerate: (preTriage: PreTriageConcern) => void
   onEditBrief: () => void
   onDiscard: () => void
+  actionsDisabled: boolean
 }
 
 function PreGenerationState({
@@ -126,6 +128,7 @@ function PreGenerationState({
   onGenerate,
   onEditBrief,
   onDiscard,
+  actionsDisabled,
 }: PreGenerationStateProps) {
   const [selectedConcern, setSelectedConcern] = useState<PreTriageConcern>("no_concern")
 
@@ -241,6 +244,7 @@ function PreGenerationState({
               >
                 <RadioGroupItem 
                   value={option.value}
+                  disabled={actionsDisabled}
                   className={cn(
                     selectedConcern === option.value && "border-[#6366f1] text-[#6366f1]"
                   )}
@@ -293,7 +297,7 @@ function PreGenerationState({
                 <Button variant="secondary" onClick={onEditBrief}>
                   Edit Brief
                 </Button>
-                <Button variant="ghost" className="text-rose-600 hover:text-rose-700 hover:bg-rose-50" onClick={onDiscard}>
+                <Button variant="ghost" className="text-rose-600 hover:text-rose-700 hover:bg-rose-50" onClick={onDiscard} disabled={actionsDisabled}>
                   Discard
                 </Button>
               </div>
@@ -305,6 +309,7 @@ function PreGenerationState({
           <Button
             className="w-full sm:w-auto shadow-md hover:bg-[#4F46E5]"
             style={{ backgroundColor: '#6366f1' }}
+            disabled={actionsDisabled}
             onClick={() => onGenerate(selectedConcern)}
           >
             Approve & Generate
@@ -327,9 +332,10 @@ interface GeneratingStateProps {
   brief: VideoBriefSummary
   onRetry: () => void
   onEditBrief: () => void
+  actionsDisabled: boolean
 }
 
-function GeneratingState({ job, brief, onRetry, onEditBrief }: GeneratingStateProps) {
+function GeneratingState({ job, brief, onRetry, onEditBrief, actionsDisabled }: GeneratingStateProps) {
   const stepLabels: Record<keyof RenderJobProgress["steps"], string> = {
     narration: "Narration",
     transcription: "Captions",
@@ -448,10 +454,10 @@ function GeneratingState({ job, brief, onRetry, onEditBrief }: GeneratingStatePr
                 </div>
               ) : (
                 <div className="flex gap-3">
-                  <Button variant="secondary" onClick={onRetry}>
+                  <Button variant="secondary" onClick={onRetry} disabled={actionsDisabled}>
                     Try again
                   </Button>
-                  <Button variant="ghost" onClick={onEditBrief}>
+                  <Button variant="ghost" onClick={onEditBrief} disabled={actionsDisabled}>
                     Edit Brief
                   </Button>
                 </div>
@@ -476,6 +482,7 @@ interface ReviewStateProps {
   onRegenerate: (reason: RegenerationReason) => void
   onEditBrief: () => void
   onDiscard: () => void
+  actionsDisabled: boolean
 }
 
 function ReviewState({
@@ -486,6 +493,7 @@ function ReviewState({
   onRegenerate,
   onEditBrief,
   onDiscard,
+  actionsDisabled,
 }: ReviewStateProps) {
   const [isBriefOpen, setIsBriefOpen] = useState(false)
   const [checkedGuardrails, setCheckedGuardrails] = useState<Set<number>>(new Set())
@@ -651,6 +659,7 @@ function ReviewState({
                   >
                     <Checkbox
                       checked={checkedGuardrails.has(i)}
+                      disabled={actionsDisabled}
                       onCheckedChange={() => handleGuardrailToggle(i)}
                     />
                     <span className="text-sm">{guardrail}</span>
@@ -674,6 +683,7 @@ function ReviewState({
                 <Button 
                   className="w-full shadow-md hover:bg-[#4F46E5]"
                   style={{ backgroundColor: '#6366f1' }}
+                  disabled={actionsDisabled || noGuardrailsChecked}
                   onClick={onApprove}
                 >
                   Approve for use
@@ -681,6 +691,7 @@ function ReviewState({
                 <Button
                   variant="secondary"
                   className="w-full"
+                  disabled={actionsDisabled}
                   onClick={onReject}
                 >
                   Reject
@@ -698,6 +709,7 @@ function ReviewState({
                   <Button
                     variant="secondary"
                     className="w-full"
+                    disabled={actionsDisabled}
                     onClick={() => setShowRegenerateReason(true)}
                   >
                     Regenerate
@@ -708,6 +720,7 @@ function ReviewState({
                       <RadioGroup
                         value={selectedReason}
                         onValueChange={(value: string) => setSelectedReason(value as RegenerationReason)}
+                        disabled={actionsDisabled}
                         className="space-y-2"
                       >
                         {reasonOptions.map((option) => (
@@ -720,7 +733,7 @@ function ReviewState({
                                 : "hover:bg-muted/50"
                             )}
                           >
-                            <RadioGroupItem value={option.value} />
+                            <RadioGroupItem value={option.value} disabled={actionsDisabled} />
                             <span className="text-sm">{option.label}</span>
                           </label>
                         ))}
@@ -728,6 +741,7 @@ function ReviewState({
                       <div className="flex gap-2 mt-4">
                         <Button 
                           size="sm" 
+                          disabled={actionsDisabled}
                           onClick={handleRegenerate}
                           className="hover:bg-[#4F46E5]"
                           style={{ backgroundColor: '#6366f1' }}
@@ -737,6 +751,7 @@ function ReviewState({
                         <Button
                           size="sm"
                           variant="ghost"
+                          disabled={actionsDisabled}
                           onClick={() => setShowRegenerateReason(false)}
                         >
                           Cancel
@@ -772,7 +787,7 @@ function ReviewState({
 
             {/* Edit Brief Button */}
             <div>
-              <Button variant="ghost" className="w-full" onClick={onEditBrief}>
+              <Button variant="ghost" className="w-full" onClick={onEditBrief} disabled={actionsDisabled}>
                 Edit brief first
               </Button>
               <p className="text-xs text-muted-foreground mt-1 text-center">
@@ -785,6 +800,7 @@ function ReviewState({
               <Button
                 variant="ghost"
                 className="w-full text-slate-500 hover:text-rose-600 hover:bg-rose-50"
+                disabled={actionsDisabled}
                 onClick={() => setShowDiscardConfirm(true)}
               >
                 Discard
@@ -800,6 +816,7 @@ function ReviewState({
                       size="sm"
                       variant="ghost"
                       className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                      disabled={actionsDisabled}
                       onClick={onDiscard}
                     >
                       Confirm
@@ -807,6 +824,7 @@ function ReviewState({
                     <Button
                       size="sm"
                       variant="ghost"
+                      disabled={actionsDisabled}
                       onClick={() => setShowDiscardConfirm(false)}
                     >
                       Cancel
@@ -835,6 +853,7 @@ export default function VideoFactoryReview({
   onRegenerate,
   onEditBrief,
   onDiscard,
+  actionsDisabled = false,
 }: VideoFactoryReviewProps) {
   // Determine which state to show
   const getState = (): "pre-generation" | "generating" | "review" => {
@@ -865,6 +884,7 @@ export default function VideoFactoryReview({
           onGenerate={onGenerate}
           onEditBrief={onEditBrief}
           onDiscard={onDiscard}
+          actionsDisabled={actionsDisabled}
         />
       )}
       {state === "generating" && job && (
@@ -873,6 +893,7 @@ export default function VideoFactoryReview({
           brief={brief}
           onRetry={() => onRegenerate("other")}
           onEditBrief={onEditBrief}
+          actionsDisabled={actionsDisabled}
         />
       )}
       {state === "review" && job && (
@@ -884,6 +905,7 @@ export default function VideoFactoryReview({
           onRegenerate={onRegenerate}
           onEditBrief={onEditBrief}
           onDiscard={onDiscard}
+          actionsDisabled={actionsDisabled}
         />
       )}
     </div>

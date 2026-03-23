@@ -39,19 +39,29 @@ export function VideoFactoryReviewConnected({
 }) {
   const router = useRouter();
   const [opportunity, setOpportunity] = useState(initialOpportunity);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{
+    kind: "status" | "error";
+    message: string;
+  } | null>(null);
   const [isPending, startTransition] = useTransition();
+  const activeProvider = useMemo(
+    () => opportunity.generationState?.renderJob?.provider ?? "runway",
+    [opportunity.generationState?.renderJob?.provider],
+  );
+  const pollingEnabled = shouldPoll(opportunity);
 
   useEffect(() => {
     setOpportunity(initialOpportunity);
   }, [initialOpportunity]);
 
   useEffect(() => {
-    if (!shouldPoll(opportunity)) {
+    if (!pollingEnabled) {
       return;
     }
 
-    const interval = window.setInterval(async () => {
+    let cancelled = false;
+
+    const pollStatus = async () => {
       try {
         const response = await fetch(
           `/api/factory-inputs/render-status?opportunityId=${encodeURIComponent(opportunity.opportunityId)}`,
@@ -59,7 +69,7 @@ export function VideoFactoryReviewConnected({
         );
         const data =
           (await response.json().catch(() => null)) as FactoryInputRenderStatusResponse | null;
-        if (!response.ok || !data?.success || !data.generationState) {
+        if (!response.ok || !data?.success || !data.generationState || cancelled) {
           return;
         }
 
@@ -74,12 +84,18 @@ export function VideoFactoryReviewConnected({
       } catch {
         // Polling failures should not interrupt the review flow.
       }
+    };
+
+    void pollStatus();
+    const interval = window.setInterval(() => {
+      void pollStatus();
     }, 4000);
 
     return () => {
+      cancelled = true;
       window.clearInterval(interval);
     };
-  }, [opportunity]);
+  }, [opportunity.opportunityId, pollingEnabled]);
 
   const brief = useMemo(
     () => buildVideoFactoryReviewBrief(opportunity),
@@ -112,19 +128,32 @@ export function VideoFactoryReviewConnected({
     if (nextOpportunity) {
       setOpportunity(nextOpportunity);
     }
-    setFeedback(data?.message ?? null);
+    if (data?.message) {
+      setFeedback({
+        kind: "status",
+        message: data.message,
+      });
+    }
     router.refresh();
   }
 
   function runAction(callback: () => Promise<void>) {
+    if (isPending) {
+      return;
+    }
+
     startTransition(async () => {
       try {
         setFeedback(null);
         await callback();
       } catch (error) {
-        setFeedback(
-          error instanceof Error ? error.message : "Unable to update video factory state.",
-        );
+        setFeedback({
+          kind: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Unable to update video factory state.",
+        });
       }
     });
   }
@@ -152,7 +181,7 @@ export function VideoFactoryReviewConnected({
         method: "POST",
         body: {
           opportunityId: opportunity.opportunityId,
-          provider: "mock",
+          provider: activeProvider,
           preTriageConcern: preTriage,
         },
       });
@@ -192,7 +221,7 @@ export function VideoFactoryReviewConnected({
         method: "POST",
         body: {
           opportunityId: opportunity.opportunityId,
-          provider: "mock",
+          provider: activeProvider,
           regenerationReason: reason,
         },
       });
@@ -200,6 +229,10 @@ export function VideoFactoryReviewConnected({
   }
 
   function handleEditBrief() {
+    if (isPending) {
+      return;
+    }
+
     router.push(`/factory-inputs?opportunityId=${encodeURIComponent(opportunity.opportunityId)}#opportunity-${opportunity.opportunityId}`);
   }
 
@@ -222,8 +255,14 @@ export function VideoFactoryReviewConnected({
   return (
     <div id="review" className="space-y-4">
       {feedback ? (
-        <div className="rounded-2xl bg-white/80 px-4 py-3 text-sm text-slate-600">
-          {feedback}
+        <div
+          className={
+            feedback.kind === "error"
+              ? "rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700"
+              : "rounded-2xl bg-white/80 px-4 py-3 text-sm text-slate-600"
+          }
+        >
+          {feedback.message}
         </div>
       ) : null}
       {isPending ? (
@@ -240,6 +279,7 @@ export function VideoFactoryReviewConnected({
         onRegenerate={handleRegenerate}
         onEditBrief={handleEditBrief}
         onDiscard={handleDiscard}
+        actionsDisabled={isPending}
       />
     </div>
   );
