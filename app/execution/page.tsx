@@ -81,7 +81,7 @@ function sectionTitle(status: WeeklyExecutionItem["status"]) {
 }
 
 function EmptyState({ copy }: { copy: string }) {
-  return <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">{copy}</div>;
+  return <div className="rounded-2xl border border-black/5 bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-500">{copy}</div>;
 }
 
 export default async function ExecutionPage() {
@@ -249,14 +249,14 @@ export default async function ExecutionPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <Card>
+    <div className="space-y-7">
+      <Card className="border-black/8 bg-white shadow-[0_20px_52px_rgba(15,23,42,0.08)]">
         <CardHeader>
           <div className="flex flex-wrap items-center gap-3">
             <Badge className="bg-slate-100 text-slate-700 ring-slate-200">Weekly execution autopilot</Badge>
             <Badge className="bg-sky-50 text-sky-700 ring-sky-200">{execution.flow.weekStartDate}</Badge>
           </div>
-          <CardTitle className="text-3xl">Execution</CardTitle>
+          <CardTitle className="text-4xl">Execution</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             The operator&apos;s weekly execution path, already ordered, staged where safe, and kept visible where policy still requires review.
           </CardDescription>
@@ -277,36 +277,36 @@ export default async function ExecutionPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Staged now</p>
+      <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-5">
+        <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+          <p className="text-[11px] font-medium text-slate-500">Staged now</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{execution.flow.stagedCount}</p>
           <p className="mt-1 text-sm text-slate-600">Posting packages already prepared for manual send.</p>
         </div>
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Ready to stage</p>
+        <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+          <p className="text-[11px] font-medium text-slate-500">Ready to stage</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{execution.flow.readyToStageCount}</p>
           <p className="mt-1 text-sm text-slate-600">High-confidence weekly items that can be staged next.</p>
         </div>
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Needs review</p>
+        <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+          <p className="text-[11px] font-medium text-slate-500">Needs review</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{execution.flow.reviewCount}</p>
           <p className="mt-1 text-sm text-slate-600">Items still requiring operator judgement before staging.</p>
         </div>
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Blocked</p>
+        <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+          <p className="text-[11px] font-medium text-slate-500">Blocked</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{execution.flow.blockedCount}</p>
           <p className="mt-1 text-sm text-slate-600">Visible blockers that the autopilot refused to stage.</p>
         </div>
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Execution-ready rate</p>
+        <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+          <p className="text-[11px] font-medium text-slate-500">Execution-ready rate</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{Math.round(executionInsights.executionReadyRate * 100)}%</p>
           <p className="mt-1 text-sm text-slate-600">Share of this week&apos;s execution flow that is staged or safe to stage.</p>
         </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card>
+        <Card className="border-black/6 bg-white/74 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
           <CardHeader>
             <CardTitle>Execution order</CardTitle>
             <CardDescription>
@@ -318,7 +318,7 @@ export default async function ExecutionPage() {
               <EmptyState copy="No weekly execution item is ready to summarize yet." />
             ) : (
               execution.flow.executionItems.map((item) => (
-                <Link key={`${item.signalId}:${item.platform}`} href={item.href} className="block rounded-2xl bg-white/84 px-4 py-4 transition hover:bg-white">
+                <Link key={`${item.signalId}:${item.platform}`} href={item.href} className="block rounded-2xl border border-black/5 bg-white/80 px-4 py-3.5 transition hover:bg-white">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className="bg-slate-100 text-slate-700 ring-slate-200">#{item.executionOrder}</Badge>
                     <Badge className={statusClasses(item.status)}>{statusLabel(item.status)}</Badge>
@@ -346,19 +346,19 @@ export default async function ExecutionPage() {
                       </Badge>
                     ) : null}
                   </div>
-                  <p className="mt-3 font-medium text-slate-950">{item.sourceTitle}</p>
-                  <p className="mt-2 text-sm text-slate-600">{item.executionReason}</p>
+                  <p className="mt-2.5 font-medium text-slate-950">{item.sourceTitle}</p>
+                  <p className="mt-1.5 text-sm leading-6 text-slate-600">{item.executionReason}</p>
                   {item.distributionReason ? (
-                    <p className="mt-2 text-xs text-slate-500">{item.distributionReason}</p>
+                    <p className="mt-1.5 text-xs leading-5 text-slate-500">{item.distributionReason}</p>
                   ) : null}
                   {item.riskSummary ? (
-                    <p className="mt-2 text-xs text-rose-700">{item.riskSummary}</p>
+                    <p className="mt-1.5 text-xs leading-5 text-rose-700">{item.riskSummary}</p>
                   ) : null}
                   {item.executionChainSummary ? (
-                    <p className="mt-2 text-xs text-sky-700">Auto-executed chain: {item.executionChainSummary.replace(/^Auto-executed chain:\s*/i, "").replace(/\.$/, "")}</p>
+                    <p className="mt-1.5 text-xs leading-5 text-sky-700">Auto-executed chain: {item.executionChainSummary.replace(/^Auto-executed chain:\s*/i, "").replace(/\.$/, "")}</p>
                   ) : null}
                   {item.blockReasons[0] ? (
-                    <p className="mt-2 text-xs text-rose-700">Blocked by: {item.blockReasons[0]}</p>
+                    <p className="mt-1.5 text-xs leading-5 text-rose-700">Blocked by: {item.blockReasons[0]}</p>
                   ) : null}
                 </Link>
               ))
@@ -367,7 +367,7 @@ export default async function ExecutionPage() {
         </Card>
 
         <div className="space-y-6">
-          <Card>
+          <Card className="border-black/6 bg-white/74 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
             <CardHeader>
               <CardTitle>Autopilot summary</CardTitle>
               <CardDescription>
@@ -376,12 +376,12 @@ export default async function ExecutionPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               {execution.flow.executionReasons.map((reason) => (
-                <div key={reason} className="rounded-2xl bg-white/84 px-4 py-4 text-sm text-slate-700">
+                <div key={reason} className="rounded-2xl border border-black/5 bg-white/80 px-4 py-4 text-sm leading-6 text-slate-600">
                   {reason}
                 </div>
               ))}
               {execution.flow.sequenceNotes.map((note) => (
-                <div key={note} className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+                <div key={note} className="rounded-2xl border border-black/5 bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-500">
                   {note}
                 </div>
               ))}
@@ -399,7 +399,7 @@ export default async function ExecutionPage() {
                     : grouped.blocked;
 
             return (
-              <Card key={status}>
+              <Card key={status} className="border-black/6 bg-white/74 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
                 <CardHeader>
                   <CardTitle>{sectionTitle(status)}</CardTitle>
                   <CardDescription>
@@ -423,7 +423,7 @@ export default async function ExecutionPage() {
                     />
                   ) : (
                     items.map((item) => (
-                      <Link key={`${status}:${item.signalId}:${item.platform}`} href={item.href} className="block rounded-2xl bg-white/84 px-4 py-4 transition hover:bg-white">
+                      <Link key={`${status}:${item.signalId}:${item.platform}`} href={item.href} className="block rounded-2xl border border-black/5 bg-white/80 px-4 py-3.5 transition hover:bg-white">
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge className={statusClasses(item.status)}>{statusLabel(item.status)}</Badge>
                           <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{item.platform}</Badge>

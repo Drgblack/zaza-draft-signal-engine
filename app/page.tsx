@@ -268,12 +268,12 @@ export default async function DashboardPage() {
 
             <div className="rounded-3xl border border-black/5 bg-white/78 p-5">
               <p className="text-sm font-semibold text-slate-900">Scheduled soon</p>
-              <div className="mt-4 space-y-3">
+              <div className="mt-3.5 space-y-2.5">
                 {scheduledSoon.length === 0 ? (
                   <p className="text-sm text-slate-500">Nothing is scheduled in the next seven days.</p>
                 ) : (
                   scheduledSoon.slice(0, 3).map((signal) => (
-                    <Link key={signal.recordId} href={`/signals/${signal.recordId}`} className="block rounded-2xl border border-black/5 bg-white/82 p-4 hover:bg-white">
+                    <Link key={signal.recordId} href={`/signals/${signal.recordId}`} className="block rounded-2xl border border-black/5 bg-white/82 px-4 py-3.5 hover:bg-white">
                       <p className="font-medium text-slate-900">{signal.sourceTitle}</p>
                       <p className="mt-1 text-xs text-slate-500">{formatDateTime(signal.scheduledDate)}</p>
                     </Link>

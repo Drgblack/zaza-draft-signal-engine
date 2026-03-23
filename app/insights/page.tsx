@@ -1063,12 +1063,12 @@ export default async function InsightsPage({
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {approvalReadyCandidates.length === 0 ? (
                 <EmptyState copy="No approval-ready candidates are available yet, so expected-value ranking has nothing to summarize." />
               ) : (
                 approvalReadyCandidates.slice(0, 5).map((candidate) => (
-                  <div key={candidate.signal.recordId} className="rounded-2xl bg-white/80 px-4 py-4">
+                  <div key={candidate.signal.recordId} className="rounded-2xl border border-black/5 bg-white/76 px-4 py-3.5">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge className={expectedOutcomeClasses(candidate.expectedOutcome.expectedOutcomeTier)}>
                         {candidate.expectedOutcome.expectedOutcomeTier} expected value
@@ -1077,34 +1077,34 @@ export default async function InsightsPage({
                         #{approvalReadyCandidates.findIndex((item) => item.signal.recordId === candidate.signal.recordId) + 1}
                       </Badge>
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
                       <Link href={`/signals/${candidate.signal.recordId}/review`} className="font-medium text-slate-950 hover:text-[color:var(--accent)]">
                         {candidate.signal.sourceTitle}
                       </Link>
-                      <span className="text-sm text-slate-500">{candidate.expectedOutcome.platformLabel}</span>
-                      {candidate.expectedOutcome.modeLabel ? <span className="text-sm text-slate-500">{candidate.expectedOutcome.modeLabel}</span> : null}
+                      <span className="text-xs text-slate-500">{candidate.expectedOutcome.platformLabel}</span>
+                      {candidate.expectedOutcome.modeLabel ? <span className="text-xs text-slate-500">{candidate.expectedOutcome.modeLabel}</span> : null}
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                    <p className="mt-1.5 text-sm leading-6 text-slate-600">
                       {candidate.expectedOutcome.expectedOutcomeReasons[0] ?? "Expected outcome support is still forming."}
                     </p>
                     {candidate.expectedOutcome.expectedOutcomeReasons[1] ? (
-                      <p className="mt-2 text-sm text-slate-500">{candidate.expectedOutcome.expectedOutcomeReasons[1]}</p>
+                      <p className="mt-1.5 text-xs leading-5 text-slate-500">{candidate.expectedOutcome.expectedOutcomeReasons[1]}</p>
                     ) : null}
                   </div>
                 ))
               )}
             </div>
 
-            <div className="space-y-4">
-              <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-3.5">
                 <p className="font-medium text-slate-950">Most common positive supports</p>
-                <div className="mt-3 space-y-2">
+                <div className="mt-2.5 space-y-2">
                   {expectedOutcomeInsights.topPositiveFactors.length === 0 ? (
                     <p className="text-sm text-slate-500">No stable positive support factors yet.</p>
                   ) : (
                     expectedOutcomeInsights.topPositiveFactors.map((factor) => (
                       <div key={factor.label} className="flex items-center justify-between gap-3 text-sm">
-                        <span className="text-slate-600">{factor.label}</span>
+                        <span className="text-slate-500">{factor.label}</span>
                         <span className="font-medium text-slate-950">{factor.count}</span>
                       </div>
                     ))
@@ -1112,15 +1112,15 @@ export default async function InsightsPage({
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-white/80 px-4 py-4">
+              <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-3.5">
                 <p className="font-medium text-slate-950">Most common drag factors</p>
-                <div className="mt-3 space-y-2">
+                <div className="mt-2.5 space-y-2">
                   {expectedOutcomeInsights.topRiskFactors.length === 0 ? (
                     <p className="text-sm text-slate-500">No recurring risk cluster is strong enough to surface yet.</p>
                   ) : (
                     expectedOutcomeInsights.topRiskFactors.map((factor) => (
                       <div key={factor.label} className="flex items-center justify-between gap-3 text-sm">
-                        <span className="text-slate-600">{factor.label}</span>
+                        <span className="text-slate-500">{factor.label}</span>
                         <span className="font-medium text-slate-950">{factor.count}</span>
                       </div>
                     ))
@@ -1128,12 +1128,12 @@ export default async function InsightsPage({
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-3.5 text-sm leading-6 text-slate-600">
                 {expectedOutcomeInsights.destinationRows[0]
                   ? `${expectedOutcomeInsights.destinationRows[0].label} is the destination most often attached to high expected-value candidates in the current queue.`
                   : "No destination pattern is strong enough to call out yet."}
               </div>
-              <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-3.5 text-sm leading-6 text-slate-600">
                 {expectedOutcomeInsights.modeRows[0]
                   ? `${expectedOutcomeInsights.modeRows[0].label} is the editorial mode most often appearing in the current high expected-value tier.`
                   : "No editorial mode is dominating the current high expected-value tier."}
@@ -1183,18 +1183,18 @@ export default async function InsightsPage({
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[1fr_0.95fr]">
-            <div className="space-y-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Posture performance</p>
+            <div className="space-y-2.5">
+              <p className="text-[11px] font-medium tracking-[0.12em] text-slate-500">Posture performance</p>
               {conversionIntentInsights.postureRows.length === 0 ? (
                 <EmptyState copy="No posted evidence is stable enough yet to summarize conversion posture." />
               ) : (
                 conversionIntentInsights.postureRows.map((row) => (
-                  <div key={row.posture} className="rounded-2xl bg-white/80 px-4 py-4">
+                  <div key={row.posture} className="rounded-2xl border border-black/5 bg-white/76 px-4 py-3.5">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <p className="font-medium text-slate-950">{row.label}</p>
                       <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{row.count}</Badge>
                     </div>
-                    <p className="mt-2 text-sm text-slate-600">
+                    <p className="mt-1.5 text-sm leading-6 text-slate-500">
                       {row.strongCount} strong strategic outcomes · {row.revenueCount} revenue-linked outcomes
                     </p>
                   </div>
@@ -1202,16 +1202,16 @@ export default async function InsightsPage({
               )}
             </div>
 
-            <div className="space-y-4">
-              <div className="rounded-2xl bg-white/80 px-4 py-4">
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-3.5">
                 <p className="font-medium text-slate-950">Platform posture pairs</p>
-                <div className="mt-3 space-y-2">
+                <div className="mt-2.5 space-y-2">
                   {conversionIntentInsights.platformRows.length === 0 ? (
                     <p className="text-sm text-slate-500">No platform posture pair is stable enough yet.</p>
                   ) : (
                     conversionIntentInsights.platformRows.slice(0, 5).map((row) => (
                       <div key={`${row.label}-${row.posture}`} className="flex items-center justify-between gap-3 text-sm">
-                        <span className="text-slate-600">{row.label} · {getConversionIntentLabel(row.posture)}</span>
+                        <span className="text-slate-500">{row.label} · {getConversionIntentLabel(row.posture)}</span>
                         <span className="font-medium text-slate-950">{row.count}</span>
                       </div>
                     ))

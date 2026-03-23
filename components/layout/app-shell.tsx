@@ -18,7 +18,7 @@ export function AppShell({
   return (
     <div className="min-h-screen">
       <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col lg:flex-row">
-        <aside className="border-b border-black/6 bg-[color:var(--panel-strong)] px-5 py-5 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:border-b-0 lg:border-r lg:px-6 lg:py-8">
+        <aside className="border-b border-black/6 bg-[color:var(--panel-strong)] px-5 py-5 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:border-b-0 lg:border-r lg:px-6 lg:py-7">
           <div className="flex items-center justify-between lg:items-start">
             <div className="space-y-2">
               <div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-black/6 bg-white shadow-sm">
@@ -42,10 +42,10 @@ export function AppShell({
             <PanelLeftClose className="h-5 w-5 text-slate-300 lg:hidden" />
           </div>
 
-          <nav className="mt-8 space-y-6">
+          <nav className="mt-7 space-y-5">
             {NAV_GROUPS.map((group) => (
               <div key={group.label}>
-                <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                <p className="px-3 text-[11px] font-semibold tracking-[0.16em] text-slate-500">
                   {group.label}
                 </p>
                 <div className="mt-3 grid gap-1.5">
@@ -57,12 +57,12 @@ export function AppShell({
             ))}
           </nav>
 
-          <div className="mt-8 rounded-3xl border border-black/6 bg-white/88 p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Environment</p>
+          <div className="mt-7 rounded-3xl border border-black/6 bg-white/86 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.035)]">
+            <p className="text-[11px] font-medium tracking-[0.16em] text-slate-500">Environment</p>
             <div className="mt-3">
               <EnvStatus isAirtableConfigured={isAirtableConfigured} />
             </div>
-            <p className="mt-3 text-sm leading-6 text-slate-700">
+            <p className="mt-3 text-sm leading-6 text-slate-600">
               V1 is intentionally constrained to intake, classification, draft preparation, and clean review.
             </p>
           </div>
@@ -95,7 +95,7 @@ export function AppShell({
             </div>
           </header>
 
-          <main className="px-6 py-6 lg:px-10 lg:py-10">{children}</main>
+          <main className="px-6 py-6 lg:px-10 lg:py-9">{children}</main>
         </div>
       </div>
     </div>

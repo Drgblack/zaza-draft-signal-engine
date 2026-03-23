@@ -257,36 +257,36 @@ export default async function WeeklyPlanPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <Card>
+    <div className="space-y-7">
+      <Card className="border-black/8 bg-white shadow-[0_20px_52px_rgba(15,23,42,0.08)]">
         <CardHeader>
           <div className="flex flex-wrap items-center gap-3">
             <Badge className="bg-slate-100 text-slate-700 ring-slate-200">Planning layer</Badge>
             <Badge className="bg-sky-50 text-sky-700 ring-sky-200">{plan.weekStartDate}</Badge>
           </div>
-          <CardTitle className="text-balance text-3xl">Weekly Plan</CardTitle>
+          <CardTitle className="text-balance text-4xl">Weekly Plan</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             Lightweight weekly intent for balancing fresh signals, evergreen content, campaigns, funnel coverage, platforms, and editorial modes. This guides ranking and review without turning the product into a scheduler.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl bg-white/80 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Templates</p>
+        <CardContent className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+            <p className="text-[11px] font-medium text-slate-500">Templates</p>
             <p className="mt-2 text-2xl font-semibold text-slate-950">{WEEKLY_PLAN_TEMPLATES.length}</p>
             <p className="mt-1 text-sm text-slate-500">Quick starting points for common planning modes.</p>
           </div>
-          <div className="rounded-2xl bg-white/80 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Active campaigns</p>
+          <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+            <p className="text-[11px] font-medium text-slate-500">Active campaigns</p>
             <p className="mt-2 text-2xl font-semibold text-slate-950">{plan.activeCampaignIds.length}</p>
             <p className="mt-1 text-sm text-slate-500">Campaigns currently emphasized this week.</p>
           </div>
-          <div className="rounded-2xl bg-white/80 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Target platforms</p>
+          <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+            <p className="text-[11px] font-medium text-slate-500">Target platforms</p>
             <p className="mt-2 text-2xl font-semibold text-slate-950">{plan.targetPlatforms.length}</p>
             <p className="mt-1 text-sm text-slate-500">Platforms the queue should keep visible this week.</p>
           </div>
-          <div className="rounded-2xl bg-white/80 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Stored weeks</p>
+          <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+            <p className="text-[11px] font-medium text-slate-500">Stored weeks</p>
             <p className="mt-2 text-2xl font-semibold text-slate-950">{store.plans.length}</p>
             <p className="mt-1 text-sm text-slate-500">Simple planning history for light comparison.</p>
           </div>
@@ -295,7 +295,7 @@ export default async function WeeklyPlanPage() {
 
       <div className="space-y-4">
         <FounderOverrideSummary state={founderOverrides} compact />
-        <Card>
+        <Card className="border-black/6 bg-white/74 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
           <CardHeader>
             <CardTitle>Latest Winner Recap</CardTitle>
             <CardDescription>
@@ -306,7 +306,7 @@ export default async function WeeklyPlanPage() {
         <WeeklyRecapPanel recap={recap} compact />
       </div>
 
-      <Card>
+      <Card className="border-black/6 bg-white/74 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
         <CardHeader>
           <CardTitle>Zaza Connect Context</CardTitle>
           <CardDescription>
@@ -314,8 +314,8 @@ export default async function WeeklyPlanPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-2xl bg-white/80 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current bridge signal</p>
+          <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+            <p className="text-[11px] font-medium text-slate-500">Current bridge signal</p>
             <p className="mt-2 text-sm text-slate-700">
               {connectBridgeSummary.importedThemeCount} imported themes · {connectBridgeSummary.collaborationOpportunityCount} collaboration opportunities · {connectBridgeSummary.influencerRelevantExportCount} influencer-relevant export items
             </p>
@@ -324,8 +324,8 @@ export default async function WeeklyPlanPage() {
                 "No imported cross-app context is strong enough to change this week’s plan yet."}
             </p>
           </div>
-          <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Planning hint</p>
+          <div className="rounded-2xl border border-black/5 bg-slate-50/80 px-4 py-4">
+            <p className="text-[11px] font-medium text-slate-500">Planning hint</p>
             <p className="mt-2 text-sm text-slate-700">
               {importedConnectContexts[0]?.outreachCampaignThemes[0]
                 ? `Outreach theme "${importedConnectContexts[0].outreachCampaignThemes[0].label}" is worth reflecting in trust-stage and collaboration-ready content this week.`
@@ -337,7 +337,7 @@ export default async function WeeklyPlanPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="border-black/6 bg-white/74 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
         <CardHeader>
           <CardTitle>Audience Memory</CardTitle>
           <CardDescription>
@@ -345,15 +345,15 @@ export default async function WeeklyPlanPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-2xl bg-white/80 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Top audience guidance</p>
+          <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+            <p className="text-[11px] font-medium text-slate-500">Top audience guidance</p>
             <p className="mt-2 text-sm text-slate-700">
               {audienceInsights.topNotes[0] ??
                 "No audience segment has enough response memory to shape this week's plan yet."}
             </p>
           </div>
-          <div className="rounded-2xl bg-slate-50/80 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Planning caution</p>
+          <div className="rounded-2xl border border-black/5 bg-slate-50/80 px-4 py-4">
+            <p className="text-[11px] font-medium text-slate-500">Planning caution</p>
             <p className="mt-2 text-sm text-slate-700">
               {audienceMemory.segments[0]?.toneCautions[0]
                 ? audienceMemory.segments[0].toneCautions[0]
@@ -369,7 +369,7 @@ export default async function WeeklyPlanPage() {
 
       <RevenueAmplifierPanel state={revenueAmplifier} compact />
 
-      <Card>
+      <Card className="border-black/6 bg-white/74 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
         <CardHeader>
           <CardTitle>Content fatigue</CardTitle>
           <CardDescription>
@@ -378,13 +378,13 @@ export default async function WeeklyPlanPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {fatigueModel.topWarnings.length === 0 ? (
-            <div className="rounded-2xl bg-white/80 px-4 py-4 text-sm text-slate-600">
+            <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4 text-sm leading-6 text-slate-500">
               No strong fatigue pattern is dominating the current weekly mix.
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
               {fatigueModel.topWarnings.map((warning) => (
-                <div key={`${warning.dimension}:${warning.key}`} className="rounded-2xl bg-white/80 px-4 py-4">
+                <div key={`${warning.dimension}:${warning.key}`} className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className={warning.severity === "moderate" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
                       {warning.severity === "moderate" ? "Moderate fatigue" : "Light fatigue"}
@@ -392,7 +392,7 @@ export default async function WeeklyPlanPage() {
                     <Badge className="bg-sky-50 text-sky-700 ring-sky-200">{warning.count} / {warning.total}</Badge>
                   </div>
                   <p className="mt-3 font-medium text-slate-950">{warning.summary}</p>
-                  <p className="mt-2 text-sm text-slate-600">{warning.label}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-500">{warning.label}</p>
                 </div>
               ))}
             </div>

@@ -193,8 +193,8 @@ export default async function ExceptionsPage() {
     .filter((item) => item.priority === "high").length;
 
   return (
-    <div className="space-y-6">
-      <Card>
+    <div className="space-y-7">
+      <Card className="border-black/8 bg-white shadow-[0_20px_52px_rgba(15,23,42,0.08)]">
         <CardHeader>
           <div className="flex flex-wrap items-center gap-3">
             <Badge
@@ -210,7 +210,7 @@ export default async function ExceptionsPage() {
               Updated {formatDateTime(renderNow.toISOString())}
             </Badge>
           </div>
-          <CardTitle className="text-3xl">Exception Inbox</CardTitle>
+          <CardTitle className="text-4xl">Exception Inbox</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             One bounded operator-only inbox for blocked, unresolved, or judgement-required work, already grouped by issue type and ordered for fastest resolution.
           </CardDescription>
@@ -231,26 +231,26 @@ export default async function ExceptionsPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Needs attention</p>
+      <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+          <p className="text-[11px] font-medium text-slate-500">Needs attention</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{exceptionInbox.openCount}</p>
           <p className="mt-1 text-sm text-slate-600">Open exception items requiring operator intervention.</p>
         </div>
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">High priority</p>
+        <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+          <p className="text-[11px] font-medium text-slate-500">High priority</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{highPriorityCount}</p>
           <p className="mt-1 text-sm text-slate-600">Most urgent exceptions by commercial value or workflow pressure.</p>
         </div>
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Top issue type</p>
+        <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+          <p className="text-[11px] font-medium text-slate-500">Top issue type</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{topGroup?.label ?? "None"}</p>
           <p className="mt-1 text-sm text-slate-600">
             {topGroup ? `${topGroup.count} item${topGroup.count === 1 ? "" : "s"} are concentrated here.` : "No stable exception cluster is open right now."}
           </p>
         </div>
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Related task load</p>
+        <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+          <p className="text-[11px] font-medium text-slate-500">Related task load</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{operatorTaskSummary.openCount}</p>
           <p className="mt-1 text-sm text-slate-600">Operator tasks still open across outcome, package, duplicate, and experiment loops.</p>
         </div>
@@ -259,14 +259,14 @@ export default async function ExceptionsPage() {
       {exceptionInbox.topSummary.length > 0 ? (
         <div className="grid gap-3 xl:grid-cols-3">
           {exceptionInbox.topSummary.slice(0, 3).map((summary) => (
-            <div key={summary} className="rounded-2xl bg-white/84 px-4 py-4 text-sm leading-6 text-slate-700">
+            <div key={summary} className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4 text-sm leading-6 text-slate-600">
               {summary}
             </div>
           ))}
         </div>
       ) : null}
 
-      <Card>
+      <Card className="border-black/6 bg-white/74 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
         <CardHeader>
           <CardTitle>Exception Queue</CardTitle>
           <CardDescription>

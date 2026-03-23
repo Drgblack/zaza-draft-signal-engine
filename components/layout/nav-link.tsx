@@ -20,9 +20,9 @@ export function NavLink({
       href={href}
       aria-current={isActive ? "page" : undefined}
       className={cn(
-        "flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)] focus-visible:ring-offset-2",
+        "flex items-center justify-between rounded-2xl px-4 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)] focus-visible:ring-offset-2",
         isActive
-          ? "border border-[color:var(--accent)]/35 bg-[color:var(--accent)] text-white shadow-[0_12px_28px_rgba(31,77,61,0.22)] hover:text-white"
+          ? "border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/92 text-white shadow-[0_10px_22px_rgba(31,77,61,0.18)] hover:text-white"
           : "border border-transparent text-slate-700 hover:border-black/6 hover:bg-white/88 hover:text-slate-950",
       )}
     >

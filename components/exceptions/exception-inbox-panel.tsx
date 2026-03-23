@@ -155,16 +155,16 @@ export function ExceptionInboxPanel({
 
   if (openCount === 0) {
     return (
-      <div className="rounded-2xl bg-slate-100 px-4 py-4 text-sm text-slate-600">
+      <div className="rounded-2xl border border-black/5 bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-500">
         No operator exception is open right now.
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {feedback ? (
-        <div className="rounded-2xl bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+        <div className="rounded-2xl border border-black/5 bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-500">
           {feedback}
         </div>
       ) : null}
@@ -176,9 +176,9 @@ export function ExceptionInboxPanel({
             <Badge className={issueTone(group.issueType)}>{group.count}</Badge>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {group.items.map((item) => (
-              <div key={item.id} className="rounded-2xl bg-white/84 px-4 py-4">
+              <div key={item.id} className="rounded-2xl border border-black/5 bg-white/80 px-4 py-3.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge className={priorityTone(item.priority)}>
                     {priorityLabel(item.priority)}
@@ -188,34 +188,34 @@ export function ExceptionInboxPanel({
                   </Badge>
                 </div>
 
-                <p className="mt-3 font-medium text-slate-950">{item.title}</p>
+                <p className="mt-2.5 font-medium text-slate-950">{item.title}</p>
                 {item.sourceTitle ? (
-                  <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">
+                  <p className="mt-1 text-xs text-slate-500">
                     {item.sourceTitle}
                   </p>
                 ) : null}
 
-                <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                  <div className="rounded-2xl bg-slate-50/80 px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                <div className="mt-2.5 grid gap-2.5 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-black/5 bg-slate-50/80 px-4 py-3">
+                    <p className="text-[11px] font-medium text-slate-500">
                       Why it matters
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">
+                    <p className="mt-1.5 text-sm leading-6 text-slate-600">
                       {item.whyItMatters}
                     </p>
                   </div>
-                  <div className="rounded-2xl bg-slate-50/80 px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  <div className="rounded-2xl border border-black/5 bg-slate-50/80 px-4 py-3">
+                    <p className="text-[11px] font-medium text-slate-500">
                       Recommended action
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">
+                    <p className="mt-1.5 text-sm leading-6 text-slate-600">
                       {item.recommendedAction}
                     </p>
                   </div>
                 </div>
 
                 {item.supportingSignals.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-2.5 flex flex-wrap gap-2">
                     {item.supportingSignals.map((signal) => (
                       <Badge
                         key={`${item.id}:${signal}`}
@@ -227,7 +227,7 @@ export function ExceptionInboxPanel({
                   </div>
                 ) : null}
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   <Link href={item.href}>
                     <Button size="sm" variant="secondary">
                       {item.actionLabel}
