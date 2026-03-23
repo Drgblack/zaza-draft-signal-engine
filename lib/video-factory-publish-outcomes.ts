@@ -7,6 +7,11 @@ import {
   isReadOnlyFilesystemError,
   logServerlessPersistenceFallback,
 } from "./serverless-persistence";
+import {
+  buildLearningInputSignature,
+  buildLearningRecordId,
+  upsertLearningRecord,
+} from "./learning-loop";
 
 const FACTORY_PUBLISH_OUTCOME_STORE_PATH = path.join(
   process.cwd(),
@@ -226,6 +231,41 @@ export async function upsertFactoryPublishOutcome(
   const publishOutcome = buildFactoryPublishOutcomeRecord(parsedInput, previous);
   store[publishOutcome.publishOutcomeId] = publishOutcome;
   await writeStore(store);
+  if (
+    publishOutcome.published ||
+    publishOutcome.impressions !== null ||
+    publishOutcome.clicks !== null ||
+    publishOutcome.signups !== null
+  ) {
+    const inputSignature = buildLearningInputSignature("video_factory", {
+      action: "publish_outcome",
+      platform: publishOutcome.platform ?? "unknown",
+    });
+    await upsertLearningRecord({
+      learningRecordId: buildLearningRecordId({
+        inputSignature,
+        stage: "engagement",
+        sourceId: publishOutcome.renderedAssetId,
+      }),
+      inputSignature,
+      outcome: publishOutcome.published ? "success" : "failed",
+      retries: 0,
+      cost: 0,
+      timestamp: publishOutcome.lastUpdatedAt,
+      inputType: "video_factory",
+      stage: "engagement",
+      actionType: "publish_outcome",
+      sourceId: publishOutcome.renderedAssetId,
+      platform: publishOutcome.platform,
+      impressions: publishOutcome.impressions,
+      clicks: publishOutcome.clicks,
+      signups: publishOutcome.signups,
+      engagementScore:
+        (publishOutcome.signups ?? 0) * 5 +
+        (publishOutcome.clicks ?? 0) +
+        Math.round((publishOutcome.impressions ?? 0) / 100),
+    });
+  }
 
   return {
     publishOutcome,

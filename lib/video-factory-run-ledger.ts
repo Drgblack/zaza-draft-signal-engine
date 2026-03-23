@@ -20,6 +20,7 @@ import {
   videoFactoryRetryStateSchema,
   type VideoFactoryRetryState,
 } from "./video-factory-retry";
+import { z as zod } from "zod";
 import {
   factoryReviewReasonListSchema,
   type FactoryReviewReasonCode,
@@ -69,6 +70,8 @@ export const factoryRunLedgerEntrySchema = z.object({
   regenerationNotes: z.string().trim().nullable().default(null),
   decisionStructuredReasons: factoryReviewReasonListSchema,
   decisionNotes: z.string().trim().nullable().default(null),
+  autonomyPolicyReason: z.string().trim().nullable().default(null),
+  autonomyPolicyRiskLevel: zod.enum(["low", "medium", "high"]).nullable().default(null),
   terminalOutcome: z.enum(FACTORY_RUN_TERMINAL_OUTCOMES),
   lastUpdatedAt: z.string().trim().min(1),
   failureStage: z.enum(VIDEO_FACTORY_STATUSES).nullable().default(null),
@@ -166,6 +169,8 @@ export function buildFactoryRunLedgerEntry(input: {
   regenerationNotes?: string | null;
   decisionStructuredReasons?: FactoryReviewReasonCode[];
   decisionNotes?: string | null;
+  autonomyPolicyReason?: string | null;
+  autonomyPolicyRiskLevel?: "low" | "medium" | "high" | null;
 }): FactoryRunLedgerEntry {
   return factoryRunLedgerEntrySchema.parse({
     ledgerEntryId: ledgerEntryId(input.lifecycle.factoryJobId, input.attemptNumber),
@@ -195,6 +200,8 @@ export function buildFactoryRunLedgerEntry(input: {
     regenerationNotes: input.regenerationNotes ?? null,
     decisionStructuredReasons: input.decisionStructuredReasons ?? [],
     decisionNotes: input.decisionNotes ?? null,
+    autonomyPolicyReason: input.autonomyPolicyReason ?? null,
+    autonomyPolicyRiskLevel: input.autonomyPolicyRiskLevel ?? null,
     terminalOutcome:
       input.lifecycle.status === "accepted" ||
       input.lifecycle.status === "rejected" ||
@@ -236,6 +243,8 @@ export function updateFactoryRunLedgerOutcome(
     retryState?: VideoFactoryRetryState | null;
     decisionStructuredReasons?: FactoryReviewReasonCode[];
     decisionNotes?: string | null;
+    autonomyPolicyReason?: string | null;
+    autonomyPolicyRiskLevel?: "low" | "medium" | "high" | null;
   },
 ): FactoryRunLedgerEntry[] {
   return existing.map((entry) => {
@@ -267,6 +276,14 @@ export function updateFactoryRunLedgerOutcome(
         input.decisionNotes === undefined
           ? entry.decisionNotes ?? null
           : input.decisionNotes,
+      autonomyPolicyReason:
+        input.autonomyPolicyReason === undefined
+          ? entry.autonomyPolicyReason ?? null
+          : input.autonomyPolicyReason,
+      autonomyPolicyRiskLevel:
+        input.autonomyPolicyRiskLevel === undefined
+          ? entry.autonomyPolicyRiskLevel ?? null
+          : input.autonomyPolicyRiskLevel,
       lastUpdatedAt: input.lifecycle.lastUpdatedAt,
       failureStage: input.lifecycle.failureStage ?? null,
       failureMessage: input.lifecycle.failureMessage ?? null,

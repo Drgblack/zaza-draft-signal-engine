@@ -2,6 +2,7 @@ import { evaluateDraftQuality, evaluateGenerationReadiness, type DraftQualityEva
 import type { UnifiedGuidance } from "@/lib/guidance";
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import { assessTransformability } from "@/lib/transformability";
+import { evaluateAutonomyPolicy } from "@/lib/autonomy-policy";
 import { hasGeneration, hasInterpretation, hasReviewableDraftPackage, hasScoring, isFilteredOutSignal } from "@/lib/workflow";
 import type { SignalGenerationInput, SignalGenerationResult, SignalRecord } from "@/types/signal";
 
@@ -220,6 +221,54 @@ function buildHoldReasons(signal: SignalRecord, guidance: UnifiedGuidance, draft
   return reasons.slice(0, 3);
 }
 
+function buildAutoProgressPolicy(input: {
+  stage: AutoAdvanceStage;
+  signal: SignalRecord;
+  guidance: UnifiedGuidance;
+  missingCriticalMetadata: boolean;
+}) {
+  return evaluateAutonomyPolicy({
+    actionType: "auto_progress_signal",
+    contentType: input.signal.campaignId ? "campaign" : "reactive",
+    confidenceLevel:
+      input.guidance.confidence.confidenceLevel === "moderate"
+        ? "medium"
+        : input.guidance.confidence.confidenceLevel,
+    confidenceScore:
+      input.guidance.confidence.confidenceLevel === "high"
+        ? 0.85
+        : input.guidance.confidence.confidenceLevel === "moderate"
+          ? 0.6
+          : 0.35,
+    severityScore: input.signal.severityScore,
+    retryCount: 0,
+    costEstimateUsd: null,
+    platformTarget: input.signal.platformPriority,
+    lifecycleState: input.signal.status,
+    riskLevel:
+      input.guidance.readinessState === "blocked"
+        ? "high"
+        : input.guidance.readinessState === "review"
+          ? "medium"
+          : null,
+    missingCriticalMetadata: input.missingCriticalMetadata,
+    completenessState:
+      input.stage === "auto_prepare_for_review"
+        ? hasReviewableDraftPackage(input.signal)
+          ? "complete"
+          : "incomplete"
+        : input.stage === "auto_generate"
+          ? getGenerationInputFromSignal(input.signal)
+            ? "mostly_complete"
+            : "incomplete"
+          : hasScoring(input.signal)
+            ? "mostly_complete"
+            : "incomplete",
+    hasUnresolvedConflicts: false,
+    workflowState: input.signal.status,
+  });
+}
+
 export function assessAutoInterpret(signal: SignalRecord, guidance: UnifiedGuidance): AutoAdvanceAssessment {
   if (hasInterpretation(signal)) {
     return {
@@ -259,6 +308,16 @@ export function assessAutoInterpret(signal: SignalRecord, guidance: UnifiedGuida
 
   if (guidance.cautionNotes[0] && guidance.relatedPatterns.length === 0 && guidance.relatedPlaybookCards.length === 0) {
     uniquePush(holdReasons, guidance.cautionNotes[0]);
+  }
+
+  const autonomyPolicy = buildAutoProgressPolicy({
+    stage: "auto_interpret",
+    signal,
+    guidance,
+    missingCriticalMetadata: !hasScoring(signal),
+  });
+  if (autonomyPolicy.requireReview) {
+    uniquePush(holdReasons, autonomyPolicy.reason);
   }
 
   if (holdReasons.length > 0) {
@@ -317,6 +376,7 @@ export function assessAutoGenerate(signal: SignalRecord, guidance: UnifiedGuidan
   }
 
   const generationReadiness = evaluateGenerationReadiness(signal);
+  const generationInput = getGenerationInputFromSignal(signal);
   const holdReasons = buildHoldReasons(signal, guidance);
 
   if (generationReadiness.status === "blocked") {
@@ -325,6 +385,16 @@ export function assessAutoGenerate(signal: SignalRecord, guidance: UnifiedGuidan
 
   if (generationReadiness.status === "caution" && guidance.confidence.confidenceLevel !== "high") {
     uniquePush(holdReasons, generationReadiness.label);
+  }
+
+  const autonomyPolicy = buildAutoProgressPolicy({
+    stage: "auto_generate",
+    signal,
+    guidance,
+    missingCriticalMetadata: !generationInput,
+  });
+  if (autonomyPolicy.requireReview) {
+    uniquePush(holdReasons, autonomyPolicy.reason);
   }
 
   if (holdReasons.length > 0) {
@@ -398,6 +468,16 @@ export function assessApprovalReadiness(signal: SignalRecord, guidance: UnifiedG
 
   if (guidance.gapWarnings[0] && guidance.relatedPlaybookCards.length === 0 && guidance.reuseMemory?.highlights.length === 0) {
     uniquePush(holdReasons, "Support coverage is still thin");
+  }
+
+  const autonomyPolicy = buildAutoProgressPolicy({
+    stage: "auto_prepare_for_review",
+    signal,
+    guidance,
+    missingCriticalMetadata: !generationInput || !generationOutput,
+  });
+  if (autonomyPolicy.requireReview && signal.finalReviewStartedAt === null) {
+    uniquePush(holdReasons, autonomyPolicy.reason);
   }
 
   if (signal.finalReviewStartedAt) {

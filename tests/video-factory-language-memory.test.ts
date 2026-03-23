@@ -32,6 +32,12 @@ function buildOpportunityFixture(): ContentOpportunity {
     trustRisk: "low",
     riskSummary: null,
     suggestedNextStep: "Generate a video.",
+    hookOptions: null,
+    hookRanking: null,
+    performanceDrivers: null,
+    intendedViewerEffect: null,
+    suggestedCTA: null,
+    productionComplexity: null,
     supportingSignals: [],
     memoryContext: {
       bestCombo: null,

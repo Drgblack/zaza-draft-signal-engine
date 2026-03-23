@@ -10,6 +10,7 @@ import type {
   ContentOpportunity,
   ContentOpportunityState,
 } from "@/lib/content-opportunities";
+import { isDebugEnabled } from "@/lib/debug";
 import {
   applySelectedHookSelection,
   buildHookSet,
@@ -342,6 +343,31 @@ function buildPerformanceSignalSummary(
     .join(" | ");
 }
 
+function intelligenceDriverEntries(opportunity: ContentOpportunity) {
+  const drivers = opportunity.performanceDrivers;
+  if (!drivers) {
+    return [];
+  }
+
+  return [
+    ["hookStrength", drivers.hookStrength],
+    ["stakes", drivers.stakes],
+    ["viewerConnection", drivers.viewerConnection],
+    ["generalistAppeal", drivers.generalistAppeal],
+    ["perspectiveShift", drivers.perspectiveShift],
+    ["authenticityFit", drivers.authenticityFit],
+    ["brandAlignment", drivers.brandAlignment],
+    ["conversionPotential", drivers.conversionPotential],
+  ].filter((entry): entry is [string, number] => typeof entry[1] === "number");
+}
+
+function intelligenceLabel(value: string) {
+  return value
+    .replace(/([A-Z])/g, " $1")
+    .trim()
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
+
 interface OpportunityDraftFlow {
   angles: MessageAngle[];
   hookSetsByAngleId: Record<string, HookSet>;
@@ -462,6 +488,7 @@ export function FactoryInputsPanel({
     ),
   );
   const [isPending, startTransition] = useTransition();
+  const debugEnabled = isDebugEnabled();
   const sections = useMemo(
     () => buildSections(state.opportunities),
     [state.opportunities],
@@ -865,6 +892,74 @@ export function FactoryInputsPanel({
                       </Badge>
                     ))}
                   </div>
+                ) : null}
+
+                {debugEnabled ? (
+                  <details className="mt-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-3">
+                    <summary className="cursor-pointer text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                      Intelligence debug
+                    </summary>
+                    <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                      <div className="rounded-2xl bg-white/90 px-3 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                          Format
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">
+                          {item.recommendedFormat.replaceAll("_", " ")}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white/90 px-3 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                          Viewer effect
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">
+                          {item.intendedViewerEffect ?? "Not set"}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white/90 px-3 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                          CTA
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">
+                          {item.suggestedCTA ?? "Not set"}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white/90 px-3 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                          Top 3 hooks
+                        </p>
+                        <div className="mt-2 space-y-2 text-sm leading-6 text-slate-700">
+                          {(item.hookRanking ?? []).slice(0, 3).map((hook) => (
+                            <p key={`${item.opportunityId}:${hook.hook}`}>
+                              {hook.hook} <span className="text-slate-500">({hook.score})</span>
+                            </p>
+                          ))}
+                          {(item.hookRanking ?? []).length === 0 ? <p>Not set</p> : null}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 rounded-2xl bg-white/90 px-3 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                        Performance scores
+                      </p>
+                      <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                        {intelligenceDriverEntries(item).map(([label, value]) => (
+                          <div
+                            key={`${item.opportunityId}:${label}`}
+                            className="rounded-2xl bg-slate-50/80 px-3 py-2"
+                          >
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                              {intelligenceLabel(label)}
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-slate-900">{value}</p>
+                          </div>
+                        ))}
+                        {intelligenceDriverEntries(item).length === 0 ? (
+                          <p className="text-sm leading-6 text-slate-700">Not set</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </details>
                 ) : null}
 
                 <div className="mt-3 grid gap-3 lg:grid-cols-3">

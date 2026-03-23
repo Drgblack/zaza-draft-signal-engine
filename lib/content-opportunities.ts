@@ -8,13 +8,18 @@ import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { listSignalsWithFallback } from "@/lib/airtable";
 import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
+import { evaluateAutonomyPolicy, type AutonomyPolicyDecision, type AutonomyRiskLevel } from "@/lib/autonomy-policy";
 import { buildAttributionInsights, buildAttributionRecordsFromInputs } from "@/lib/attribution";
 import { buildCampaignAllocationState } from "@/lib/campaign-allocation";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { buildGrowthMemory, type GrowthMemoryState } from "@/lib/growth-memory";
+import { recommendFormat } from "@/lib/format-recommender";
 import { applySelectedHookSelection, buildHookSet } from "@/lib/hook-engine";
+import { generateHooks, rankHooks } from "@/lib/hook-generator";
+import { scoreOpportunity } from "@/lib/performance-scorer";
+import { determineViewerEffect, suggestCTA } from "@/lib/viewer-effect";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { buildMessageAngles } from "@/lib/message-angles";
 import {
@@ -142,6 +147,11 @@ import {
   type FactoryRunLedgerEntry,
 } from "@/lib/video-factory-run-ledger";
 import {
+  buildLearningInputSignature,
+  buildLearningRecordId,
+  upsertLearningRecord,
+} from "@/lib/learning-loop";
+import {
   appendFactoryComparisonRecord,
   factoryComparisonRecordSchema,
   maybeBuildFactoryComparisonRecord,
@@ -177,6 +187,7 @@ import type { PostingPlatform } from "@/lib/posting-memory";
 
 const CONTENT_OPPORTUNITY_STORE_PATH = path.join(process.cwd(), "data", "content-opportunities.json");
 const CURRENT_RENDER_VERSION = "phase-c-render-v1";
+const ENABLE_FORMAT_INTELLIGENCE = true;
 
 export const CONTENT_OPPORTUNITY_TYPES = [
   "pain_point_opportunity",
@@ -242,6 +253,22 @@ export interface ContentOpportunityGenerationState {
   performanceSignals: PerformanceSignal[];
 }
 
+export interface ContentOpportunityHookRankingItem {
+  hook: string;
+  score: number;
+}
+
+export interface ContentOpportunityPerformanceDrivers {
+  hookStrength?: number;
+  stakes?: number;
+  viewerConnection?: number;
+  generalistAppeal?: number;
+  perspectiveShift?: number;
+  authenticityFit?: number;
+  brandAlignment?: number;
+  conversionPotential?: number;
+}
+
 export interface ContentOpportunity {
   opportunityId: string;
   signalId: string;
@@ -261,6 +288,12 @@ export interface ContentOpportunity {
   trustRisk: "low" | "medium" | "high";
   riskSummary: string | null;
   suggestedNextStep: string;
+  hookOptions: string[] | null;
+  hookRanking: ContentOpportunityHookRankingItem[] | null;
+  performanceDrivers: ContentOpportunityPerformanceDrivers | null;
+  intendedViewerEffect: string | null;
+  suggestedCTA: string | null;
+  productionComplexity: "low" | "medium" | "high" | null;
   supportingSignals: string[];
   memoryContext: ContentOpportunityMemoryContext;
   sourceSignalIds: string[];
@@ -347,6 +380,193 @@ export class VideoFactoryRegenerationBudgetExceededError extends Error {
   }
 }
 
+export class VideoFactoryAutonomyPolicyError extends Error {
+  readonly state: ContentOpportunityState;
+  readonly reason: string;
+  readonly riskLevel: AutonomyRiskLevel;
+  readonly jobId: string | null;
+  readonly estimatedCostUsd: number | null;
+  readonly regenerationCount: number;
+  readonly budgetRemaining: number;
+
+  constructor(input: {
+    message: string;
+    state: ContentOpportunityState;
+    reason: string;
+    riskLevel: AutonomyRiskLevel;
+    jobId: string | null;
+    estimatedCostUsd: number | null;
+    regenerationCount: number;
+    budgetRemaining: number;
+  }) {
+    super(input.message);
+    this.name = "VideoFactoryAutonomyPolicyError";
+    this.state = input.state;
+    this.reason = input.reason;
+    this.riskLevel = input.riskLevel;
+    this.jobId = input.jobId;
+    this.estimatedCostUsd = input.estimatedCostUsd;
+    this.regenerationCount = input.regenerationCount;
+    this.budgetRemaining = input.budgetRemaining;
+  }
+}
+
+function contentOpportunityAutonomyType(input: {
+  opportunity: ContentOpportunity;
+  isRegenerate: boolean;
+}) {
+  if (input.isRegenerate) {
+    return "experimental" as const;
+  }
+
+  return input.opportunity.opportunityType === "campaign_support_opportunity"
+    ? ("campaign" as const)
+    : ("reactive" as const);
+}
+
+function contentOpportunitySeverityScore(priority: ContentOpportunityPriority) {
+  if (priority === "high") {
+    return 3;
+  }
+
+  if (priority === "medium") {
+    return 2;
+  }
+
+  return 1;
+}
+
+function contentOpportunityConfidenceScore(opportunity: ContentOpportunity) {
+  if (opportunity.trustRisk === "low" && opportunity.commercialPotential === "high") {
+    return 0.85;
+  }
+
+  if (opportunity.trustRisk === "medium") {
+    return 0.6;
+  }
+
+  if (opportunity.trustRisk === "low") {
+    return 0.7;
+  }
+
+  return 0.35;
+}
+
+function evaluateContentOpportunityVideoAutonomyPolicy(input: {
+  opportunity: ContentOpportunity;
+  generationState: ContentOpportunityGenerationState | null;
+  isRegenerate: boolean;
+  retryCount: number;
+  costEstimateUsd: number | null;
+  lifecycleState: string | null;
+}): AutonomyPolicyDecision {
+  return evaluateAutonomyPolicy({
+    actionType: input.isRegenerate
+      ? "auto_regenerate_video_factory"
+      : "auto_run_video_factory",
+    contentType: contentOpportunityAutonomyType({
+      opportunity: input.opportunity,
+      isRegenerate: input.isRegenerate,
+    }),
+    confidenceScore: contentOpportunityConfidenceScore(input.opportunity),
+    severityScore: contentOpportunitySeverityScore(input.opportunity.priority),
+    retryCount: input.retryCount,
+    costEstimateUsd:
+      input.costEstimateUsd ??
+      input.generationState?.latestCostEstimate?.estimatedTotalUsd ??
+      null,
+    platformTarget: input.opportunity.recommendedPlatforms[0] ?? null,
+    lifecycleState:
+      input.lifecycleState ??
+      input.generationState?.factoryLifecycle?.status ??
+      null,
+    riskLevel: input.opportunity.trustRisk,
+    missingCriticalMetadata:
+      !input.opportunity.selectedVideoBrief ||
+      !input.opportunity.approvedAt ||
+      !(input.opportunity.recommendedPlatforms[0] ?? null),
+  });
+}
+
+function buildContentOpportunityLearningSignature(input: {
+  opportunity: ContentOpportunity;
+  actionType: "auto_run_video_factory" | "auto_regenerate_video_factory";
+  provider: string | null;
+  format: string | null;
+}) {
+  return buildLearningInputSignature("video_factory", {
+    action: input.actionType,
+    content: contentOpportunityAutonomyType({
+      opportunity: input.opportunity,
+      isRegenerate: input.actionType === "auto_regenerate_video_factory",
+    }),
+    format: input.format ?? "unknown",
+    platform: input.opportunity.recommendedPlatforms[0] ?? "unknown",
+    provider: input.provider ?? "unknown",
+  });
+}
+
+export async function assertAutoProceedAllowedForQueuedContentOpportunityVideoGeneration(input: {
+  opportunityId: string;
+}) {
+  const store = await readPersistedStore();
+  const opportunity = store.opportunities.find(
+    (item) => item.opportunityId === input.opportunityId,
+  );
+  if (!opportunity) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const normalizedOpportunity = normalizePersistedOpportunity(opportunity);
+  const generationState = normalizedOpportunity.generationState;
+  const retryCount =
+    generationState?.latestRetryState?.retryCount ??
+    generationState?.renderJob?.retryState?.retryCount ??
+    0;
+
+  if (retryCount <= 0) {
+    return null;
+  }
+
+  const decision = evaluateContentOpportunityVideoAutonomyPolicy({
+    opportunity: normalizedOpportunity,
+    generationState,
+    isRegenerate: Boolean(generationState?.renderJob?.regenerationReason),
+    retryCount,
+    costEstimateUsd:
+      generationState?.renderJob?.costEstimate?.estimatedTotalUsd ??
+      generationState?.latestCostEstimate?.estimatedTotalUsd ??
+      null,
+    lifecycleState: generationState?.factoryLifecycle?.status ?? null,
+  });
+
+  if (decision.requireReview) {
+    const state = summarizeState(
+      store.opportunities.map((item) => normalizePersistedOpportunity(item)),
+    );
+    const maxRegenerationsPerBrief = getVideoFactoryMaxRegenerationsPerBrief();
+    const regenerationCount = Math.max(
+      0,
+      (generationState?.runLedger.length ?? 1) - 1,
+    );
+    throw new VideoFactoryAutonomyPolicyError({
+      message: decision.reason,
+      state,
+      reason: decision.reason,
+      riskLevel: decision.riskLevel,
+      jobId: generationState?.renderJob?.id ?? null,
+      estimatedCostUsd:
+        generationState?.renderJob?.costEstimate?.estimatedTotalUsd ??
+        generationState?.latestCostEstimate?.estimatedTotalUsd ??
+        null,
+      regenerationCount,
+      budgetRemaining: Math.max(0, maxRegenerationsPerBrief - regenerationCount),
+    });
+  }
+
+  return decision;
+}
+
 const contentOpportunitySourceRefSchema = z.object({
   signalId: z.string().trim().min(1),
   sourceTitle: z.string().trim().min(1),
@@ -360,6 +580,22 @@ const contentOpportunityMemoryContextSchema = z.object({
   revenuePattern: z.string().trim().nullable().default(null),
   audienceCue: z.string().trim().nullable().default(null),
   caution: z.string().trim().nullable().default(null),
+});
+
+const contentOpportunityHookRankingItemSchema = z.object({
+  hook: z.string().trim().min(1),
+  score: z.number(),
+});
+
+const contentOpportunityPerformanceDriversSchema = z.object({
+  hookStrength: z.number().optional(),
+  stakes: z.number().optional(),
+  viewerConnection: z.number().optional(),
+  generalistAppeal: z.number().optional(),
+  perspectiveShift: z.number().optional(),
+  authenticityFit: z.number().optional(),
+  brandAlignment: z.number().optional(),
+  conversionPotential: z.number().optional(),
 });
 
 export const contentOpportunityGenerationStateSchema = z.object({
@@ -402,6 +638,12 @@ const contentOpportunitySchema = z.object({
   trustRisk: z.enum(["low", "medium", "high"]),
   riskSummary: z.string().trim().nullable().default(null),
   suggestedNextStep: z.string().trim().min(1),
+  hookOptions: z.array(z.string().trim().min(1)).nullable().default(null),
+  hookRanking: z.array(contentOpportunityHookRankingItemSchema).nullable().default(null),
+  performanceDrivers: contentOpportunityPerformanceDriversSchema.nullable().default(null),
+  intendedViewerEffect: z.string().trim().nullable().default(null),
+  suggestedCTA: z.string().trim().nullable().default(null),
+  productionComplexity: z.enum(["low", "medium", "high"]).nullable().default(null),
   supportingSignals: z.array(z.string().trim().min(1)).max(6),
   memoryContext: contentOpportunityMemoryContextSchema,
   sourceSignalIds: z.array(z.string().trim().min(1)).min(1).max(6),
@@ -2046,7 +2288,7 @@ async function runContentOpportunityVideoGeneration(input: {
         regenerationNotes: activeQueuedRenderJob.regenerationNotes,
       });
 
-      return updateOpportunity(input.opportunityId, (opportunity) => {
+      const failureState = await updateOpportunity(input.opportunityId, (opportunity) => {
         const persistedGenerationState = contentOpportunityGenerationStateSchema.parse(
           opportunity.generationState ?? {},
         );
@@ -2098,6 +2340,41 @@ async function runContentOpportunityVideoGeneration(input: {
           updatedAt: timestamp,
         };
       });
+      await upsertLearningRecord({
+        learningRecordId: buildLearningRecordId({
+          inputSignature: buildContentOpportunityLearningSignature({
+            opportunity: attemptOpportunity,
+            actionType: isRegenerateAttempt
+              ? "auto_regenerate_video_factory"
+              : "auto_run_video_factory",
+            provider,
+            format: attemptBrief.format,
+          }),
+          stage: "generation",
+          sourceId: failedGenerationRequest.id,
+        }),
+        inputSignature: buildContentOpportunityLearningSignature({
+          opportunity: attemptOpportunity,
+          actionType: isRegenerateAttempt
+            ? "auto_regenerate_video_factory"
+            : "auto_run_video_factory",
+          provider,
+          format: attemptBrief.format,
+        }),
+        outcome: "failed",
+        retries: attemptRetryState?.retryCount ?? 0,
+        cost: actualCost?.actualCostUsd ?? costEstimate?.estimatedTotalUsd ?? 0,
+        timestamp,
+        inputType: "video_factory",
+        stage: "generation",
+        actionType: isRegenerateAttempt
+          ? "auto_regenerate_video_factory"
+          : "auto_run_video_factory",
+        sourceId: failedGenerationRequest.id,
+        platform: attemptOpportunity.recommendedPlatforms[0] ?? null,
+      });
+
+      return failureState;
     }
 
     const renderJob = renderJobSchema.parse({
@@ -2220,6 +2497,39 @@ async function runContentOpportunityVideoGeneration(input: {
         }),
         updatedAt: timestamp,
       };
+    });
+    await upsertLearningRecord({
+      learningRecordId: buildLearningRecordId({
+        inputSignature: buildContentOpportunityLearningSignature({
+          opportunity: attemptOpportunity,
+          actionType: isRegenerateAttempt
+            ? "auto_regenerate_video_factory"
+            : "auto_run_video_factory",
+          provider,
+          format: attemptBrief.format,
+        }),
+        stage: "generation",
+        sourceId: completedGenerationRequest.id,
+      }),
+      inputSignature: buildContentOpportunityLearningSignature({
+        opportunity: attemptOpportunity,
+        actionType: isRegenerateAttempt
+          ? "auto_regenerate_video_factory"
+          : "auto_run_video_factory",
+        provider,
+        format: attemptBrief.format,
+      }),
+      outcome: "success",
+      retries: attemptRetryState?.retryCount ?? 0,
+      cost: actualCost?.actualCostUsd ?? costEstimate?.estimatedTotalUsd ?? 0,
+      timestamp,
+      inputType: "video_factory",
+      stage: "generation",
+      actionType: isRegenerateAttempt
+        ? "auto_regenerate_video_factory"
+        : "auto_run_video_factory",
+      sourceId: completedGenerationRequest.id,
+      platform: attemptOpportunity.recommendedPlatforms[0] ?? null,
     });
     const actionEventType = isRegenerateAttempt
       ? ("CONTENT_OPPORTUNITY_VIDEO_REGENERATED" as const)
@@ -2379,6 +2689,39 @@ async function runContentOpportunityVideoGeneration(input: {
         updatedAt: failureTimestamp,
       };
     });
+    await upsertLearningRecord({
+      learningRecordId: buildLearningRecordId({
+        inputSignature: buildContentOpportunityLearningSignature({
+          opportunity: attemptOpportunity,
+          actionType: isRegenerateAttempt
+            ? "auto_regenerate_video_factory"
+            : "auto_run_video_factory",
+          provider,
+          format: attemptBrief.format,
+        }),
+        stage: "generation",
+        sourceId: activeGenerationRequest.id,
+      }),
+      inputSignature: buildContentOpportunityLearningSignature({
+        opportunity: attemptOpportunity,
+        actionType: isRegenerateAttempt
+          ? "auto_regenerate_video_factory"
+          : "auto_run_video_factory",
+        provider,
+        format: attemptBrief.format,
+      }),
+      outcome: "failed",
+      retries: retryState?.retryCount ?? 0,
+      cost: costEstimate?.estimatedTotalUsd ?? 0,
+      timestamp: failureTimestamp,
+      inputType: "video_factory",
+      stage: "generation",
+      actionType: isRegenerateAttempt
+        ? "auto_regenerate_video_factory"
+        : "auto_run_video_factory",
+      sourceId: activeGenerationRequest.id,
+      platform: attemptOpportunity.recommendedPlatforms[0] ?? null,
+    });
 
     throw error;
   }
@@ -2386,10 +2729,10 @@ async function runContentOpportunityVideoGeneration(input: {
 
 function normalizePersistedOpportunity(opportunity: ContentOpportunity): ContentOpportunity {
   const founderSelection = normalizeFounderSelection(opportunity);
-  const founderNormalizedOpportunity = {
+  const founderNormalizedOpportunity = applyPhaseEIntelligence({
     ...opportunity,
     ...founderSelection,
-  };
+  }, { preserveExisting: true });
 
   return {
     ...founderNormalizedOpportunity,
@@ -2402,7 +2745,7 @@ function mergePersistedFields(
   existingOpportunity: ContentOpportunity | undefined,
 ): ContentOpportunity {
   if (!existingOpportunity) {
-    return nextOpportunity;
+    return normalizePersistedOpportunity(nextOpportunity);
   }
 
   const mergedOpportunity: ContentOpportunity = {
@@ -2416,6 +2759,15 @@ function mergePersistedFields(
     selectedHookId: existingOpportunity.selectedHookId ?? null,
     selectedVideoBrief: existingOpportunity.selectedVideoBrief ?? null,
     generationState: existingOpportunity.generationState ?? null,
+    hookOptions: existingOpportunity.hookOptions ?? nextOpportunity.hookOptions ?? null,
+    hookRanking: existingOpportunity.hookRanking ?? nextOpportunity.hookRanking ?? null,
+    performanceDrivers:
+      existingOpportunity.performanceDrivers ?? nextOpportunity.performanceDrivers ?? null,
+    intendedViewerEffect:
+      existingOpportunity.intendedViewerEffect ?? nextOpportunity.intendedViewerEffect ?? null,
+    suggestedCTA: existingOpportunity.suggestedCTA ?? nextOpportunity.suggestedCTA ?? null,
+    productionComplexity:
+      existingOpportunity.productionComplexity ?? nextOpportunity.productionComplexity ?? null,
     operatorNotes: existingOpportunity.operatorNotes,
   };
 
@@ -2474,12 +2826,71 @@ async function writePersistedStore(store: z.infer<typeof contentOpportunityStore
   await writeFile(CONTENT_OPPORTUNITY_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
 }
 
+function applyPhaseEIntelligence(
+  opportunity: ContentOpportunity,
+  options?: {
+    preserveExisting?: boolean;
+  },
+): ContentOpportunity {
+  if (!ENABLE_FORMAT_INTELLIGENCE) {
+    return opportunity;
+  }
+
+  const preserveExisting = options?.preserveExisting ?? false;
+  const recommendedFormat = recommendFormat(opportunity);
+  const opportunityWithFormat = {
+    ...opportunity,
+    recommendedFormat,
+  };
+
+  const generatedHookOptions =
+    preserveExisting && opportunity.hookOptions && opportunity.hookOptions.length > 0
+      ? opportunity.hookOptions
+      : generateHooks(opportunityWithFormat);
+  const generatedHookRanking =
+    preserveExisting && opportunity.hookRanking && opportunity.hookRanking.length > 0
+      ? opportunity.hookRanking
+      : rankHooks(generatedHookOptions, {
+          ...opportunityWithFormat,
+          hookOptions: generatedHookOptions,
+        });
+  const scoredPerformanceDrivers = scoreOpportunity({
+    ...opportunityWithFormat,
+    hookOptions: generatedHookOptions,
+    hookRanking: generatedHookRanking,
+  });
+  const performanceDrivers = preserveExisting
+    ? {
+        ...scoredPerformanceDrivers,
+        ...(opportunity.performanceDrivers ?? {}),
+      }
+    : scoredPerformanceDrivers;
+  const opportunityWithDrivers = {
+    ...opportunityWithFormat,
+    hookOptions: generatedHookOptions,
+    hookRanking: generatedHookRanking,
+    performanceDrivers,
+  };
+
+  return {
+    ...opportunityWithDrivers,
+    intendedViewerEffect:
+      preserveExisting && opportunity.intendedViewerEffect
+        ? opportunity.intendedViewerEffect
+        : determineViewerEffect(opportunityWithDrivers),
+    suggestedCTA:
+      preserveExisting && opportunity.suggestedCTA
+        ? opportunity.suggestedCTA
+        : suggestCTA(opportunityWithDrivers),
+  };
+}
+
 function buildOpportunityFromCandidate(
   candidate: ApprovalQueueCandidate,
   growthMemory: GrowthMemoryState,
   now: Date,
 ): ContentOpportunity {
-  return contentOpportunitySchema.parse({
+  const baseOpportunity = contentOpportunitySchema.parse({
     opportunityId: stableOpportunityId(candidate.signal.recordId),
     signalId: candidate.signal.recordId,
     title: buildTitle(candidate),
@@ -2514,6 +2925,12 @@ function buildOpportunityFromCandidate(
     trustRisk: candidate.commercialRisk.highestSeverity ?? "low",
     riskSummary: candidate.commercialRisk.topRisk?.reason ?? null,
     suggestedNextStep: buildSuggestedNextStep(candidate),
+    hookOptions: null,
+    hookRanking: null,
+    performanceDrivers: null,
+    intendedViewerEffect: null,
+    suggestedCTA: null,
+    productionComplexity: null,
     supportingSignals: buildSupportingSignals(candidate, growthMemory),
     memoryContext: {
       bestCombo: growthMemory.currentBestCombos[0]?.label ?? null,
@@ -2534,6 +2951,8 @@ function buildOpportunityFromCandidate(
     generationState: null,
     operatorNotes: null,
   });
+
+  return applyPhaseEIntelligence(baseOpportunity);
 }
 
 export function buildContentOpportunityState(input: {
@@ -3113,6 +3532,45 @@ export async function reviewContentOpportunityRenderedAsset(input: {
     ),
     reviewOutcome: input.status,
     reviewedAt: timestamp,
+  });
+  await upsertLearningRecord({
+    learningRecordId: buildLearningRecordId({
+      inputSignature: buildContentOpportunityLearningSignature({
+        opportunity: normalizedCurrent,
+        actionType: normalizedCurrent.generationState.renderJob?.regenerationReason
+          ? "auto_regenerate_video_factory"
+          : "auto_run_video_factory",
+        provider: normalizedCurrent.generationState.renderJob?.provider ?? null,
+        format: normalizedCurrent.selectedVideoBrief?.format ?? null,
+      }),
+      stage: "operator_review",
+      sourceId: normalizedCurrent.generationState.renderedAsset.id,
+    }),
+    inputSignature: buildContentOpportunityLearningSignature({
+      opportunity: normalizedCurrent,
+      actionType: normalizedCurrent.generationState.renderJob?.regenerationReason
+        ? "auto_regenerate_video_factory"
+        : "auto_run_video_factory",
+      provider: normalizedCurrent.generationState.renderJob?.provider ?? null,
+      format: normalizedCurrent.selectedVideoBrief?.format ?? null,
+    }),
+    outcome: input.status === "accepted" ? "success" : "rejected",
+    retries:
+      normalizedCurrent.generationState.latestRetryState?.retryCount ??
+      normalizedCurrent.generationState.renderJob?.retryState?.retryCount ??
+      0,
+    cost:
+      normalizedCurrent.generationState.latestActualCost?.actualCostUsd ??
+      normalizedCurrent.generationState.latestCostEstimate?.estimatedTotalUsd ??
+      0,
+    timestamp,
+    inputType: "video_factory",
+    stage: "operator_review",
+    actionType: normalizedCurrent.generationState.renderJob?.regenerationReason
+      ? "auto_regenerate_video_factory"
+      : "auto_run_video_factory",
+    sourceId: normalizedCurrent.generationState.renderedAsset.id,
+    platform: normalizedCurrent.recommendedPlatforms[0] ?? null,
   });
 
   return state;

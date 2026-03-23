@@ -301,6 +301,7 @@ export function rankApprovalCandidates(
           : baseConversionIntent;
       const preReviewRepair = applyPreReviewRepairs({
         signal: autofilledSignal,
+        strategy: options?.strategy,
         guidanceConfidenceLevel: candidate.guidance.confidence.confidenceLevel,
         automationConfidenceLevel: automationConfidence.level,
         completeness: autofillCompleteness,

@@ -1,6 +1,7 @@
 import { evaluateAutonomyPolicy, type AutonomyPolicyDecision } from "@/lib/autonomy-policy";
 import type { AttributionRecord } from "@/lib/attribution";
 import type { AudienceMemoryState } from "@/lib/audience-memory";
+import type { CampaignStrategy } from "@/lib/campaigns";
 import { evaluateApprovalPackageCompleteness, type ApprovalPackageCompleteness } from "@/lib/completeness";
 import type { ConflictAssessment } from "@/lib/conflicts";
 import type { ConversionIntentAssessment } from "@/lib/conversion-intent";
@@ -10,21 +11,31 @@ import {
   type CtaDestinationHealingResult,
 } from "@/lib/cta-destination-healing";
 import type { ManualExperiment } from "@/lib/experiments";
-import { applyFounderVoiceToText, isFounderVoiceOn } from "@/lib/founder-voice";
 import {
   buildSignalPublishPrepBundle,
   getPrimaryLinkVariant,
   getPublishPrepPackageForPlatform,
+  getSelectedCtaText,
   parsePublishPrepBundle,
   stringifyPublishPrepBundle,
   type PublishPrepBundle,
   type PublishPrepPackage,
   type PublishPrepPlatform,
 } from "@/lib/publish-prep";
+import {
+  runRepairAutopilot,
+  type RepairAutopilotFix,
+} from "@/lib/repair-autopilot";
 import type { RevenueSignal } from "@/lib/revenue-signals";
 import type { SignalRecord } from "@/types/signal";
 
 export const PRE_REVIEW_REPAIR_TYPES = [
+  "add_default_utm",
+  "apply_fallback_cta",
+  "generate_placeholder_alt_text",
+  "normalize_minor_tone",
+  "choose_default_destination",
+  "fill_campaign_metadata_defaults",
   "add_missing_utm",
   "improve_destination_choice",
   "soften_cta",
@@ -75,34 +86,6 @@ function getPrimaryPlatform(signal: SignalRecord): Extract<PublishPrepPlatform, 
   return "x";
 }
 
-function getPrimaryDraftField(
-  platform: Extract<PublishPrepPlatform, "x" | "linkedin" | "reddit">,
-): "finalXDraft" | "finalLinkedInDraft" | "finalRedditDraft" | "xDraft" | "linkedInDraft" | "redditDraft" {
-  switch (platform) {
-    case "linkedin":
-      return "finalLinkedInDraft";
-    case "reddit":
-      return "finalRedditDraft";
-    case "x":
-    default:
-      return "finalXDraft";
-  }
-}
-
-function getFallbackDraftField(
-  platform: Extract<PublishPrepPlatform, "x" | "linkedin" | "reddit">,
-): "xDraft" | "linkedInDraft" | "redditDraft" {
-  switch (platform) {
-    case "linkedin":
-      return "linkedInDraft";
-    case "reddit":
-      return "redditDraft";
-    case "x":
-    default:
-      return "xDraft";
-  }
-}
-
 function hasActiveExperimentForField(
   signalId: string,
   experiments: ManualExperiment[] | undefined,
@@ -134,6 +117,97 @@ function addRepair(repairs: PreReviewRepairItem[], repair: PreReviewRepairItem) 
   }
 
   repairs.push(repair);
+}
+
+function buildRepairMetadataSummary(signal: SignalRecord) {
+  const parts = [
+    signal.campaignId,
+    signal.pillarId,
+    signal.audienceSegmentId,
+    signal.funnelStage,
+    signal.ctaGoal,
+    trimOrNull(signal.hashtagsOrKeywords),
+  ].filter((value): value is string => Boolean(value));
+
+  return parts.join(" | ") || "Campaign metadata defaults";
+}
+
+function buildRepairItemsFromAutopilot(input: {
+  before: SignalRecord;
+  after: SignalRecord;
+  appliedFixes: string[];
+}): PreReviewRepairItem[] {
+  const platform = getPrimaryPlatform(input.after);
+  const beforeBundle = parsePublishPrepBundle(input.before.publishPrepBundleJson);
+  const afterBundle = parsePublishPrepBundle(input.after.publishPrepBundleJson);
+  const beforePackage = beforeBundle
+    ? getPublishPrepPackageForPlatform(beforeBundle, platform)
+    : null;
+  const afterPackage = afterBundle
+    ? getPublishPrepPackageForPlatform(afterBundle, platform)
+    : null;
+  const beforePrimaryLink = beforePackage ? getPrimaryLinkVariant(beforePackage) : null;
+  const afterPrimaryLink = afterPackage ? getPrimaryLinkVariant(afterPackage) : null;
+  const beforeCta = beforePackage ? getSelectedCtaText(beforePackage) : null;
+  const afterCta = afterPackage ? getSelectedCtaText(afterPackage) : null;
+  const repairs: PreReviewRepairItem[] = [];
+
+  for (const fix of input.appliedFixes as RepairAutopilotFix[]) {
+    switch (fix) {
+      case "add_default_utm":
+        repairs.push({
+          repairType: "add_default_utm",
+          before: beforePrimaryLink?.url ?? "Missing tracked UTM link",
+          after: afterPrimaryLink?.url ?? "Tracked UTM link added",
+          reason: "The primary destination kept its path but gained the default tracked UTM parameters.",
+        });
+        break;
+      case "apply_fallback_cta":
+        repairs.push({
+          repairType: "apply_fallback_cta",
+          before: beforeCta ?? trimOrNull(input.before.ctaOrClosingLine) ?? "Missing CTA",
+          after: afterCta ?? trimOrNull(input.after.ctaOrClosingLine) ?? "Campaign CTA applied",
+          reason: "A weak or missing CTA was replaced with the bounded campaign fallback CTA.",
+        });
+        break;
+      case "generate_placeholder_alt_text":
+        repairs.push({
+          repairType: "generate_placeholder_alt_text",
+          before: beforePackage?.altText?.text ?? "Missing alt text",
+          after: afterPackage?.altText?.text ?? "Placeholder alt text added",
+          reason: "Missing alt text was filled with a safe descriptive placeholder.",
+        });
+        break;
+      case "normalize_minor_tone":
+        repairs.push({
+          repairType: "normalize_minor_tone",
+          before: beforeCta ?? trimOrNull(input.before.ctaOrClosingLine) ?? "Minor tone issue",
+          after: afterCta ?? trimOrNull(input.after.ctaOrClosingLine) ?? "Tone normalized",
+          reason: "Only light punctuation and casing cleanup was applied to the CTA layer.",
+        });
+        break;
+      case "choose_default_destination":
+        repairs.push({
+          repairType: "choose_default_destination",
+          before: beforePrimaryLink?.destinationLabel ?? beforePrimaryLink?.url ?? "Missing destination",
+          after: afterPrimaryLink?.destinationLabel ?? afterPrimaryLink?.url ?? "Default destination applied",
+          reason: "The primary package was missing a destination, so the campaign-aligned default destination was used.",
+        });
+        break;
+      case "fill_campaign_metadata_defaults":
+        repairs.push({
+          repairType: "fill_campaign_metadata_defaults",
+          before: buildRepairMetadataSummary(input.before),
+          after: buildRepairMetadataSummary(input.after),
+          reason: "Missing campaign tags or strategic metadata were filled from campaign defaults.",
+        });
+        break;
+      default:
+        break;
+    }
+  }
+
+  return repairs;
 }
 
 function hasUtmParams(url: string | null | undefined) {
@@ -339,40 +413,6 @@ function patchPrimaryPackage(input: {
   };
 }
 
-function applyFounderVoiceCleanup(
-  signal: SignalRecord,
-  repairs: PreReviewRepairItem[],
-): SignalRecord {
-  if (!isFounderVoiceOn(signal.founderVoiceMode) || signal.finalReviewStartedAt || signal.finalReviewedAt) {
-    return signal;
-  }
-
-  const platform = getPrimaryPlatform(signal);
-  const draftField = getPrimaryDraftField(platform);
-  const fallbackField = getFallbackDraftField(platform);
-  const currentDraft = trimOrNull(signal[draftField]) ?? trimOrNull(signal[fallbackField]);
-  if (!currentDraft) {
-    return signal;
-  }
-
-  const cleanedDraft = applyFounderVoiceToText(currentDraft, signal.founderVoiceMode);
-  if (!cleanedDraft || cleanedDraft === currentDraft) {
-    return signal;
-  }
-
-  addRepair(repairs, {
-    repairType: "founder_voice_cleanup",
-    before: currentDraft,
-    after: cleanedDraft,
-    reason: "Minor founder-voice cleanup removed hypey or overly promotional language without changing the core message.",
-  });
-
-  return {
-    ...signal,
-    [draftField]: cleanedDraft,
-  };
-}
-
 function buildSummary(
   decision: PreReviewRepairResult["decision"],
   repairs: PreReviewRepairItem[],
@@ -396,6 +436,7 @@ function buildSummary(
 
 export function applyPreReviewRepairs(input: {
   signal: SignalRecord;
+  strategy?: CampaignStrategy | null;
   guidanceConfidenceLevel: "high" | "moderate" | "low";
   automationConfidenceLevel: "high" | "medium" | "low";
   completeness: ApprovalPackageCompleteness;
@@ -502,6 +543,21 @@ export function applyPreReviewRepairs(input: {
 
   const repairs: PreReviewRepairItem[] = [];
   let nextSignal = { ...input.signal };
+  const autopilotBaseSignal = { ...nextSignal };
+  const autopilotResult = runRepairAutopilot({
+    signal: nextSignal,
+    autonomyPolicy: policy,
+    strategy: input.strategy ?? null,
+  });
+
+  for (const repair of buildRepairItemsFromAutopilot({
+    before: autopilotBaseSignal,
+    after: nextSignal,
+    appliedFixes: autopilotResult.appliedFixes,
+  })) {
+    addRepair(repairs, repair);
+  }
+
   const defaultBundle = buildSignalPublishPrepBundle(nextSignal);
   const currentBundle = parsePublishPrepBundle(nextSignal.publishPrepBundleJson);
   let ctaDestinationHealing = emptyHealing;
@@ -527,8 +583,6 @@ export function applyPreReviewRepairs(input: {
       };
     }
   }
-
-  nextSignal = applyFounderVoiceCleanup(nextSignal, repairs);
 
   const completenessAfter = evaluateApprovalPackageCompleteness({
     signal: nextSignal,

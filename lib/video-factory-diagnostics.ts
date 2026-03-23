@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 
 import { z } from "zod";
 
+import { listAuditEvents } from "./audit";
 import {
   assemblyAiBaseUrl,
   elevenLabsBaseUrl,
@@ -12,6 +13,8 @@ import {
   runwayBaseUrl,
   type VideoFactoryProviderMode,
 } from "./providers/provider-runtime";
+import { listContentOpportunityState } from "./content-opportunities";
+import { getVideoFactoryRunQueueStateSummary } from "./video-factory-runner";
 import {
   getVideoFactoryArtifactBlobAccess,
   isVideoFactoryArtifactBlobEnabled,
@@ -49,9 +52,74 @@ export const videoFactoryDiagnosticsSchema = z.object({
   checks: z.array(videoFactoryDiagnosticCheckSchema).length(5),
 });
 
+const videoFactoryQueueHealthSchema = z.object({
+  updatedAt: z.string().trim().nullable(),
+  queuedCount: z.number().int().nonnegative(),
+  runningCount: z.number().int().nonnegative(),
+  completedCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  activeCount: z.number().int().nonnegative(),
+  maxConcurrentRuns: z.number().int().positive(),
+});
+
+const videoFactoryAutonomySummarySchema = z.object({
+  evaluatedCount: z.number().int().nonnegative(),
+  allowedCount: z.number().int().nonnegative(),
+  suggestOnlyCount: z.number().int().nonnegative(),
+  blockedCount: z.number().int().nonnegative(),
+  topBlockedReasons: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1),
+        count: z.number().int().positive(),
+      }),
+    )
+    .default([]),
+});
+
+const videoFactoryRepairSummarySchema = z.object({
+  appliedCount: z.number().int().nonnegative(),
+  blockedCount: z.number().int().nonnegative(),
+  skippedCount: z.number().int().nonnegative(),
+  topRepairTypes: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1),
+        count: z.number().int().positive(),
+      }),
+    )
+    .default([]),
+});
+
+const videoFactoryCostSnapshotSchema = z.object({
+  estimatedActiveUsd: z.number().nonnegative(),
+  actualLast24hUsd: z.number().nonnegative(),
+  averageSuccessfulOutputUsd: z.number().nonnegative().nullable(),
+  blockedBudgetCount: z.number().int().nonnegative(),
+});
+
+const videoFactoryFailureItemSchema = z.object({
+  source: z.enum(["run_ledger", "queue"]),
+  opportunityId: z.string().trim().min(1),
+  factoryJobId: z.string().trim().nullable(),
+  renderJobId: z.string().trim().nullable(),
+  stage: z.string().trim().nullable(),
+  message: z.string().trim().min(1),
+  timestamp: z.string().trim().min(1),
+});
+
+export const videoFactoryHealthSnapshotSchema = z.object({
+  queue: videoFactoryQueueHealthSchema,
+  autonomy: videoFactoryAutonomySummarySchema,
+  repairs: videoFactoryRepairSummarySchema,
+  costs: videoFactoryCostSnapshotSchema,
+  failures: z.array(videoFactoryFailureItemSchema),
+});
+
 export type VideoFactoryHealthStatus = z.infer<typeof videoFactoryHealthStatusSchema>;
 export type VideoFactoryDiagnosticCheck = z.infer<typeof videoFactoryDiagnosticCheckSchema>;
 export type VideoFactoryDiagnostics = z.infer<typeof videoFactoryDiagnosticsSchema>;
+export type VideoFactoryHealthSnapshot = z.infer<typeof videoFactoryHealthSnapshotSchema>;
 
 type BinaryCheckResult = {
   available: boolean;
@@ -159,6 +227,23 @@ function buildOverallMessages(
   return ["Factory is not ready for real execution. Resolve unavailable provider or runtime checks first."];
 }
 
+function countByLabel(values: Array<string | null | undefined>) {
+  const counts = new Map<string, number>();
+
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (!normalized) {
+      continue;
+    }
+
+    counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+}
+
 export function getVideoFactoryDiagnostics(input?: {
   envReader?: EnvReader;
   binaryChecker?: BinaryChecker;
@@ -243,5 +328,153 @@ export function getVideoFactoryDiagnostics(input?: {
     checkedAt,
     messages: buildOverallMessages(status, providerMode),
     checks,
+  });
+}
+
+export async function getVideoFactoryHealthSnapshot(options?: {
+  failureLimit?: number;
+  auditWindowSize?: number;
+}): Promise<VideoFactoryHealthSnapshot> {
+  const failureLimit = options?.failureLimit ?? 5;
+  const auditWindowSize = options?.auditWindowSize ?? 100;
+  const [queue, contentState, auditEvents] = await Promise.all([
+    getVideoFactoryRunQueueStateSummary(),
+    listContentOpportunityState(),
+    listAuditEvents(),
+  ]);
+  const recentAuditEvents = auditEvents.slice(-auditWindowSize);
+  const autonomyEvents = recentAuditEvents.filter((event) =>
+    event.eventType === "AUTONOMY_POLICY_ALLOWED_ACTION" ||
+    event.eventType === "AUTONOMY_POLICY_SUGGESTED_ONLY" ||
+    event.eventType === "AUTONOMY_POLICY_BLOCKED_ACTION",
+  );
+  const repairEvents = recentAuditEvents.filter((event) =>
+    event.eventType === "PRE_REVIEW_REPAIR_APPLIED" ||
+    event.eventType === "PRE_REVIEW_REPAIR_BLOCKED" ||
+    event.eventType === "PRE_REVIEW_REPAIR_SKIPPED",
+  );
+  const autonomy = {
+    evaluatedCount: autonomyEvents.length,
+    allowedCount: autonomyEvents.filter((event) => event.eventType === "AUTONOMY_POLICY_ALLOWED_ACTION").length,
+    suggestOnlyCount: autonomyEvents.filter((event) => event.eventType === "AUTONOMY_POLICY_SUGGESTED_ONLY").length,
+    blockedCount: autonomyEvents.filter((event) => event.eventType === "AUTONOMY_POLICY_BLOCKED_ACTION").length,
+    topBlockedReasons: countByLabel(
+      autonomyEvents
+        .filter((event) => event.eventType === "AUTONOMY_POLICY_BLOCKED_ACTION")
+        .map((event) => {
+          const reason = event.metadata?.reason;
+          return typeof reason === "string" ? reason : event.summary;
+        }),
+    ).slice(0, 5),
+  };
+  const repairs = {
+    appliedCount: repairEvents.filter((event) => event.eventType === "PRE_REVIEW_REPAIR_APPLIED").length,
+    blockedCount: repairEvents.filter((event) => event.eventType === "PRE_REVIEW_REPAIR_BLOCKED").length,
+    skippedCount: repairEvents.filter((event) => event.eventType === "PRE_REVIEW_REPAIR_SKIPPED").length,
+    topRepairTypes: countByLabel(
+      repairEvents
+        .filter((event) => event.eventType === "PRE_REVIEW_REPAIR_APPLIED")
+        .flatMap((event) => {
+          const raw = event.metadata?.repairTypes;
+          return typeof raw === "string"
+            ? raw.split(",").map((value) => value.trim()).filter(Boolean)
+            : [];
+        }),
+    ).slice(0, 5),
+  };
+
+  const now = Date.now();
+  const successfulCosts: number[] = [];
+  let estimatedActiveUsd = 0;
+  let actualLast24hUsd = 0;
+  let blockedBudgetCount = 0;
+  const failures = contentState.opportunities
+    .flatMap((opportunity) =>
+      (opportunity.generationState?.runLedger ?? [])
+        .filter(
+          (entry) =>
+            entry.terminalOutcome === "failed" ||
+            entry.terminalOutcome === "failed_permanent" ||
+            Boolean(entry.failureMessage),
+        )
+        .map((entry) => ({
+          source: "run_ledger" as const,
+          opportunityId: opportunity.opportunityId,
+          factoryJobId: entry.factoryJobId ?? null,
+          renderJobId: entry.renderJobId ?? null,
+          stage: entry.failureStage ?? null,
+          message: entry.failureMessage ?? "Factory run failed.",
+          timestamp: entry.lastUpdatedAt,
+        })),
+    );
+
+  for (const opportunity of contentState.opportunities) {
+    const generationState = opportunity.generationState;
+    const lifecycleStatus = generationState?.factoryLifecycle?.status ?? null;
+    if (
+      lifecycleStatus === "queued" ||
+      lifecycleStatus === "preparing" ||
+      lifecycleStatus === "generating_narration" ||
+      lifecycleStatus === "generating_visuals" ||
+      lifecycleStatus === "generating_captions" ||
+      lifecycleStatus === "composing" ||
+      lifecycleStatus === "retry_queued"
+    ) {
+      estimatedActiveUsd += generationState?.latestCostEstimate?.estimatedTotalUsd ?? 0;
+    }
+
+    if (generationState?.latestBudgetGuard?.status === "blocked") {
+      blockedBudgetCount += 1;
+    }
+
+    for (const entry of generationState?.runLedger ?? []) {
+      const actualCost = entry.actualCost?.actualCostUsd ?? 0;
+      const entryTimestamp = new Date(entry.lastUpdatedAt).getTime();
+      if (Number.isFinite(entryTimestamp) && now - entryTimestamp <= 24 * 60 * 60 * 1000) {
+        actualLast24hUsd += actualCost;
+      }
+
+      if (entry.terminalOutcome === "accepted") {
+        successfulCosts.push(actualCost || (entry.estimatedCost?.estimatedTotalUsd ?? 0));
+      }
+    }
+  }
+
+  const queueFailures = queue.failedCount === 0
+    ? []
+    : [{
+        source: "queue" as const,
+        opportunityId: "queue",
+        factoryJobId: null,
+        renderJobId: null,
+        stage: null,
+        message: `${queue.failedCount} queue job${queue.failedCount === 1 ? "" : "s"} failed recently.`,
+        timestamp: queue.updatedAt ?? new Date().toISOString(),
+      }];
+
+  return videoFactoryHealthSnapshotSchema.parse({
+    queue,
+    autonomy,
+    repairs,
+    costs: {
+      estimatedActiveUsd: Number(estimatedActiveUsd.toFixed(2)),
+      actualLast24hUsd: Number(actualLast24hUsd.toFixed(2)),
+      averageSuccessfulOutputUsd:
+        successfulCosts.length > 0
+          ? Number(
+              (
+                successfulCosts.reduce((sum, value) => sum + value, 0) /
+                successfulCosts.length
+              ).toFixed(2),
+            )
+          : null,
+      blockedBudgetCount,
+    },
+    failures: [...failures, ...queueFailures]
+      .sort(
+        (left, right) =>
+          new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime(),
+      )
+      .slice(0, failureLimit),
   });
 }

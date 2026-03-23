@@ -72,6 +72,59 @@ const videoFactoryRunQueueStoreSchema = z.object({
 type VideoFactoryRunQueueJob = z.infer<typeof videoFactoryRunQueueJobSchema>;
 type VideoFactoryRunQueueStore = z.infer<typeof videoFactoryRunQueueStoreSchema>;
 
+export interface VideoFactoryRunQueueStateSummary {
+  updatedAt: string | null;
+  queuedCount: number;
+  runningCount: number;
+  completedCount: number;
+  failedCount: number;
+  activeCount: number;
+  maxConcurrentRuns: number;
+}
+
+async function readVideoFactoryRunQueueStore(
+  queuePath: string = DEFAULT_VIDEO_FACTORY_RUN_QUEUE_PATH,
+): Promise<VideoFactoryRunQueueStore> {
+  try {
+    const raw = await readFile(queuePath, "utf8");
+    return videoFactoryRunQueueStoreSchema.parse(JSON.parse(raw));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      return videoFactoryRunQueueStoreSchema.parse({
+        updatedAt: null,
+        jobs: [],
+      });
+    }
+
+    throw error;
+  }
+}
+
+export async function getVideoFactoryRunQueueStateSummary(
+  options: {
+    queuePath?: string;
+    maxConcurrentRuns?: number;
+  } = {},
+): Promise<VideoFactoryRunQueueStateSummary> {
+  const store = await readVideoFactoryRunQueueStore(
+    options.queuePath?.trim() || DEFAULT_VIDEO_FACTORY_RUN_QUEUE_PATH,
+  );
+  const queuedCount = store.jobs.filter((job) => job.status === "queued").length;
+  const runningCount = store.jobs.filter((job) => job.status === "running").length;
+  const completedCount = store.jobs.filter((job) => job.status === "completed").length;
+  const failedCount = store.jobs.filter((job) => job.status === "failed").length;
+
+  return {
+    updatedAt: store.updatedAt,
+    queuedCount,
+    runningCount,
+    completedCount,
+    failedCount,
+    activeCount: queuedCount + runningCount,
+    maxConcurrentRuns: options.maxConcurrentRuns ?? MAX_CONCURRENT_VIDEO_FACTORY_RUNS,
+  };
+}
+
 export interface VideoFactoryRunSchedulerOptions {
   loadRunSnapshot?: (opportunityId: string) => Promise<VideoFactoryRunSnapshot | null>;
   maxConcurrentRuns?: number;

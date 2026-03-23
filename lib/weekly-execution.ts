@@ -271,13 +271,37 @@ function buildStagePolicy(candidate: ApprovalQueueCandidate) {
       : candidate.completeness.completenessState === "mostly_complete"
         ? "mostly_complete"
         : "incomplete";
+  const contentType =
+    candidate.distributionPriority.distributionStrategy === "experimental"
+      ? "experimental"
+      : candidate.signal.campaignId
+        ? "campaign"
+        : "reactive";
+  const confidenceScore =
+    candidate.automationConfidence.level === "high"
+      ? 0.85
+      : candidate.automationConfidence.level === "medium"
+        ? 0.6
+        : 0.35;
 
   return evaluateAutonomyPolicy({
     actionType: "auto_stage_for_posting",
+    contentType,
     confidenceLevel: candidate.automationConfidence.level,
+    confidenceScore,
+    severityScore: candidate.signal.severityScore,
+    retryCount: 0,
+    costEstimateUsd: null,
+    platformTarget: candidate.distributionPriority.primaryPlatformLabel,
+    lifecycleState: candidate.signal.status,
+    riskLevel: candidate.commercialRisk.highestSeverity ?? null,
+    missingCriticalMetadata:
+      !candidate.signal.platformPriority ||
+      candidate.completeness.completenessState === "incomplete",
     completenessState,
     hasUnresolvedConflicts: candidate.conflicts.conflicts.length > 0,
-    experimentLinked: false,
+    experimentLinked:
+      candidate.distributionPriority.distributionStrategy === "experimental",
     approvalReady:
       candidate.triage.triageState === "approve_ready" ||
       candidate.triage.triageState === "repairable",

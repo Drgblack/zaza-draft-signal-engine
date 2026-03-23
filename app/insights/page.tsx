@@ -629,6 +629,19 @@ export default async function InsightsPage({
       return {
         actionType: "safe_post" as const,
         decision,
+        allowAutoProceed: decision === "allow",
+        requireReview: decision !== "allow",
+        reason:
+          eligibility?.blockReasons[0] ??
+          eligibility?.manualOnlyReason ??
+          eligibility?.summary ??
+          "Safe posting is blocked.",
+        riskLevel:
+          eligibility?.postingEligibility === "eligible_safe_post"
+            ? ("low" as const)
+            : eligibility?.postingEligibility === "manual_only"
+              ? ("medium" as const)
+              : ("high" as const),
         reasons: eligibility?.blockReasons ?? [eligibility?.manualOnlyReason ?? eligibility?.summary ?? "Safe posting is blocked."],
         policyLane: "strict_guardrails",
         relatedSignals: [],
@@ -638,6 +651,12 @@ export default async function InsightsPage({
     ...safeReplyState.rows.map((row) => ({
       actionType: "suggest_reply" as const,
       decision: row.policyDecision,
+      allowAutoProceed: row.policyDecision === "allow",
+      requireReview: row.policyDecision !== "allow",
+      reason:
+        row.blockReasons[0] ??
+        row.policySummary,
+      riskLevel: row.replyRiskLevel,
       reasons: row.blockReasons.length > 0 ? row.blockReasons : [row.policySummary],
       policyLane: "reply_guardrails",
       relatedSignals: [`risk:${row.replyRiskLevel}`],

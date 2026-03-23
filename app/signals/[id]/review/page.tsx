@@ -275,6 +275,7 @@ export default async function FinalReviewPage({
     rankedCandidate?.preReviewRepair ??
     applyPreReviewRepairs({
       signal: packageAutofill.signal,
+      strategy,
       guidanceConfidenceLevel: guidance.confidence.confidenceLevel,
       automationConfidenceLevel: rankedCandidate?.automationConfidence.level ?? "medium",
       completeness: packageAutofill.completenessAfter,

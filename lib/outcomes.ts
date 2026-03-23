@@ -5,6 +5,11 @@ import { z } from "zod";
 
 import { mockPostingOutcomeSeed } from "@/lib/mock-data";
 import {
+  buildLearningInputSignature,
+  buildLearningRecordId,
+  upsertLearningRecord,
+} from "@/lib/learning-loop";
+import {
   postingOutcomeSchema,
   type PostingOutcome,
   type UpsertPostingOutcomeInput,
@@ -103,6 +108,26 @@ export async function upsertPostingOutcome(input: UpsertPostingOutcomeInput): Pr
   const outcome = buildPostingOutcome(input, previous);
   persistedStore[input.postingLogId] = outcome;
   await writeOutcomeStore(persistedStore);
+  const inputSignature = buildLearningInputSignature("signal", {
+    platform: outcome.platform,
+  });
+  await upsertLearningRecord({
+    learningRecordId: buildLearningRecordId({
+      inputSignature,
+      stage: "signal_outcome",
+      sourceId: outcome.postingLogId,
+    }),
+    inputSignature,
+    outcome: outcome.outcomeQuality === "weak" ? "rejected" : "success",
+    retries: 0,
+    cost: 0,
+    timestamp: outcome.timestamp,
+    inputType: "signal",
+    stage: "signal_outcome",
+    actionType: "posting_outcome",
+    sourceId: outcome.postingLogId,
+    platform: outcome.platform,
+  });
 
   return {
     outcome,
