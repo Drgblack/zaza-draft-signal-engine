@@ -119,11 +119,11 @@ function providerCheck(input: {
     key: input.key,
     label: input.label,
     configured: false,
-    status: input.providerMode === "real" ? "unavailable" : "degraded",
+    status: input.providerMode === "mock" ? "degraded" : "unavailable",
     messages: [
-      input.providerMode === "real"
-        ? `${input.label} is required in real provider mode but credentials are missing.`
-        : `${input.label} is not configured. Mock fallback remains available.`,
+      input.providerMode === "mock"
+        ? `${input.label} is intentionally bypassed because explicit mock mode is enabled.`
+        : `${input.label} is required for real execution, but credentials are missing. Mock execution is only available when VIDEO_FACTORY_PROVIDER_MODE=mock is set outside production.`,
     ],
   });
 }
@@ -151,7 +151,7 @@ function buildOverallMessages(
   if (status === "degraded") {
     return [
       providerMode === "mock"
-        ? "Factory is running in mock mode. Real provider readiness is intentionally bypassed."
+        ? "Factory is running in explicit mock mode outside production. Real provider readiness is intentionally bypassed."
         : "Factory is usable, but one or more providers or storage/runtime checks are not production-ready.",
     ];
   }

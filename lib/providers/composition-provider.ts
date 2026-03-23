@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { access } from "node:fs/promises";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -12,13 +12,17 @@ import type { GeneratedCaptionTrack } from "@/lib/providers/caption-provider";
 import type { GeneratedNarration } from "@/lib/providers/narration-provider";
 import type { GeneratedSceneAsset } from "@/lib/providers/visual-provider";
 import {
+  fetchWithProviderTimeout,
   ffmpegBinaryPath,
+  ffmpegExecutionTimeoutMs,
   ffmpegThumbnailTimestampSec,
-  getVideoFactoryProviderMode,
+  ffprobeBinaryPath,
   providerConfigError,
   providerHttpError,
+  providerRuntimeError,
+  shouldAllowMockProviderExecution,
+  providerTimeoutError,
 } from "./provider-runtime";
-import { VideoFactoryRetryableError } from "../video-factory-retry";
 
 const MOCK_CREATED_AT = "2026-03-22T00:00:00.000Z";
 const execFileAsync = promisify(execFile);
@@ -120,10 +124,16 @@ async function ensureFileExists(filePath: string) {
 }
 
 async function fetchBuffer(url: string): Promise<Buffer> {
-  const response = await fetch(url);
+  const response = await fetchWithProviderTimeout({
+    provider: "ffmpeg-input",
+    stage: "composition",
+    url,
+    timeoutMs: ffmpegExecutionTimeoutMs(),
+  });
   if (!response.ok) {
     throw providerHttpError({
       provider: "ffmpeg-input",
+      stage: "composition",
       status: response.status,
       message: await response.text(),
     });
@@ -160,10 +170,13 @@ async function materializeSceneAssets(
     .filter((asset): asset is GeneratedSceneAsset => Boolean(asset));
 
   if (orderedAssets.length !== compositionSpec.sceneOrder.length) {
-    throw new VideoFactoryRetryableError(
-      "ffmpeg composition could not resolve every scene asset in composition order.",
-      { retryable: false },
-    );
+    throw providerRuntimeError({
+      provider: "ffmpeg",
+      stage: "composition",
+      message:
+        "ffmpeg composition could not resolve every scene asset in composition order.",
+      retryable: false,
+    });
   }
 
   const outputPaths: string[] = [];
@@ -286,12 +299,13 @@ export function buildFinalComposeArgs(input: {
 
 export function buildThumbnailArgs(input: {
   videoPath: string;
+  timestampSec: number;
   outputPath: string;
 }) {
   return [
     "-y",
     "-ss",
-    `${ffmpegThumbnailTimestampSec()}`,
+    `${input.timestampSec}`,
     "-i",
     input.videoPath,
     "-frames:v",
@@ -303,21 +317,130 @@ export function buildThumbnailArgs(input: {
 }
 
 async function runFfmpeg(args: string[]) {
+  const timeoutMs = ffmpegExecutionTimeoutMs();
   try {
-    await execFileAsync(ffmpegBinaryPath(), args);
+    await execFileAsync(ffmpegBinaryPath(), args, {
+      timeout: timeoutMs,
+    });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+    const processError = error as NodeJS.ErrnoException & {
+      killed?: boolean;
+      signal?: string | null;
+      stdout?: string;
+      stderr?: string;
+    };
+
+    if (processError?.code === "ENOENT") {
       throw providerConfigError(
         "ffmpeg",
         `ffmpeg binary was not found. Install ffmpeg or set FFMPEG_PATH.`,
+        "composition",
       );
     }
 
-    throw new VideoFactoryRetryableError(
-      error instanceof Error ? error.message : "ffmpeg composition failed.",
-      { retryable: false, cause: error },
-    );
+    if (
+      processError?.killed ||
+      processError?.signal === "SIGTERM" ||
+      processError?.signal === "SIGKILL"
+    ) {
+      throw providerTimeoutError({
+        provider: "ffmpeg",
+        stage: "composition",
+        timeoutMs,
+      });
+    }
+
+    throw providerRuntimeError({
+      provider: "ffmpeg",
+      stage: "composition",
+      message:
+        processError?.stderr?.trim() ||
+        processError?.stdout?.trim() ||
+        (error instanceof Error ? error.message : "ffmpeg composition failed."),
+      retryable: false,
+      cause: error,
+    });
   }
+}
+
+async function probeVideoDurationSec(videoPath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      ffprobeBinaryPath(),
+      [
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        videoPath,
+      ],
+      {
+        timeout: ffmpegExecutionTimeoutMs(),
+      },
+    );
+
+    const parsed = Number.parseFloat(stdout.trim());
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function selectHeuristicThumbnail(input: {
+  videoPath: string;
+  outputPath: string;
+}): Promise<boolean> {
+  const durationSec = await probeVideoDurationSec(input.videoPath);
+  const candidateTimestamps = buildThumbnailCandidateTimestamps({ durationSec });
+  let bestCandidate: ThumbnailCandidate | null = null;
+
+  for (const [index, timestampSec] of candidateTimestamps.entries()) {
+    const candidatePath = path.join(
+      path.dirname(input.outputPath),
+      `thumbnail-candidate-${index + 1}.jpg`,
+    );
+
+    try {
+      await runFfmpeg(
+        buildThumbnailArgs({
+          videoPath: input.videoPath,
+          timestampSec,
+          outputPath: candidatePath,
+        }),
+      );
+
+      const candidateStats = await stat(candidatePath);
+      if (!candidateStats.isFile() || candidateStats.size <= 0) {
+        continue;
+      }
+
+      const candidate: ThumbnailCandidate = {
+        outputPath: candidatePath,
+        timestampSec,
+        score: candidateStats.size,
+      };
+
+      if (
+        !bestCandidate ||
+        candidate.score > bestCandidate.score ||
+        (candidate.score === bestCandidate.score &&
+          candidate.timestampSec < bestCandidate.timestampSec)
+      ) {
+        bestCandidate = candidate;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (!bestCandidate) {
+    return false;
+  }
+
+  await copyFile(bestCandidate.outputPath, input.outputPath);
+  return true;
 }
 
 function shouldUseMockComposition(input: {
@@ -328,6 +451,41 @@ function shouldUseMockComposition(input: {
     (!input.narration.audioBase64 &&
       !isRemoteUrl(input.narration.audioUrl)) ||
     input.sceneAssets.some((asset) => !isRemoteUrl(asset.assetUrl))
+  );
+}
+
+type ThumbnailCandidate = {
+  outputPath: string;
+  timestampSec: number;
+  score: number;
+};
+
+function roundThumbnailTimestamp(value: number) {
+  return Math.round(value * 1000) / 1000;
+}
+
+export function buildThumbnailCandidateTimestamps(input: {
+  durationSec: number | null | undefined;
+}): number[] {
+  const durationSec = input.durationSec ?? 0;
+  const fallbackTimestamp = roundThumbnailTimestamp(ffmpegThumbnailTimestampSec());
+
+  if (!Number.isFinite(durationSec) || durationSec <= 1.5) {
+    return [fallbackTimestamp];
+  }
+
+  const ratios = [0.2, 0.35, 0.5, 0.65, 0.8];
+  const minTimestamp = Math.min(Math.max(0.5, durationSec * 0.1), durationSec - 0.25);
+  const maxTimestamp = Math.max(minTimestamp, durationSec - 0.5);
+
+  return Array.from(
+    new Set(
+      ratios.map((ratio) =>
+        roundThumbnailTimestamp(
+          Math.min(maxTimestamp, Math.max(minTimestamp, durationSec * ratio)),
+        ),
+      ),
+    ),
   );
 }
 
@@ -380,12 +538,10 @@ async function generateRealComposition(input: {
         outputPath,
       }),
     );
-    await runFfmpeg(
-      buildThumbnailArgs({
-        videoPath: outputPath,
-        outputPath: thumbnailPath,
-      }),
-    );
+    await selectHeuristicThumbnail({
+      videoPath: outputPath,
+      outputPath: thumbnailPath,
+    });
 
     const resultId = composedVideoResultId(input.compositionSpec.id);
     const thumbnailExists = await ensureFileExists(thumbnailPath);
@@ -416,15 +572,12 @@ export const ffmpegCompositionProvider: CompositionProviderAdapter = {
       ? null
       : input.narration.durationSec ?? null;
 
-    const providerMode = getVideoFactoryProviderMode();
-    if (providerMode === "mock" || shouldUseMockComposition(input)) {
-      if (providerMode === "real" && shouldUseMockComposition(input)) {
-        throw providerConfigError(
-          "ffmpeg",
-          "Provider mode is set to real, but composition inputs are still mock-only.",
-        );
-      }
-
+    if (
+      shouldAllowMockProviderExecution({
+        provider: "ffmpeg",
+        stage: "composition",
+      })
+    ) {
       return composedVideoResultSchema.parse({
         id: resultId,
         provider: "ffmpeg",
@@ -433,6 +586,14 @@ export const ffmpegCompositionProvider: CompositionProviderAdapter = {
         durationSec: input.narration.durationSec ?? durationFromScenes,
         createdAt: input.createdAt ?? MOCK_CREATED_AT,
       });
+    }
+
+    if (shouldUseMockComposition(input)) {
+      throw providerConfigError(
+        "ffmpeg",
+        "Composition inputs are still mock-only. Set VIDEO_FACTORY_PROVIDER_MODE=mock outside production when you intentionally want mock composition.",
+        "composition",
+      );
     }
 
     return generateRealComposition(input);

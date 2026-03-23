@@ -12,6 +12,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { cn } from "@/lib/utils"
 import type {
   CostEstimate,
+  PublishOutcomeSummary,
   PreTriageConcern,
   RegenerationReason,
   RenderJobProgress,
@@ -21,6 +22,7 @@ import type {
 export interface VideoFactoryReviewProps {
   brief: VideoBriefSummary
   job: RenderJobProgress | null
+  publishOutcome?: PublishOutcomeSummary | null
   onGenerate: (preTriage: PreTriageConcern) => void
   onApprove: () => void
   onReject: () => void
@@ -101,6 +103,121 @@ function formatLabel(value: string | null | undefined) {
   }
 
   return value.replaceAll("_", " ")
+}
+
+function formatCurrency(value: number | null | undefined) {
+  return value === null || value === undefined ? "—" : `$${value.toFixed(2)}`
+}
+
+function formatDateLabel(value: string | null | undefined) {
+  if (!value) {
+    return "Not available"
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return date.toLocaleString()
+}
+
+function buildArtifactLineageSummary(job: RenderJobProgress) {
+  const parts = [
+    job.narrationAudioUrl ? "Narration ready" : null,
+    job.captionTrackUrl ? "Captions ready" : null,
+    job.sceneAssetCount > 0 ? `${job.sceneAssetCount} scene asset${job.sceneAssetCount === 1 ? "" : "s"}` : null,
+    job.finalVideoUrl ? "Final video ready" : null,
+    job.thumbnailUrl ? "Thumbnail ready" : null,
+  ].filter((value): value is string => Boolean(value))
+
+  return parts.length > 0 ? parts.join(" · ") : "Artifacts not ready yet"
+}
+
+function CompactRunSummaryPanel({
+  job,
+  publishOutcome,
+}: {
+  job: RenderJobProgress
+  publishOutcome?: PublishOutcomeSummary | null
+}) {
+  const publishSummary = publishOutcome
+    ? publishOutcome.published
+      ? [
+          publishOutcome.platform ? `Published on ${formatLabel(publishOutcome.platform)}` : "Published",
+          publishOutcome.publishDate ? `Date ${formatDateLabel(publishOutcome.publishDate)}` : null,
+          publishOutcome.impressions !== null ? `${publishOutcome.impressions} impressions` : null,
+          publishOutcome.clicks !== null ? `${publishOutcome.clicks} clicks` : null,
+          publishOutcome.signups !== null ? `${publishOutcome.signups} signups` : null,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join(" · ")
+      : "Publish outcome placeholder saved. Not published yet."
+    : null
+
+  return (
+    <Card className="bg-white border-muted">
+      <CardContent className="pt-5 pb-5">
+        <SectionLabel>Run summary</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Lifecycle</p>
+            <p className="text-sm text-foreground">{formatLabel(job.lifecycleLabel)}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Provider stack</p>
+            <p className="text-sm text-foreground">{job.providerLabel}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Estimated / actual cost</p>
+            <p className="text-sm text-foreground">
+              {formatCurrency(job.costEstimate.estimatedTotalUsd)} · {formatCurrency(job.actualCostUsd)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Retry count</p>
+            <p className="text-sm text-foreground">{job.retryCount}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Quality check</p>
+            <p className="text-sm text-foreground">{job.qualitySummary ?? "Not available"}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Review outcome</p>
+            <p className="text-sm text-foreground">{formatLabel(job.terminalOutcome)}</p>
+          </div>
+        </div>
+        <div className="mt-4 space-y-3">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Review reasons</p>
+            <p className="text-sm text-foreground">
+              {job.reviewReasonLabels.length > 0 ? job.reviewReasonLabels.join(" · ") : "No structured reasons recorded"}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Artifact lineage</p>
+            <p className="text-sm text-foreground">{buildArtifactLineageSummary(job)}</p>
+          </div>
+          {publishSummary ? (
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Publish outcome</p>
+              <p className="text-sm text-foreground">{publishSummary}</p>
+              {publishOutcome?.publishedUrl ? (
+                <a
+                  href={publishOutcome.publishedUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-block text-xs text-[#6366f1] hover:underline"
+                >
+                  Open published URL
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
 
 // ============================================================================
@@ -330,12 +447,13 @@ function PreGenerationState({
 interface GeneratingStateProps {
   job: RenderJobProgress
   brief: VideoBriefSummary
+  publishOutcome?: PublishOutcomeSummary | null
   onRetry: () => void
   onEditBrief: () => void
   actionsDisabled: boolean
 }
 
-function GeneratingState({ job, brief, onRetry, onEditBrief, actionsDisabled }: GeneratingStateProps) {
+function GeneratingState({ job, brief, publishOutcome, onRetry, onEditBrief, actionsDisabled }: GeneratingStateProps) {
   const stepLabels: Record<keyof RenderJobProgress["steps"], string> = {
     narration: "Narration",
     transcription: "Captions",
@@ -373,6 +491,8 @@ function GeneratingState({ job, brief, onRetry, onEditBrief, actionsDisabled }: 
           Estimated cost: ${job.costEstimate.estimatedTotalUsd.toFixed(2)}
         </p>
       </div>
+
+      <CompactRunSummaryPanel job={job} publishOutcome={publishOutcome} />
 
       {/* Step Progress List */}
       <div 
@@ -477,6 +597,7 @@ function GeneratingState({ job, brief, onRetry, onEditBrief, actionsDisabled }: 
 interface ReviewStateProps {
   brief: VideoBriefSummary
   job: RenderJobProgress
+  publishOutcome?: PublishOutcomeSummary | null
   onApprove: () => void
   onReject: () => void
   onRegenerate: (reason: RegenerationReason) => void
@@ -488,6 +609,7 @@ interface ReviewStateProps {
 function ReviewState({
   brief,
   job,
+  publishOutcome,
   onApprove,
   onReject,
   onRegenerate,
@@ -555,50 +677,16 @@ function ReviewState({
               {isMuted ? "Unmute" : "Mute"}
             </button>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Actual cost: ${job.actualCostUsd?.toFixed(2) || "—"}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Regeneration {job.regenerationCount} of {job.regenerationBudgetMax}
-          </p>
-          <p className="text-xs" style={{ color: '#9CA3AF' }}>
-            Attempt {job.currentAttempt || 0} · Prior attempts {job.priorAttemptsCount}
-          </p>
-          <p className="text-xs" style={{ color: '#9CA3AF' }}>
-            Lifecycle: {formatLabel(job.lifecycleLabel)}
-          </p>
-          <p className="text-xs" style={{ color: '#9CA3AF' }}>
-            Latest outcome: {formatLabel(job.terminalOutcome)}
-          </p>
-          <p className="text-xs" style={{ color: '#9CA3AF' }}>
-            Provider: {job.providerLabel}
-          </p>
-          {job.qualitySummary ? (
+          <CompactRunSummaryPanel job={job} publishOutcome={publishOutcome} />
+          <div className="space-y-1">
             <p className="text-xs" style={{ color: '#9CA3AF' }}>
-              QC: {job.qualitySummary}
+              Attempt {job.currentAttempt || 0} · Prior attempts {job.priorAttemptsCount}
             </p>
-          ) : null}
-          {job.lastUpdatedAt ? (
-            <p className="text-xs" style={{ color: '#9CA3AF' }}>
-              Updated: {job.lastUpdatedAt}
-            </p>
-          ) : null}
-          <div className="space-y-1 pt-1">
-            {job.narrationAudioUrl ? (
+            {job.lastUpdatedAt ? (
               <p className="text-xs" style={{ color: '#9CA3AF' }}>
-                Narration artifact ready
+                Updated: {formatDateLabel(job.lastUpdatedAt)}
               </p>
             ) : null}
-            {job.captionTrackUrl ? (
-              <p className="text-xs" style={{ color: '#9CA3AF' }}>
-                Caption artifact ready
-              </p>
-            ) : null}
-          {job.sceneAssetCount > 0 ? (
-            <p className="text-xs" style={{ color: '#9CA3AF' }}>
-              Scene assets: {job.sceneAssetCount}
-            </p>
-          ) : null}
           </div>
         </div>
 
@@ -847,6 +935,7 @@ function ReviewState({
 export default function VideoFactoryReview({
   brief,
   job,
+  publishOutcome = null,
   onGenerate,
   onApprove,
   onReject,
@@ -891,6 +980,7 @@ export default function VideoFactoryReview({
         <GeneratingState
           job={job}
           brief={brief}
+          publishOutcome={publishOutcome}
           onRetry={() => onRegenerate("other")}
           onEditBrief={onEditBrief}
           actionsDisabled={actionsDisabled}
@@ -900,6 +990,7 @@ export default function VideoFactoryReview({
         <ReviewState
           brief={brief}
           job={job}
+          publishOutcome={publishOutcome}
           onApprove={onApprove}
           onReject={onReject}
           onRegenerate={onRegenerate}
@@ -937,12 +1028,14 @@ export const DEMO_PROPS: VideoFactoryReviewProps = {
     viewState: "review",
     status: "completed",
     regenerationCount: 1,
+    retryCount: 0,
     regenerationBudgetMax: 3,
     budgetExhausted: false,
     currentAttempt: 2,
     priorAttemptsCount: 1,
     lifecycleLabel: "review_pending",
     terminalOutcome: "review_pending",
+    reviewReasonLabels: ["poor visuals"],
     lastUpdatedAt: "2026-03-23T10:00:00.000Z",
     providerLabel: "Narration elevenlabs | Visuals runway-gen4 | Captions assemblyai | Composition ffmpeg",
     qualitySummary: "Passed",
@@ -968,6 +1061,15 @@ export const DEMO_PROPS: VideoFactoryReviewProps = {
       composition: "done",
       upload: "done",
     },
+  },
+  publishOutcome: {
+    published: false,
+    platform: null,
+    publishDate: null,
+    publishedUrl: null,
+    impressions: null,
+    clicks: null,
+    signups: null,
   },
   onGenerate: (preTriage) => console.log("Generate with triage:", preTriage),
   onApprove: () => console.log("Approved"),

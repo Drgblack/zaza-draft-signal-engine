@@ -102,16 +102,22 @@ import {
   buildCostEstimate,
   costEstimateSchema,
   buildJobCostRecord,
+  evaluateVideoFactoryDailySpendGuard,
   evaluateVideoFactoryBudgetGuard,
+  getVideoFactoryMaxRegenerationsPerBrief,
   jobCostRecordSchema,
   videoFactoryBudgetGuardSchema,
   type CostEstimate,
+  type VideoFactoryDailySpendGuard,
   type JobCostRecord,
   type VideoFactoryBudgetGuard,
 } from "@/lib/video-factory-cost";
 import { persistVideoFactoryArtifacts } from "@/lib/video-factory-artifact-storage";
 import { syncVideoFactoryLanguageMemoryFromReview } from "@/lib/video-factory-language-memory";
-import { ensureFactoryPublishOutcomePlaceholder } from "@/lib/video-factory-publish-outcomes";
+import {
+  ensureFactoryPublishOutcomePlaceholder,
+  getFactoryPublishOutcome,
+} from "@/lib/video-factory-publish-outcomes";
 import {
   lifecycleStatusForQualityFailure,
   isRetryableQualityCheckResult,
@@ -149,6 +155,12 @@ import {
   videoFactoryAttemptLineageSchema,
   type VideoFactoryAttemptLineage,
 } from "@/lib/video-factory-lineage";
+import { summarizeVideoFactoryProviderFailure } from "@/lib/video-factory-provider-errors";
+import { compileVideoBriefForProduction } from "@/lib/prompt-compiler";
+import {
+  applyVideoFactorySelectionDecision,
+  buildVideoFactorySelectionDecision,
+} from "@/lib/video-factory-selection";
 import {
   buildVideoFactoryIdempotencyKey,
   getActiveVideoFactoryRenderVersion,
@@ -271,6 +283,68 @@ export interface ContentOpportunityState {
   dismissedCount: number;
   topSummary: string[];
   opportunities: ContentOpportunity[];
+}
+
+export interface ContentOpportunityVideoGenerationActionResult {
+  state: ContentOpportunityState;
+  jobId: string | null;
+  estimatedCostUsd: number | null;
+  regenerationCount: number;
+  budgetRemaining: number;
+  budgetExhausted: boolean;
+}
+
+export class VideoFactoryDailyCapExceededError extends Error {
+  readonly dailySpendGuard: VideoFactoryDailySpendGuard;
+  readonly state: ContentOpportunityState;
+  readonly jobId: string | null;
+  readonly estimatedCostUsd: number | null;
+  readonly regenerationCount: number;
+  readonly budgetRemaining: number;
+
+  constructor(input: {
+    message: string;
+    dailySpendGuard: VideoFactoryDailySpendGuard;
+    state: ContentOpportunityState;
+    jobId: string | null;
+    estimatedCostUsd: number | null;
+    regenerationCount: number;
+    budgetRemaining: number;
+  }) {
+    super(input.message);
+    this.name = "VideoFactoryDailyCapExceededError";
+    this.dailySpendGuard = input.dailySpendGuard;
+    this.state = input.state;
+    this.jobId = input.jobId;
+    this.estimatedCostUsd = input.estimatedCostUsd;
+    this.regenerationCount = input.regenerationCount;
+    this.budgetRemaining = input.budgetRemaining;
+  }
+}
+
+export class VideoFactoryRegenerationBudgetExceededError extends Error {
+  readonly state: ContentOpportunityState;
+  readonly jobId: string | null;
+  readonly estimatedCostUsd: number | null;
+  readonly regenerationCount: number;
+  readonly budgetRemaining: number;
+
+  constructor(input: {
+    message: string;
+    state: ContentOpportunityState;
+    jobId: string | null;
+    estimatedCostUsd: number | null;
+    regenerationCount: number;
+    budgetRemaining: number;
+  }) {
+    super(input.message);
+    this.name = "VideoFactoryRegenerationBudgetExceededError";
+    this.state = input.state;
+    this.jobId = input.jobId;
+    this.estimatedCostUsd = input.estimatedCostUsd;
+    this.regenerationCount = input.regenerationCount;
+    this.budgetRemaining = input.budgetRemaining;
+  }
 }
 
 const contentOpportunitySourceRefSchema = z.object({
@@ -1024,6 +1098,111 @@ function buildFactoryLifecycleForQueuedAttempt(input: {
   });
 }
 
+function isoDateKey(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString().slice(0, 10);
+}
+
+function sumDailyFactorySpendUsedUsd(
+  opportunities: ContentOpportunity[],
+  dayKey: string,
+) {
+  return Math.round(
+    opportunities.reduce((total, opportunity) => {
+      const generationState = opportunity.generationState;
+      if (!generationState) {
+        return total;
+      }
+
+      const completedSpend = generationState.runLedger.reduce((ledgerTotal, entry) => {
+        const completedAt = entry.actualCost?.completedAt ?? null;
+        if (!completedAt || isoDateKey(completedAt) !== dayKey) {
+          return ledgerTotal;
+        }
+
+        return ledgerTotal + (entry.actualCost?.actualCostUsd ?? 0);
+      }, 0);
+      const activeEstimatedSpend =
+        generationState.renderJob?.actualCost ||
+        !generationState.renderJob?.costEstimate ||
+        !isVideoFactoryLifecycleActive(generationState.factoryLifecycle) ||
+        isoDateKey(generationState.renderJob.costEstimate.estimatedAt) !== dayKey
+          ? 0
+          : generationState.renderJob.costEstimate.estimatedTotalUsd;
+
+      return total + completedSpend + activeEstimatedSpend;
+    }, 0) * 10000,
+  ) / 10000;
+}
+
+function buildQueuedGenerationActionResult(
+  state: ContentOpportunityState,
+  opportunityId: string,
+): ContentOpportunityVideoGenerationActionResult {
+  const maxRegenerationsPerBrief = getVideoFactoryMaxRegenerationsPerBrief();
+  const opportunity =
+    state.opportunities.find((item) => item.opportunityId === opportunityId) ?? null;
+  const runLedgerCount = opportunity?.generationState?.runLedger.length ?? 0;
+  const activeAttemptCount =
+    opportunity?.generationState?.renderJob &&
+    isVideoFactoryLifecycleActive(opportunity.generationState.factoryLifecycle)
+      ? runLedgerCount + 1
+      : runLedgerCount;
+  const regenerationCount = Math.max(0, activeAttemptCount - 1);
+  const budgetRemaining = Math.max(
+    0,
+    maxRegenerationsPerBrief - regenerationCount,
+  );
+
+  return {
+    state,
+    jobId: opportunity?.generationState?.renderJob?.id ?? null,
+    estimatedCostUsd:
+      opportunity?.generationState?.latestCostEstimate?.estimatedTotalUsd ?? null,
+    regenerationCount,
+    budgetRemaining,
+    budgetExhausted: budgetRemaining <= 0,
+  };
+}
+
+function isPermanentFailureRetryState(
+  retryState: VideoFactoryRetryState | null | undefined,
+) {
+  if (!retryState) {
+    return true;
+  }
+
+  return retryState.exhausted || retryState.failureMode === "non_retryable";
+}
+
+function terminalFailureLifecycleStatus(
+  retryState: VideoFactoryRetryState | null | undefined,
+): Extract<VideoFactoryStatus, "failed" | "failed_permanent"> {
+  return isPermanentFailureRetryState(retryState)
+    ? "failed_permanent"
+    : "failed";
+}
+
+function qualityFailureStageFromError(error: unknown) {
+  const parsedQualityCheck = qualityCheckResultSchema.safeParse(
+    error instanceof VideoFactoryRetryableError ? error.details : null,
+  );
+
+  return lifecycleStatusForQualityFailure(
+    parsedQualityCheck.success
+      ? parsedQualityCheck.data.failures[0]?.stage ?? "composition"
+      : "composition",
+  );
+}
+
 async function runContentOpportunityVideoGeneration(input: {
   opportunityId: string;
   provider?: RenderProvider;
@@ -1032,6 +1211,7 @@ async function runContentOpportunityVideoGeneration(input: {
   regenerationReason?: RenderJob["regenerationReason"];
   regenerationReasonCodes?: FactoryReviewReasonCode[];
   regenerationNotes?: string | null;
+  allowDailyCapOverride?: boolean;
   mode?: "enqueue_only" | "run_active" | "enqueue_and_run";
 }) {
   const mode = input.mode ?? "enqueue_and_run";
@@ -1072,6 +1252,10 @@ async function runContentOpportunityVideoGeneration(input: {
   let attemptApprovedBy = approvedBy;
   let currentStage: VideoFactoryStatus = "queued";
   let idempotencyKey: string | null = null;
+  let resumeCompiledProductionPlan:
+    | RenderJob["compiledProductionPlan"]
+    | null = null;
+  let resumeLifecycleStatus: VideoFactoryStatus | null = null;
   let queuedState = summarizeState(store.opportunities);
   let costEstimate: CostEstimate | null = null;
   let budgetGuard: VideoFactoryBudgetGuard | null = null;
@@ -1084,6 +1268,7 @@ async function runContentOpportunityVideoGeneration(input: {
     | "rejected"
     | "discarded"
     | "failed"
+    | "failed_permanent"
     | null = null;
   const normalizedRegenerationReasonCodes = normalizeFactoryReviewReasonCodes(
     input.regenerationReasonCodes?.length
@@ -1093,6 +1278,59 @@ async function runContentOpportunityVideoGeneration(input: {
         ),
   );
   const normalizedRegenerationNotes = normalizeText(input.regenerationNotes);
+  const maxRegenerationsPerBrief = getVideoFactoryMaxRegenerationsPerBrief();
+  const currentDayKey = isoDateKey(timestamp) ?? timestamp.slice(0, 10);
+  const historicalOpportunities = store.opportunities.map((opportunity) =>
+    normalizePersistedOpportunity(opportunity),
+  );
+  const executionStageProviders: Record<
+    "preparing" | "generating_narration" | "generating_visuals" | "generating_captions" | "composing",
+    string
+  > = {
+    preparing: "prompt-compiler",
+    generating_narration: "elevenlabs",
+    generating_visuals: provider === "runway" ? "runway-gen4" : provider,
+    generating_captions: "assemblyai",
+    composing: "ffmpeg",
+  };
+  const logExecutionEvent = (inputLog: {
+    event:
+      | "video_factory_stage_started"
+      | "video_factory_stage_completed"
+      | "video_factory_stage_failed";
+    stage:
+      | "preparing"
+      | "generating_narration"
+      | "generating_visuals"
+      | "generating_captions"
+      | "composing";
+    provider: string;
+    durationMs?: number | null;
+    retryCount?: number | null;
+    message?: string | null;
+    category?: string | null;
+  }) => {
+    const payload = {
+      event: inputLog.event,
+      factoryJobId: factoryLifecycle.factoryJobId,
+      renderVersion,
+      attemptNumber,
+      stage: inputLog.stage,
+      provider: inputLog.provider,
+      durationMs: inputLog.durationMs ?? null,
+      retryCount: inputLog.retryCount ?? null,
+      category: inputLog.category ?? null,
+      message: inputLog.message ?? null,
+      at: new Date().toISOString(),
+    };
+    const serialized = JSON.stringify(payload);
+    if (inputLog.event === "video_factory_stage_failed") {
+      console.error(serialized);
+      return;
+    }
+
+    console.info(serialized);
+  };
 
   if (mode !== "run_active") {
     queuedState = await updateOpportunity(input.opportunityId, (opportunity) => {
@@ -1160,6 +1398,68 @@ async function runContentOpportunityVideoGeneration(input: {
         throw new VideoFactoryActiveRunError(duplicateDecision.message);
       }
 
+      const nextRegenerationCount = input.isRegenerate
+        ? latestGenerationState.runLedger.length
+        : 0;
+      const budgetRemaining = Math.max(
+        0,
+        maxRegenerationsPerBrief - nextRegenerationCount,
+      );
+      if (input.isRegenerate && nextRegenerationCount > maxRegenerationsPerBrief) {
+        throw new VideoFactoryRegenerationBudgetExceededError({
+          message: `You've generated this brief ${maxRegenerationsPerBrief} times already. Edit the brief or discard it before regenerating again.`,
+          state: summarizeState(store.opportunities),
+          jobId: latestGenerationState.renderJob?.id ?? null,
+          estimatedCostUsd:
+            latestGenerationState.latestCostEstimate?.estimatedTotalUsd ?? null,
+          regenerationCount: maxRegenerationsPerBrief,
+          budgetRemaining: 0,
+        });
+      }
+
+      const baseQueuedCompiledProductionPlan = compileVideoBriefForProduction({
+        opportunity: latestOpportunity,
+        brief: latestBrief,
+      });
+      const queuedCompiledProductionPlan = applyVideoFactorySelectionDecision({
+        compiledProductionPlan: baseQueuedCompiledProductionPlan,
+        decision: buildVideoFactorySelectionDecision({
+          compiledProductionPlan: baseQueuedCompiledProductionPlan,
+          briefFormat: latestBrief.format,
+          briefDurationSec: latestBrief.durationSec,
+          historicalOpportunities,
+          appliedAt: timestamp,
+        }),
+      });
+      const queuedCostEstimate = buildCostEstimate({
+        compiledProductionPlan: queuedCompiledProductionPlan,
+        estimatedAt: timestamp,
+      });
+      const queuedBudgetGuard = evaluateVideoFactoryBudgetGuard({
+        estimatedCost: queuedCostEstimate,
+        evaluatedAt: timestamp,
+      });
+      const dailySpendGuard = evaluateVideoFactoryDailySpendGuard({
+        estimatedCostUsd: queuedCostEstimate.estimatedTotalUsd,
+        dailySpendUsedUsd: sumDailyFactorySpendUsedUsd(
+          historicalOpportunities,
+          currentDayKey,
+        ),
+      });
+      if (dailySpendGuard.status === "blocked" && !input.allowDailyCapOverride) {
+        throw new VideoFactoryDailyCapExceededError({
+          message:
+            dailySpendGuard.message ??
+            "Daily factory spend cap exceeded. Re-submit with override enabled to proceed.",
+          dailySpendGuard,
+          state: summarizeState(store.opportunities),
+          jobId: null,
+          estimatedCostUsd: queuedCostEstimate.estimatedTotalUsd,
+          regenerationCount: nextRegenerationCount,
+          budgetRemaining,
+        });
+      }
+
       renderVersion = requestedRenderVersion;
       attemptNumber = latestGenerationState.runLedger.length + 1;
       attemptOpportunity = latestOpportunity;
@@ -1181,17 +1481,20 @@ async function runContentOpportunityVideoGeneration(input: {
               latestGenerationState.assetReview?.status === "rejected" ||
               latestGenerationState.assetReview?.status === "discarded"
             ? latestGenerationState.assetReview.status
-          : latestGenerationState.factoryLifecycle?.status === "failed"
-            ? "failed"
-            : null);
+          : latestGenerationState.factoryLifecycle?.status === "failed" ||
+              latestGenerationState.factoryLifecycle?.status === "failed_permanent"
+            ? latestGenerationState.factoryLifecycle.status
+          : null);
       idempotencyKey = requestedIdempotencyKey;
+      costEstimate = queuedCostEstimate;
+      budgetGuard = queuedBudgetGuard;
       queuedVideoPrompt = buildVideoPrompt(latestOpportunity, latestBrief);
       generationRequest = buildVideoGenerationRequest({
         opportunity: latestOpportunity,
         brief: latestBrief,
         renderVersion,
         idempotencyKey: requestedIdempotencyKey,
-        narrationSpecId: `${latestBrief.id}:narration-spec`,
+        narrationSpecId: queuedCompiledProductionPlan.narrationSpec.id,
         videoPromptId: queuedVideoPrompt.id,
         approvedAt: latestApprovedAt!,
         approvedBy: latestApprovedBy!,
@@ -1211,10 +1514,14 @@ async function runContentOpportunityVideoGeneration(input: {
           idempotencyKey: requestedIdempotencyKey,
           provider,
           renderVersion,
+          compiledProductionPlan: queuedCompiledProductionPlan,
+          productionDefaultsSnapshot: queuedCompiledProductionPlan.defaultsSnapshot,
           preTriageConcern: input.preTriageConcern ?? null,
           regenerationReason: input.regenerationReason ?? null,
           regenerationReasonCodes: normalizedRegenerationReasonCodes,
           regenerationNotes: normalizedRegenerationNotes,
+          costEstimate: queuedCostEstimate,
+          budgetGuard: queuedBudgetGuard,
         }),
         submittedAt: timestamp,
       });
@@ -1239,9 +1546,9 @@ async function runContentOpportunityVideoGeneration(input: {
           videoBriefApprovedAt: latestApprovedAt,
           videoBriefApprovedBy: latestApprovedBy,
           factoryLifecycle,
-          latestCostEstimate: null,
+          latestCostEstimate: queuedCostEstimate,
           latestActualCost: null,
-          latestBudgetGuard: null,
+          latestBudgetGuard: queuedBudgetGuard,
           latestQualityCheck: null,
           latestRetryState: null,
           narrationSpec: null,
@@ -1274,6 +1581,13 @@ async function runContentOpportunityVideoGeneration(input: {
       return summarizeState(store.opportunities);
     }
 
+    if (
+      currentGenerationState.renderJob.status === "completed" &&
+      currentGenerationState.renderedAsset
+    ) {
+      return summarizeState(store.opportunities);
+    }
+
     renderVersion =
       getActiveVideoFactoryRenderVersion({
         lifecycle: currentGenerationState.factoryLifecycle,
@@ -1292,6 +1606,13 @@ async function runContentOpportunityVideoGeneration(input: {
     idempotencyKey =
       currentGenerationState.renderJob.idempotencyKey ??
       currentGenerationState.generationRequest.idempotencyKey;
+    resumeCompiledProductionPlan =
+      currentGenerationState.renderJob.compiledProductionPlan ?? null;
+    resumeLifecycleStatus = currentGenerationState.factoryLifecycle?.status ?? null;
+    currentStage =
+      currentGenerationState.factoryLifecycle?.status ??
+      (currentGenerationState.latestRetryState?.retryStage as VideoFactoryStatus | null) ??
+      currentStage;
   }
 
   if (!generationRequest || !queuedRenderJob || !queuedVideoPrompt || !idempotencyKey) {
@@ -1308,7 +1629,17 @@ async function runContentOpportunityVideoGeneration(input: {
       provider,
       renderVersion,
       createdAt: timestamp,
-      onCompiledPlan: async (compiledProductionPlan) => {
+      historicalOpportunities: store.opportunities.map((opportunity) =>
+        normalizePersistedOpportunity(opportunity),
+      ),
+      persistedCompiledProductionPlan: resumeCompiledProductionPlan,
+      resumeLifecycleStatus,
+      onCompiledPlan: async (compiledProductionPlan, selectionDecision) => {
+        executionStageProviders.generating_narration =
+          compiledProductionPlan.defaultsSnapshot.providerFallbacks.narration[0] ??
+          "elevenlabs";
+        executionStageProviders.generating_visuals =
+          selectionDecision.selectedVisualProvider;
         costEstimate = buildCostEstimate({
           compiledProductionPlan,
           estimatedAt: timestamp,
@@ -1365,8 +1696,79 @@ async function runContentOpportunityVideoGeneration(input: {
           );
         }
       },
-      onStageChange: async (status) => {
+      onExecutionStageChange: async (status) => {
         currentStage = status;
+        if (status !== "generated") {
+          logExecutionEvent({
+            event: "video_factory_stage_started",
+            stage: status,
+            provider: executionStageProviders[status],
+          });
+        }
+      },
+      onStageFailure: async (stageFailure) => {
+        const providerFailure = summarizeVideoFactoryProviderFailure(stageFailure.error, {
+          provider: stageFailure.provider,
+          stage: stageFailure.stage,
+        });
+        logExecutionEvent({
+          event: "video_factory_stage_failed",
+          stage: stageFailure.stage,
+          provider: stageFailure.provider,
+          durationMs: stageFailure.durationMs,
+          category: providerFailure.category,
+          message: providerFailure.operatorSummary,
+        });
+      },
+      onRetryScheduled: async (retryInput) => {
+        currentStage = retryInput.stage;
+        const providerFailure = summarizeVideoFactoryProviderFailure(
+          retryInput.error,
+          {
+            provider: retryInput.provider,
+            stage: retryInput.stage,
+          },
+        );
+        factoryLifecycle = transitionVideoFactoryLifecycle(
+          factoryLifecycle,
+          "retry_queued",
+          {
+            timestamp: new Date().toISOString(),
+            provider,
+            renderVersion,
+            failureStage: retryInput.stage,
+            failureMessage: providerFailure.operatorSummary,
+            retryState: retryInput.retryState,
+          },
+        );
+        await updateOpportunity(input.opportunityId, (opportunity) => {
+          const persistedGenerationState = contentOpportunityGenerationStateSchema.parse(
+            opportunity.generationState ?? {},
+          );
+          const currentRenderJob = persistedGenerationState.renderJob;
+
+          return {
+            ...opportunity,
+            generationState: contentOpportunityGenerationStateSchema.parse({
+              ...persistedGenerationState,
+              factoryLifecycle,
+              latestRetryState: retryInput.retryState,
+              renderJob: currentRenderJob
+                ? renderJobSchema.parse({
+                    ...currentRenderJob,
+                    retryState: retryInput.retryState,
+                    errorMessage: providerFailure.operatorSummary,
+                    status: "rendering",
+                    submittedAt:
+                      currentRenderJob.submittedAt ?? new Date().toISOString(),
+                  })
+                : null,
+            }),
+            updatedAt: new Date().toISOString(),
+          };
+        });
+      },
+      onStageChange: async (status) => {
         factoryLifecycle = transitionVideoFactoryLifecycle(factoryLifecycle, status, {
           timestamp: new Date().toISOString(),
           provider,
@@ -1402,6 +1804,19 @@ async function runContentOpportunityVideoGeneration(input: {
         });
       },
     });
+    for (const [stage, metric] of Object.entries(orchestration.stageExecutionMetrics)) {
+      if (!metric) {
+        continue;
+      }
+
+      logExecutionEvent({
+        event: "video_factory_stage_completed",
+        stage: stage as keyof typeof orchestration.stageExecutionMetrics,
+        provider: metric.provider,
+        durationMs: metric.durationMs,
+        retryCount: metric.retryCount,
+      });
+    }
     const compiledProductionPlan = orchestration.compiledProductionPlan;
     const narrationSpec = orchestration.narrationSpec;
     const completedGenerationRequest = videoGenerationRequestSchema.parse({
@@ -1424,6 +1839,51 @@ async function runContentOpportunityVideoGeneration(input: {
     try {
       const qualityCheckExecution = await executeWithRetry({
         stage: "quality_check",
+        onRetryScheduled: async (retryInput) => {
+          const failureStage = qualityFailureStageFromError(retryInput.error);
+          currentStage = failureStage;
+          factoryLifecycle = transitionVideoFactoryLifecycle(
+            factoryLifecycle,
+            "retry_queued",
+            {
+              timestamp: new Date().toISOString(),
+              provider,
+              renderVersion,
+              failureStage,
+              failureMessage:
+                retryInput.error instanceof Error
+                  ? retryInput.error.message
+                  : "Quality check retry scheduled.",
+              retryState: retryInput.retryState,
+            },
+          );
+          await updateOpportunity(input.opportunityId, (opportunity) => {
+            const persistedGenerationState = contentOpportunityGenerationStateSchema.parse(
+              opportunity.generationState ?? {},
+            );
+            const currentRenderJob = persistedGenerationState.renderJob;
+
+            return {
+              ...opportunity,
+              generationState: contentOpportunityGenerationStateSchema.parse({
+                ...persistedGenerationState,
+                factoryLifecycle,
+                latestRetryState: retryInput.retryState,
+                renderJob: currentRenderJob
+                  ? renderJobSchema.parse({
+                      ...currentRenderJob,
+                      retryState: retryInput.retryState,
+                      errorMessage:
+                        retryInput.error instanceof Error
+                          ? retryInput.error.message
+                          : "Quality check retry scheduled.",
+                    })
+                  : null,
+              }),
+              updatedAt: new Date().toISOString(),
+            };
+          });
+        },
         step: async () => {
           const result = runVideoFactoryQualityChecks({
             compiledProductionPlan,
@@ -1541,14 +2001,18 @@ async function runContentOpportunityVideoGeneration(input: {
 
     if (!qualityCheck.passed) {
       currentStage = lifecycleStatusForQualityFailure(qualityCheck.failures[0]?.stage ?? "composition");
-      factoryLifecycle = transitionVideoFactoryLifecycle(factoryLifecycle, "failed", {
+      factoryLifecycle = transitionVideoFactoryLifecycle(
+        factoryLifecycle,
+        terminalFailureLifecycleStatus(attemptRetryState),
+        {
         timestamp,
         provider,
         renderVersion,
         failureStage: currentStage,
         failureMessage: summarizeQualityCheckFailures(qualityCheck),
         retryState: attemptRetryState,
-      });
+        },
+      );
       const failedGenerationRequest = videoGenerationRequestSchema.parse({
         ...completedGenerationRequest,
         status: "failed",
@@ -1609,13 +2073,13 @@ async function runContentOpportunityVideoGeneration(input: {
                 {
                   comparisonRenderJob: failedRenderJob,
                   comparisonFactoryJobId: factoryLifecycle.factoryJobId,
-                  comparisonOutcome: "failed",
+                  comparisonOutcome: "failed_permanent",
                   updatedAt: timestamp,
                 },
               ),
               {
                 comparisonRenderJobId: failedRenderJob.id,
-                outcome: "failed",
+                outcome: "failed_permanent",
                 notes: summarizeQualityCheckFailures(qualityCheck),
                 updatedAt: timestamp,
               },
@@ -1817,15 +2281,34 @@ async function runContentOpportunityVideoGeneration(input: {
     if (retryState?.retryStage) {
       currentStage = retryState.retryStage as VideoFactoryStatus;
     }
+    const providerFailure = summarizeVideoFactoryProviderFailure(error, {
+      provider:
+        currentStage === "generating_narration"
+          ? "ElevenLabs"
+          : currentStage === "generating_visuals"
+            ? provider === "runway"
+              ? "Runway"
+              : "Visual provider"
+            : currentStage === "generating_captions"
+              ? "AssemblyAI"
+              : currentStage === "composing"
+                ? "ffmpeg"
+                : "factory",
+      stage: currentStage,
+    });
     const failureTimestamp = new Date().toISOString();
-    const failedLifecycle = transitionVideoFactoryLifecycle(factoryLifecycle, "failed", {
+    const failedLifecycle = transitionVideoFactoryLifecycle(
+      factoryLifecycle,
+      terminalFailureLifecycleStatus(retryState),
+      {
       timestamp: failureTimestamp,
       provider,
       renderVersion,
       failureStage: currentStage,
-      failureMessage: error instanceof Error ? error.message : "Video generation failed.",
+      failureMessage: providerFailure.operatorSummary,
       retryState,
-    });
+      },
+    );
     const failedLedgerEntry = buildFactoryRunLedgerEntry({
       opportunityId: attemptOpportunity.opportunityId,
       videoBriefId: attemptBrief.id,
@@ -1851,8 +2334,7 @@ async function runContentOpportunityVideoGeneration(input: {
         budgetGuard,
         status: "failed",
         completedAt: failureTimestamp,
-        errorMessage:
-          error instanceof Error ? error.message : "Video generation failed.",
+        errorMessage: providerFailure.operatorSummary,
         retryState,
       });
 
@@ -1877,17 +2359,14 @@ async function runContentOpportunityVideoGeneration(input: {
               {
                 comparisonRenderJob: failedRenderJob,
                 comparisonFactoryJobId: failedLifecycle.factoryJobId,
-                comparisonOutcome: "failed",
+                comparisonOutcome: "failed_permanent",
                 updatedAt: failureTimestamp,
               },
             ),
             {
               comparisonRenderJobId: failedRenderJob.id,
-              outcome: "failed",
-              notes:
-                error instanceof Error
-                  ? error.message
-                  : "Video generation failed.",
+              outcome: "failed_permanent",
+              notes: providerFailure.operatorSummary,
               updatedAt: failureTimestamp,
             },
           ),
@@ -2379,14 +2858,18 @@ export async function generateContentOpportunityVideo(input: {
   opportunityId: string;
   provider?: RenderProvider;
   preTriageConcern?: RenderJob["preTriageConcern"];
-}) {
-  return runContentOpportunityVideoGeneration({
+  allowDailyCapOverride?: boolean;
+}): Promise<ContentOpportunityVideoGenerationActionResult> {
+  const state = await runContentOpportunityVideoGeneration({
     opportunityId: input.opportunityId,
     provider: input.provider,
     isRegenerate: false,
     preTriageConcern: input.preTriageConcern ?? null,
+    allowDailyCapOverride: input.allowDailyCapOverride ?? false,
     mode: "enqueue_only",
   });
+
+  return buildQueuedGenerationActionResult(state, input.opportunityId);
 }
 
 export async function regenerateContentOpportunityVideo(input: {
@@ -2395,16 +2878,20 @@ export async function regenerateContentOpportunityVideo(input: {
   regenerationReason?: RenderJob["regenerationReason"];
   regenerationReasonCodes?: FactoryReviewReasonCode[];
   regenerationNotes?: string;
-}) {
-  return runContentOpportunityVideoGeneration({
+  allowDailyCapOverride?: boolean;
+}): Promise<ContentOpportunityVideoGenerationActionResult> {
+  const state = await runContentOpportunityVideoGeneration({
     opportunityId: input.opportunityId,
     provider: input.provider,
     isRegenerate: true,
     regenerationReason: input.regenerationReason ?? null,
     regenerationReasonCodes: input.regenerationReasonCodes ?? [],
     regenerationNotes: input.regenerationNotes ?? null,
+    allowDailyCapOverride: input.allowDailyCapOverride ?? false,
     mode: "enqueue_only",
   });
+
+  return buildQueuedGenerationActionResult(state, input.opportunityId);
 }
 
 export async function runQueuedContentOpportunityVideoGeneration(input: {
@@ -2817,8 +3304,14 @@ export async function exportContentOpportunityProductionPackage(
   const { brief } = getGenerationContext(normalizedCurrent, {
     requireBriefApproval: true,
   });
+  const publishOutcome = normalizedCurrent.generationState?.renderedAsset
+    ? await getFactoryPublishOutcome(
+        normalizedCurrent.generationState.renderedAsset.id,
+      )
+    : null;
   const productionPackage = buildProductionPackage({
     opportunity: normalizedCurrent,
+    publishOutcome,
   });
 
   await appendAuditEventsSafe([

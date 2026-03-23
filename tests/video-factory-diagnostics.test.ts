@@ -28,7 +28,7 @@ test("video factory diagnostics report ready when providers, blob, and ffmpeg ar
   assert.equal(diagnostics.checks.every((check) => check.status === "ready"), true);
 });
 
-test("video factory diagnostics report degraded in auto mode when provider config is missing", () => {
+test("video factory diagnostics report unavailable in auto mode when provider config is missing", () => {
   const diagnostics = getVideoFactoryDiagnostics({
     providerMode: "auto",
     checkedAt: "2026-03-23T10:00:00.000Z",
@@ -40,8 +40,8 @@ test("video factory diagnostics report degraded in auto mode when provider confi
     }),
   });
 
-  assert.equal(diagnostics.status, "degraded");
-  assert.equal(diagnostics.checks.find((check) => check.key === "elevenlabs")?.status, "degraded");
+  assert.equal(diagnostics.status, "unavailable");
+  assert.equal(diagnostics.checks.find((check) => check.key === "elevenlabs")?.status, "unavailable");
   assert.equal(diagnostics.checks.find((check) => check.key === "blob")?.status, "degraded");
 });
 

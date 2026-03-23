@@ -9,6 +9,8 @@ import type { GeneratedSceneAsset } from "@/lib/providers/visual-provider";
 const NARRATION_COST_PER_SECOND_USD = 0.0004;
 const CAPTION_COST_PER_SECOND_USD = 0.00012;
 const COMPOSITION_COST_PER_SECOND_USD = 0;
+const DEFAULT_VIDEO_FACTORY_DAILY_SPEND_CAP_USD = 20;
+const DEFAULT_VIDEO_FACTORY_MAX_REGENERATIONS_PER_BRIEF = 3;
 const VISUAL_PROVIDER_COSTS_USD_PER_SECOND: Record<string, number> = {
   "runway-gen4": 0.01,
   "kling-2": 0.008,
@@ -56,9 +58,20 @@ export const videoFactoryBudgetGuardSchema = z.object({
   evaluatedAt: z.string().trim().min(1),
 });
 
+export const videoFactoryDailySpendGuardSchema = z.object({
+  status: z.enum(["within_budget", "blocked"]),
+  dailySpendCapUsd: z.number().min(0),
+  dailySpendUsedUsd: z.number().min(0),
+  projectedDailySpendUsd: z.number().min(0),
+  message: z.string().trim().nullable().default(null),
+});
+
 export type CostEstimate = z.infer<typeof costEstimateSchema>;
 export type JobCostRecord = z.infer<typeof jobCostRecordSchema>;
 export type VideoFactoryBudgetGuard = z.infer<typeof videoFactoryBudgetGuardSchema>;
+export type VideoFactoryDailySpendGuard = z.infer<
+  typeof videoFactoryDailySpendGuardSchema
+>;
 
 function roundUsd(value: number) {
   return Math.round(value * 10000) / 10000;
@@ -72,6 +85,15 @@ function numberEnv(name: string): number | null {
 
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function integerEnv(name: string): number | null {
+  const parsed = numberEnv(name);
+  if (parsed === null || !Number.isInteger(parsed)) {
+    return null;
+  }
+
+  return parsed;
 }
 
 function providerRate(
@@ -129,6 +151,20 @@ export function getVideoFactoryCostHardStopThresholdUsd() {
   return numberEnv("VIDEO_FACTORY_COST_HARD_STOP_USD");
 }
 
+export function getVideoFactoryDailySpendCapUsd() {
+  return (
+    numberEnv("VIDEO_FACTORY_DAILY_SPEND_CAP_USD") ??
+    DEFAULT_VIDEO_FACTORY_DAILY_SPEND_CAP_USD
+  );
+}
+
+export function getVideoFactoryMaxRegenerationsPerBrief() {
+  return (
+    integerEnv("VIDEO_FACTORY_MAX_REGENERATIONS_PER_BRIEF") ??
+    DEFAULT_VIDEO_FACTORY_MAX_REGENERATIONS_PER_BRIEF
+  );
+}
+
 export function evaluateVideoFactoryBudgetGuard(input: {
   estimatedCost: CostEstimate;
   evaluatedAt: string;
@@ -160,6 +196,29 @@ export function evaluateVideoFactoryBudgetGuard(input: {
       ? `Estimated run cost $${estimatedTotalUsd.toFixed(2)} exceeds the hard-stop threshold of $${hardStopThresholdUsd?.toFixed(2)}.`
       : null,
     evaluatedAt: input.evaluatedAt,
+  });
+}
+
+export function evaluateVideoFactoryDailySpendGuard(input: {
+  estimatedCostUsd: number;
+  dailySpendUsedUsd: number;
+  dailySpendCapUsd?: number;
+}): VideoFactoryDailySpendGuard {
+  const dailySpendCapUsd =
+    input.dailySpendCapUsd ?? getVideoFactoryDailySpendCapUsd();
+  const projectedDailySpendUsd = roundUsd(
+    input.dailySpendUsedUsd + input.estimatedCostUsd,
+  );
+  const blocked = projectedDailySpendUsd > dailySpendCapUsd;
+
+  return videoFactoryDailySpendGuardSchema.parse({
+    status: blocked ? "blocked" : "within_budget",
+    dailySpendCapUsd,
+    dailySpendUsedUsd: roundUsd(input.dailySpendUsedUsd),
+    projectedDailySpendUsd,
+    message: blocked
+      ? `Projected daily factory spend $${projectedDailySpendUsd.toFixed(2)} exceeds the daily cap of $${dailySpendCapUsd.toFixed(2)}. Re-submit with override enabled to proceed.`
+      : null,
   });
 }
 

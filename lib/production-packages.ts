@@ -23,8 +23,13 @@ import {
   jobCostRecordSchema,
   videoFactoryBudgetGuardSchema,
 } from "./video-factory-cost";
+import {
+  factoryPublishOutcomeSchema,
+  type FactoryPublishOutcome,
+} from "./video-factory-publish-outcomes";
 import { factoryReviewReasonListSchema } from "./video-factory-review-reasons";
 import { videoFactoryRetryStateSchema } from "./video-factory-retry";
+import { factoryRunProviderSetSchema } from "./video-factory-run-ledger";
 
 const exportVideoBeatSchema = z.object({
   order: z.number().int().min(1).max(4),
@@ -158,6 +163,81 @@ const exportRenderJobSchema = z.object({
   errorMessage: z.string().trim().nullable().default(null),
 });
 
+const exportPublishOutcomeSchema = factoryPublishOutcomeSchema;
+
+const productionPackageConnectSummarySchema = z.object({
+  handoffStatus: z.enum(["accepted_render", "latest_attempt", "brief_only"]),
+  isPublishReady: z.boolean(),
+  renderJobId: z.string().trim().nullable().default(null),
+  renderedAssetId: z.string().trim().nullable().default(null),
+  factoryJobId: z.string().trim().nullable().default(null),
+  renderVersion: z.string().trim().nullable().default(null),
+  finalVideoUrl: z.string().trim().nullable().default(null),
+  thumbnailUrl: z.string().trim().nullable().default(null),
+  narrationAudioUrl: z.string().trim().nullable().default(null),
+  captionTrackUrl: z.string().trim().nullable().default(null),
+  sceneAssetUrls: z.array(z.string().trim().min(1)).default([]),
+  providerStack: factoryRunProviderSetSchema.nullable().default(null),
+  defaultsProfileId: z.string().trim().nullable().default(null),
+  voiceProvider: z.string().trim().nullable().default(null),
+  voiceId: z.string().trim().nullable().default(null),
+  aspectRatio: z.string().trim().nullable().default(null),
+  resolution: z.string().trim().nullable().default(null),
+  reviewStatus: z.string().trim().nullable().default(null),
+  reviewReasonCodes: factoryReviewReasonListSchema,
+  qualityPassed: z.boolean().nullable().default(null),
+  published: z.boolean().nullable().default(null),
+  publishPlatform: z.string().trim().nullable().default(null),
+  publishUrl: z.string().trim().nullable().default(null),
+});
+
+const productionPackageLifecycleSummarySchema = z.object({
+  factoryJobId: z.string().trim().nullable().default(null),
+  videoBriefId: z.string().trim().nullable().default(null),
+  provider: z.string().trim().nullable().default(null),
+  renderVersion: z.string().trim().nullable().default(null),
+  status: z.string().trim().nullable().default(null),
+  lastUpdatedAt: z.string().trim().nullable().default(null),
+  timestamps: z.object({
+    draftAt: z.string().trim().nullable().default(null),
+    queuedAt: z.string().trim().nullable().default(null),
+    preparingAt: z.string().trim().nullable().default(null),
+    generatingNarrationAt: z.string().trim().nullable().default(null),
+    generatingVisualsAt: z.string().trim().nullable().default(null),
+    generatingCaptionsAt: z.string().trim().nullable().default(null),
+    composingAt: z.string().trim().nullable().default(null),
+    generatedAt: z.string().trim().nullable().default(null),
+    reviewPendingAt: z.string().trim().nullable().default(null),
+    acceptedAt: z.string().trim().nullable().default(null),
+    rejectedAt: z.string().trim().nullable().default(null),
+    discardedAt: z.string().trim().nullable().default(null),
+    failedAt: z.string().trim().nullable().default(null),
+  }),
+  failureStage: z.string().trim().nullable().default(null),
+  failureMessage: z.string().trim().nullable().default(null),
+});
+
+const productionPackagePublishReadySchema = z.object({
+  handoffStatus: z.enum(["accepted_render", "latest_attempt", "brief_only"]),
+  isPublishReady: z.boolean(),
+  compiledProductionPlanId: z.string().trim().nullable().default(null),
+  acceptedRenderedAsset: renderedAssetSchema.nullable().default(null),
+  thumbnailUrl: z.string().trim().nullable().default(null),
+  narrationArtifact: generatedNarrationArtifactSchema.nullable().default(null),
+  captionArtifact: generatedCaptionTrackArtifactSchema.nullable().default(null),
+  sceneArtifacts: z.array(generatedSceneAssetArtifactSchema).default([]),
+  compositionArtifact: composedVideoArtifactSchema.nullable().default(null),
+  thumbnailArtifact: generatedThumbnailArtifactSchema.nullable().default(null),
+  providerStack: factoryRunProviderSetSchema.nullable().default(null),
+  defaultsSnapshot: productionDefaultsSchema.nullable().default(null),
+  lifecycleSummary: productionPackageLifecycleSummarySchema.nullable().default(null),
+  reviewOutcome: assetReviewStateSchema.nullable().default(null),
+  reviewReasonCodes: factoryReviewReasonListSchema,
+  qualityCheck: qualityCheckResultSchema.nullable().default(null),
+  publishOutcome: exportPublishOutcomeSchema.nullable().default(null),
+  connectSummary: productionPackageConnectSummarySchema,
+});
+
 export const productionPackageSchema = z.object({
   id: z.string().trim().min(1),
   opportunityId: z.string().trim().min(1),
@@ -165,8 +245,8 @@ export const productionPackageSchema = z.object({
   createdAt: z.string().trim().min(1),
   title: z.string().trim().min(1),
   brief: exportVideoBriefSchema,
-  narrationSpec: exportNarrationSpecSchema,
-  videoPrompt: exportVideoPromptSchema,
+  narrationSpec: exportNarrationSpecSchema.nullable().default(null),
+  videoPrompt: exportVideoPromptSchema.nullable().default(null),
   overlayLines: z.array(z.string().trim().min(1)).max(4),
   cta: z.string().trim().min(1),
   exportSource: z.enum(["accepted_render", "latest_attempt", "brief_only"]),
@@ -177,6 +257,7 @@ export const productionPackageSchema = z.object({
   assetReview: assetReviewStateSchema.nullable().default(null),
   qualityCheck: qualityCheckResultSchema.nullable().default(null),
   lineage: videoFactoryAttemptLineageSchema.nullable().default(null),
+  publishOutcome: exportPublishOutcomeSchema.nullable().default(null),
   artifacts: z.object({
     narration: generatedNarrationArtifactSchema.nullable().default(null),
     sceneAssets: z.array(generatedSceneAssetArtifactSchema).default([]),
@@ -184,6 +265,8 @@ export const productionPackageSchema = z.object({
     composedVideo: composedVideoArtifactSchema.nullable().default(null),
     thumbnail: generatedThumbnailArtifactSchema.nullable().default(null),
   }),
+  publishReadyPackage: productionPackagePublishReadySchema,
+  connectSummary: productionPackageConnectSummarySchema,
   exportFormat: z.literal("json"),
   version: z.literal(1),
 });
@@ -204,113 +287,6 @@ function requireStableBrief(opportunity: ContentOpportunity): VideoBrief {
   }
 
   return opportunity.selectedVideoBrief;
-}
-
-function getReusableNarrationSpec(
-  opportunity: ContentOpportunity,
-  brief: VideoBrief,
-) {
-  const narrationSpec = opportunity.generationState?.narrationSpec;
-
-  if (!narrationSpec || narrationSpec.videoBriefId !== brief.id) {
-    return null;
-  }
-
-  return narrationSpec;
-}
-
-function fallbackNarrationSpec(
-  opportunity: ContentOpportunity,
-  brief: VideoBrief,
-) {
-  const compiledNarration =
-    opportunity.generationState?.renderJob?.compiledProductionPlan?.narrationSpec;
-
-  if (compiledNarration && compiledNarration.videoBriefId === brief.id) {
-    return exportNarrationSpecSchema.parse(compiledNarration);
-  }
-
-  const pronunciationNotes = brief.cta.toLowerCase().includes("zaza draft")
-    ? ['Zaza Draft: say "zah-zah draft".']
-    : undefined;
-  const pauseHints = [
-    "Pause briefly after the opening line.",
-    "Slow slightly before the closing line.",
-  ];
-
-  return exportNarrationSpecSchema.parse({
-    id: `${brief.id}:narration-spec`,
-    opportunityId: opportunity.opportunityId,
-    videoBriefId: brief.id,
-    script: [
-      brief.hook,
-      ...brief.structure.map((beat) => beat.guidance),
-      brief.cta,
-    ].join(" "),
-    tone: brief.tone.toLowerCase().includes("teacher-real")
-      ? "teacher-real"
-      : brief.tone.toLowerCase().includes("grounded")
-        ? "grounded"
-        : "calm",
-    pace: brief.durationSec >= 30 ? "measured" : "steady",
-    targetDurationSec: brief.durationSec,
-    pronunciationNotes,
-    pauseHints,
-  });
-}
-
-function getReusableVideoPrompt(
-  opportunity: ContentOpportunity,
-  brief: VideoBrief,
-) {
-  const videoPrompt = opportunity.generationState?.videoPrompt;
-
-  if (!videoPrompt || videoPrompt.videoBriefId !== brief.id) {
-    return null;
-  }
-
-  return videoPrompt;
-}
-
-function fallbackVideoPrompt(
-  opportunity: ContentOpportunity,
-  brief: VideoBrief,
-) {
-  const compiledPlan = opportunity.generationState?.renderJob?.compiledProductionPlan;
-  const scenePrompts = [
-    ...(compiledPlan?.scenePrompts.map((scene) => scene.visualPrompt) ?? []),
-    brief.visualDirection,
-    ...brief.structure.map((beat) => beat.guidance),
-  ]
-    .map((value) => value.trim())
-    .filter((value, index, array) => value.length > 0 && array.indexOf(value) === index)
-    .slice(0, 4);
-
-  while (scenePrompts.length < 3) {
-    scenePrompts.push(
-      `Keep the scene grounded in ${opportunity.primaryPainPoint.toLowerCase()}.`,
-    );
-  }
-
-  const overlayPlan = [...brief.overlayLines].slice(0, 4);
-  const styleGuardrails = [
-    "Keep the visual tone calm, readable, and teacher-real.",
-    "Avoid polished ad styling, flashy motion, or heavy transitions.",
-    "Do not make the product the hero before the final beat.",
-  ];
-
-  return exportVideoPromptSchema.parse({
-    id: `${brief.id}:video-prompt`,
-    opportunityId: opportunity.opportunityId,
-    videoBriefId: brief.id,
-    format: brief.format,
-    scenePrompts,
-    overlayPlan,
-    styleGuardrails,
-    negativePrompt:
-      compiledPlan?.defaultsSnapshot.negativeConstraints.join(", ") ??
-      "No hype or glossy ad styling.",
-  });
 }
 
 function selectExportAttempt(opportunity: ContentOpportunity) {
@@ -364,21 +340,202 @@ function selectExportAttempt(opportunity: ContentOpportunity) {
   };
 }
 
+function buildLifecycleSummary(opportunity: ContentOpportunity) {
+  const lifecycle = opportunity.generationState?.factoryLifecycle;
+  if (!lifecycle) {
+    return null;
+  }
+
+  return productionPackageLifecycleSummarySchema.parse({
+    factoryJobId: lifecycle.factoryJobId,
+    videoBriefId: lifecycle.videoBriefId,
+    provider: lifecycle.provider,
+    renderVersion: lifecycle.renderVersion,
+    status: lifecycle.status,
+    lastUpdatedAt: lifecycle.lastUpdatedAt,
+    timestamps: {
+      draftAt: lifecycle.draftAt,
+      queuedAt: lifecycle.queuedAt,
+      preparingAt: lifecycle.preparingAt,
+      generatingNarrationAt: lifecycle.generatingNarrationAt,
+      generatingVisualsAt: lifecycle.generatingVisualsAt,
+      generatingCaptionsAt: lifecycle.generatingCaptionsAt,
+      composingAt: lifecycle.composingAt,
+      generatedAt: lifecycle.generatedAt,
+      reviewPendingAt: lifecycle.reviewPendingAt,
+      acceptedAt: lifecycle.acceptedAt,
+      rejectedAt: lifecycle.rejectedAt,
+      discardedAt: lifecycle.discardedAt,
+      failedAt: lifecycle.failedAt,
+    },
+    failureStage: lifecycle.failureStage,
+    failureMessage: lifecycle.failureMessage,
+  });
+}
+
+function buildPublishOutcomePlaceholder(input: {
+  opportunity: ContentOpportunity;
+  videoBriefId: string;
+  selectedAttempt: ReturnType<typeof selectExportAttempt>;
+}): FactoryPublishOutcome | null {
+  const renderedAsset = input.selectedAttempt.renderedAsset;
+  const renderJob = input.selectedAttempt.renderJob;
+  if (!renderedAsset || !renderJob) {
+    return null;
+  }
+
+  return exportPublishOutcomeSchema.parse({
+    publishOutcomeId: `${renderedAsset.id}:publish-outcome`,
+    opportunityId: input.opportunity.opportunityId,
+    videoBriefId: input.videoBriefId,
+    factoryJobId:
+      input.selectedAttempt.lineage?.factoryJobId ??
+      input.opportunity.generationState?.factoryLifecycle?.factoryJobId ??
+      null,
+    renderJobId: renderJob.id,
+    renderedAssetId: renderedAsset.id,
+    assetReviewId: input.selectedAttempt.assetReview?.id ?? null,
+    published: false,
+    platform: null,
+    publishDate: null,
+    publishedUrl: null,
+    impressions: null,
+    clicks: null,
+    signups: null,
+    notes: null,
+    attributionSource: null,
+    createdAt:
+      input.selectedAttempt.assetReview?.reviewedAt ??
+      renderedAsset.createdAt,
+    lastUpdatedAt:
+      input.selectedAttempt.assetReview?.reviewedAt ??
+      renderedAsset.createdAt,
+  });
+}
+
+function buildProviderStack(input: {
+  selectedAttempt: ReturnType<typeof selectExportAttempt>;
+}) {
+  const renderJob = input.selectedAttempt.renderJob;
+  const lineage = input.selectedAttempt.lineage;
+
+  if (!renderJob && !lineage) {
+    return null;
+  }
+
+  return factoryRunProviderSetSchema.parse({
+    renderProvider: renderJob?.provider ?? "mock",
+    narrationProvider: lineage?.narrationArtifact?.providerId ?? null,
+    visualProviders: Array.from(
+      new Set(lineage?.sceneArtifacts.map((artifact) => artifact.providerId) ?? []),
+    ),
+    captionProvider: lineage?.captionArtifact?.providerId ?? null,
+    compositionProvider: lineage?.composedVideoArtifact?.providerId ?? null,
+  });
+}
+
+function buildPublishReadyFlag(input: {
+  selectedAttempt: ReturnType<typeof selectExportAttempt>;
+  compiledProductionPlan: z.infer<typeof exportCompiledProductionPlanSchema> | null;
+  publishOutcome: FactoryPublishOutcome | null;
+}) {
+  const renderJob = input.selectedAttempt.renderJob;
+  const renderedAsset = input.selectedAttempt.renderedAsset;
+  const lineage = input.selectedAttempt.lineage;
+
+  return (
+    input.selectedAttempt.exportSource === "accepted_render" &&
+    renderJob?.status === "completed" &&
+    Boolean(input.compiledProductionPlan) &&
+    Boolean(renderedAsset?.url) &&
+    Boolean(lineage?.narrationArtifact) &&
+    Boolean(lineage?.captionArtifact) &&
+    Boolean(lineage?.composedVideoArtifact) &&
+    (lineage?.sceneArtifacts.length ?? 0) > 0 &&
+    Boolean(input.publishOutcome)
+  );
+}
+
+function buildConnectSummary(input: {
+  selectedAttempt: ReturnType<typeof selectExportAttempt>;
+  defaultsSnapshot: z.infer<typeof productionDefaultsSchema> | null;
+  qualityCheck: z.infer<typeof qualityCheckResultSchema> | null;
+  publishOutcome: FactoryPublishOutcome | null;
+}) {
+  const renderJob = input.selectedAttempt.renderJob;
+  const renderedAsset = input.selectedAttempt.renderedAsset;
+  const lineage = input.selectedAttempt.lineage;
+  const assetReview = input.selectedAttempt.assetReview;
+
+  return productionPackageConnectSummarySchema.parse({
+    handoffStatus: input.selectedAttempt.exportSource,
+    isPublishReady:
+      input.selectedAttempt.exportSource === "accepted_render" &&
+      Boolean(renderedAsset?.url),
+    renderJobId: renderJob?.id ?? null,
+    renderedAssetId: renderedAsset?.id ?? null,
+    factoryJobId:
+      lineage?.factoryJobId ??
+      null,
+    renderVersion:
+      lineage?.renderVersion ??
+      renderJob?.renderVersion ??
+      null,
+    finalVideoUrl:
+      renderedAsset?.url ??
+      lineage?.composedVideoArtifact?.storage?.url ??
+      lineage?.composedVideoArtifact?.videoUrl ??
+      null,
+    thumbnailUrl:
+      renderedAsset?.thumbnailUrl ??
+      lineage?.thumbnailArtifact?.storage?.url ??
+      lineage?.thumbnailArtifact?.imageUrl ??
+      lineage?.composedVideoArtifact?.thumbnailUrl ??
+      null,
+    narrationAudioUrl:
+      lineage?.narrationArtifact?.storage?.url ??
+      lineage?.narrationArtifact?.audioUrl ??
+      null,
+    captionTrackUrl:
+      lineage?.captionArtifact?.storage?.url ??
+      lineage?.captionArtifact?.captionUrl ??
+      null,
+    sceneAssetUrls:
+      lineage?.sceneArtifacts.map((artifact) => artifact.storage?.url ?? artifact.assetUrl) ??
+      [],
+    providerStack: buildProviderStack({
+      selectedAttempt: input.selectedAttempt,
+    }),
+    defaultsProfileId: input.defaultsSnapshot?.id ?? null,
+    voiceProvider: input.defaultsSnapshot?.voiceProvider ?? null,
+    voiceId: input.defaultsSnapshot?.voiceId ?? null,
+    aspectRatio: input.defaultsSnapshot?.aspectRatio ?? null,
+    resolution: input.defaultsSnapshot?.resolution ?? null,
+    reviewStatus: assetReview?.status ?? null,
+    reviewReasonCodes: assetReview?.structuredReasons ?? [],
+    qualityPassed: input.qualityCheck?.passed ?? null,
+    published: input.publishOutcome?.published ?? null,
+    publishPlatform: input.publishOutcome?.platform ?? null,
+    publishUrl: input.publishOutcome?.publishedUrl ?? null,
+  });
+}
+
 export function buildProductionPackage(input: {
   opportunity: ContentOpportunity;
+  publishOutcome?: FactoryPublishOutcome | null;
 }): ProductionPackage {
   const brief = exportVideoBriefSchema.parse(
     requireStableBrief(input.opportunity),
   );
-  const narrationSpec =
-    getReusableNarrationSpec(input.opportunity, brief) ??
-    fallbackNarrationSpec(input.opportunity, brief);
-  const videoPrompt =
-    getReusableVideoPrompt(input.opportunity, brief) ??
-    fallbackVideoPrompt(input.opportunity, brief);
   const selectedAttempt = selectExportAttempt(input.opportunity);
   const renderJob = selectedAttempt.renderJob;
-  const compiledProductionPlan = renderJob?.compiledProductionPlan ?? null;
+  const compiledProductionPlan = renderJob?.compiledProductionPlan
+    ? exportCompiledProductionPlanSchema.parse(renderJob.compiledProductionPlan)
+    : null;
+  const narrationSpec = compiledProductionPlan?.narrationSpec ?? null;
+  const videoPrompt = input.opportunity.generationState?.videoPrompt
+    ? exportVideoPromptSchema.parse(input.opportunity.generationState.videoPrompt)
+    : null;
   const defaultsSnapshot =
     renderJob?.productionDefaultsSnapshot ??
     compiledProductionPlan?.defaultsSnapshot ??
@@ -388,6 +545,54 @@ export function buildProductionPackage(input: {
     input.opportunity.generationState?.latestQualityCheck ??
     selectedAttempt.lineage?.qualityCheck ??
     null;
+  const publishOutcome =
+    input.publishOutcome ??
+    buildPublishOutcomePlaceholder({
+      opportunity: input.opportunity,
+      videoBriefId: brief.id,
+      selectedAttempt,
+    });
+  const connectSummary = buildConnectSummary({
+    selectedAttempt,
+    defaultsSnapshot,
+    qualityCheck,
+    publishOutcome,
+  });
+  const lifecycleSummary = buildLifecycleSummary(input.opportunity);
+  const publishReadyPackage = productionPackagePublishReadySchema.parse({
+    handoffStatus: selectedAttempt.exportSource,
+    isPublishReady: buildPublishReadyFlag({
+      selectedAttempt,
+      compiledProductionPlan,
+      publishOutcome,
+    }),
+    compiledProductionPlanId: compiledProductionPlan?.id ?? null,
+    acceptedRenderedAsset:
+      selectedAttempt.exportSource === "accepted_render"
+        ? selectedAttempt.renderedAsset
+        : null,
+    thumbnailUrl:
+      selectedAttempt.renderedAsset?.thumbnailUrl ??
+      selectedAttempt.lineage?.thumbnailArtifact?.storage?.url ??
+      selectedAttempt.lineage?.thumbnailArtifact?.imageUrl ??
+      selectedAttempt.lineage?.composedVideoArtifact?.thumbnailUrl ??
+      null,
+    narrationArtifact: selectedAttempt.lineage?.narrationArtifact ?? null,
+    captionArtifact: selectedAttempt.lineage?.captionArtifact ?? null,
+    sceneArtifacts: selectedAttempt.lineage?.sceneArtifacts ?? [],
+    compositionArtifact: selectedAttempt.lineage?.composedVideoArtifact ?? null,
+    thumbnailArtifact: selectedAttempt.lineage?.thumbnailArtifact ?? null,
+    providerStack: buildProviderStack({
+      selectedAttempt,
+    }),
+    defaultsSnapshot,
+    lifecycleSummary,
+    reviewOutcome: selectedAttempt.assetReview,
+    reviewReasonCodes: selectedAttempt.assetReview?.structuredReasons ?? [],
+    qualityCheck,
+    publishOutcome,
+    connectSummary,
+  });
 
   return productionPackageSchema.parse({
     id: productionPackageId(brief.id),
@@ -408,6 +613,7 @@ export function buildProductionPackage(input: {
     assetReview: selectedAttempt.assetReview,
     qualityCheck,
     lineage: selectedAttempt.lineage,
+    publishOutcome,
     artifacts: {
       narration: selectedAttempt.lineage?.narrationArtifact ?? null,
       sceneAssets: selectedAttempt.lineage?.sceneArtifacts ?? [],
@@ -415,6 +621,8 @@ export function buildProductionPackage(input: {
       composedVideo: selectedAttempt.lineage?.composedVideoArtifact ?? null,
       thumbnail: selectedAttempt.lineage?.thumbnailArtifact ?? null,
     },
+    publishReadyPackage,
+    connectSummary,
     exportFormat: "json",
     version: 1,
   });

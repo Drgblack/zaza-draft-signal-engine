@@ -6,13 +6,16 @@ import {
   assemblyAiBaseUrl,
   assemblyAiMaxPolls,
   assemblyAiPollIntervalMs,
-  parseJsonResponse,
+  fetchWithProviderTimeout,
+  parseProviderJsonResponse,
   providerConfigError,
   providerHttpError,
+  providerInvalidResponseError,
+  providerRequestTimeoutMs,
+  providerRuntimeError,
   shouldUseRealProvider,
   sleep,
 } from "./provider-runtime";
-import { VideoFactoryRetryableError } from "../video-factory-retry";
 
 const MOCK_CREATED_AT = "2026-03-22T00:00:00.000Z";
 
@@ -75,35 +78,52 @@ type AssemblyAiTranscriptResponse = {
 export const assemblyAiCaptionProvider: CaptionProviderAdapter = {
   provider: "assemblyai",
   async generateCaptionTrack(input) {
-    if (!shouldUseRealProvider(["ASSEMBLYAI_API_KEY"])) {
+    if (
+      !shouldUseRealProvider({
+        provider: "AssemblyAI",
+        stage: "captions",
+        requiredEnvNames: ["ASSEMBLYAI_API_KEY"],
+      })
+    ) {
       return generateMockCaptionTrack(input);
     }
 
     const apiKey = process.env.ASSEMBLYAI_API_KEY?.trim();
     if (!apiKey) {
-      throw providerConfigError("AssemblyAI", "ASSEMBLYAI_API_KEY is missing.");
+      throw providerConfigError("AssemblyAI", "ASSEMBLYAI_API_KEY is missing.", "captions");
     }
 
     let audioUrl = input.narration.audioUrl;
     if (input.narration.audioBase64) {
-      const uploadResponse = await fetch(`${assemblyAiBaseUrl()}/v2/upload`, {
-        method: "POST",
-        headers: {
-          Authorization: apiKey,
-          "Content-Type": input.narration.audioMimeType ?? "audio/mpeg",
+      const uploadResponse = await fetchWithProviderTimeout({
+        provider: "AssemblyAI",
+        stage: "captions",
+        url: `${assemblyAiBaseUrl()}/v2/upload`,
+        timeoutMs: providerRequestTimeoutMs("ASSEMBLYAI"),
+        init: {
+          method: "POST",
+          headers: {
+            Authorization: apiKey,
+            "Content-Type": input.narration.audioMimeType ?? "audio/mpeg",
+          },
+          body: Buffer.from(input.narration.audioBase64, "base64"),
         },
-        body: Buffer.from(input.narration.audioBase64, "base64"),
       });
 
       if (!uploadResponse.ok) {
         throw providerHttpError({
           provider: "AssemblyAI",
+          stage: "captions",
           status: uploadResponse.status,
           message: await uploadResponse.text(),
         });
       }
 
-      const uploaded = await parseJsonResponse<AssemblyAiUploadResponse>(uploadResponse);
+      const uploaded = await parseProviderJsonResponse<AssemblyAiUploadResponse>({
+        provider: "AssemblyAI",
+        stage: "captions",
+        response: uploadResponse,
+      });
       audioUrl = uploaded?.upload_url ?? "";
     }
 
@@ -111,95 +131,126 @@ export const assemblyAiCaptionProvider: CaptionProviderAdapter = {
       throw providerConfigError(
         "AssemblyAI",
         "Narration audio is not publicly accessible and no audio bytes were available for upload.",
+        "captions",
       );
     }
 
-    const createTranscriptResponse = await fetch(`${assemblyAiBaseUrl()}/v2/transcript`, {
-      method: "POST",
-      headers: {
-        Authorization: apiKey,
-        "Content-Type": "application/json",
+    const createTranscriptResponse = await fetchWithProviderTimeout({
+      provider: "AssemblyAI",
+      stage: "captions",
+      url: `${assemblyAiBaseUrl()}/v2/transcript`,
+      timeoutMs: providerRequestTimeoutMs("ASSEMBLYAI"),
+      init: {
+        method: "POST",
+        headers: {
+          Authorization: apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          audio_url: audioUrl,
+          speech_model: "universal",
+          language_code: "en",
+          punctuate: true,
+          format_text: true,
+        }),
       },
-      body: JSON.stringify({
-        audio_url: audioUrl,
-        speech_model: "universal",
-        language_code: "en",
-        punctuate: true,
-        format_text: true,
-      }),
     });
 
     if (!createTranscriptResponse.ok) {
       throw providerHttpError({
         provider: "AssemblyAI",
+        stage: "captions",
         status: createTranscriptResponse.status,
         message: await createTranscriptResponse.text(),
       });
     }
 
     const createdTranscript =
-      await parseJsonResponse<AssemblyAiTranscriptResponse>(createTranscriptResponse);
+      await parseProviderJsonResponse<AssemblyAiTranscriptResponse>({
+        provider: "AssemblyAI",
+        stage: "captions",
+        response: createTranscriptResponse,
+      });
     const transcriptId = createdTranscript?.id;
     if (!transcriptId) {
-      throw new VideoFactoryRetryableError(
-        "AssemblyAI did not return a transcript ID.",
-        { retryable: true },
-      );
+      throw providerInvalidResponseError({
+        provider: "AssemblyAI",
+        stage: "captions",
+        message: "AssemblyAI did not return a transcript ID.",
+        retryable: true,
+      });
     }
 
     let transcript: AssemblyAiTranscriptResponse | null = null;
     for (let poll = 0; poll < assemblyAiMaxPolls(); poll += 1) {
-      const transcriptResponse = await fetch(
-        `${assemblyAiBaseUrl()}/v2/transcript/${encodeURIComponent(transcriptId)}`,
-        {
+      const transcriptResponse = await fetchWithProviderTimeout({
+        provider: "AssemblyAI",
+        stage: "captions",
+        url: `${assemblyAiBaseUrl()}/v2/transcript/${encodeURIComponent(transcriptId)}`,
+        timeoutMs: providerRequestTimeoutMs("ASSEMBLYAI"),
+        init: {
           headers: {
             Authorization: apiKey,
           },
         },
-      );
+      });
 
       if (!transcriptResponse.ok) {
         throw providerHttpError({
           provider: "AssemblyAI",
+          stage: "captions",
           status: transcriptResponse.status,
           message: await transcriptResponse.text(),
         });
       }
 
-      transcript = await parseJsonResponse<AssemblyAiTranscriptResponse>(transcriptResponse);
+      transcript = await parseProviderJsonResponse<AssemblyAiTranscriptResponse>({
+        provider: "AssemblyAI",
+        stage: "captions",
+        response: transcriptResponse,
+      });
       if (transcript?.status === "completed") {
         break;
       }
 
       if (transcript?.status === "error") {
-        throw new VideoFactoryRetryableError(
-          transcript.error?.trim() || "AssemblyAI transcript generation failed.",
-          { retryable: false },
-        );
+        throw providerRuntimeError({
+          provider: "AssemblyAI",
+          stage: "captions",
+          message:
+            transcript.error?.trim() || "AssemblyAI transcript generation failed.",
+          retryable: false,
+        });
       }
 
       await sleep(assemblyAiPollIntervalMs());
     }
 
     if (!transcript || transcript.status !== "completed") {
-      throw new VideoFactoryRetryableError(
-        "AssemblyAI transcript generation timed out before completion.",
-        { retryable: true },
-      );
+      throw providerRuntimeError({
+        provider: "AssemblyAI",
+        stage: "captions",
+        message: "AssemblyAI transcript generation timed out before completion.",
+        retryable: true,
+      });
     }
 
-    const vttResponse = await fetch(
-      `${assemblyAiBaseUrl()}/v2/transcript/${encodeURIComponent(transcriptId)}/vtt`,
-      {
+    const vttResponse = await fetchWithProviderTimeout({
+      provider: "AssemblyAI",
+      stage: "captions",
+      url: `${assemblyAiBaseUrl()}/v2/transcript/${encodeURIComponent(transcriptId)}/vtt`,
+      timeoutMs: providerRequestTimeoutMs("ASSEMBLYAI"),
+      init: {
         headers: {
           Authorization: apiKey,
         },
       },
-    );
+    });
 
     if (!vttResponse.ok) {
       throw providerHttpError({
         provider: "AssemblyAI",
+        stage: "captions",
         status: vttResponse.status,
         message: await vttResponse.text(),
       });

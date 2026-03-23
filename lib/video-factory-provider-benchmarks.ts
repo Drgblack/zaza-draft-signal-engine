@@ -43,6 +43,10 @@ type BenchmarkStage = (typeof VIDEO_FACTORY_EXECUTION_STAGES)[number];
 type BenchmarkOutcome = (typeof FACTORY_RUN_TERMINAL_OUTCOMES)[number];
 type BenchmarkReasonCode = (typeof FACTORY_REVIEW_REASON_CODES)[number];
 
+function isFailureOutcome(outcome: BenchmarkOutcome) {
+  return outcome === "failed" || outcome === "failed_permanent";
+}
+
 type MinimalRetryState = {
   retryCount?: number | null;
   retryStage?: string | null;
@@ -364,7 +368,7 @@ export function buildFactoryProviderBenchmarkCollection(input: {
                     : "composing") &&
               (attemptLineage.retryState?.retryCount ?? 0) > 0);
           const stageFailed =
-            ledgerEntry.terminalOutcome === "failed" &&
+            isFailureOutcome(ledgerEntry.terminalOutcome) &&
             ledgerEntry.failureStage ===
               (stage === "narration"
                 ? "generating_narration"
@@ -410,6 +414,7 @@ export function buildFactoryProviderBenchmarkCollection(input: {
               );
               break;
             case "failed":
+            case "failed_permanent":
               accumulator.failedCount += 1;
               break;
             case "review_pending":

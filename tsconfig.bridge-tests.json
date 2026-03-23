@@ -27,11 +27,13 @@
     "lib/video-factory-idempotency.ts",
     "lib/video-factory-lineage.ts",
     "lib/video-factory-language-memory.ts",
+    "lib/video-factory-provider-errors.ts",
     "lib/video-factory-provider-benchmarks.ts",
     "lib/video-factory-publish-outcomes.ts",
     "lib/video-factory-quality-checks.ts",
     "lib/video-factory-retry.ts",
     "lib/video-factory-review-reasons.ts",
+    "lib/video-factory-selection.ts",
     "lib/video-factory-review-model.ts",
     "lib/video-factory-run-ledger.ts",
     "lib/video-factory-runner.ts",
@@ -60,9 +62,12 @@
     "tests/video-factory-lineage.test.ts",
     "tests/video-factory-language-memory.test.ts",
     "tests/video-factory-provider-benchmarks.test.ts",
+    "tests/video-factory-provider-errors.test.ts",
     "tests/video-factory-publish-outcomes.test.ts",
+    "tests/video-factory-selection.test.ts",
     "tests/video-factory-state.test.ts",
     "tests/store-sanitizer.test.ts",
+    "tests/workflow.test.ts",
     "tests/zaza-connect-bridge-opportunities.test.ts"
   ]
 }

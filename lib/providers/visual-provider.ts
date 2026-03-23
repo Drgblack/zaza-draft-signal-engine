@@ -2,17 +2,23 @@ import { z } from "zod";
 
 import type { ScenePrompt } from "@/lib/scene-prompts";
 import {
-  parseJsonResponse,
+  fetchWithProviderTimeout,
+  parseProviderJsonResponse,
+  providerConfigError,
+  providerInvalidResponseError,
   providerHttpError,
+  providerPolicyError,
+  providerRequestTimeoutMs,
+  providerRuntimeError,
   runwayApiVersion,
   runwayBaseUrl,
   runwayMaxPolls,
   runwayModelId,
   runwayPollIntervalMs,
+  shouldAllowMockProviderExecution,
   shouldUseRealProvider,
   sleep,
 } from "./provider-runtime";
-import { VideoFactoryRetryableError } from "../video-factory-retry";
 
 const MOCK_CREATED_AT = "2026-03-22T00:00:00.000Z";
 
@@ -55,6 +61,19 @@ function buildMockVisualProvider(input: {
     displayName: input.displayName,
     costPerSecond: input.costPerSecond,
     async generateScene({ scenePrompt, createdAt }) {
+      if (
+        !shouldAllowMockProviderExecution({
+          provider: input.displayName,
+          stage: "visuals",
+        })
+      ) {
+        throw providerConfigError(
+          input.displayName,
+          `${input.displayName} is only available in explicit mock mode outside production.`,
+          "visuals",
+        );
+      }
+
       const resultId = generatedSceneAssetId(scenePrompt.id, input.id);
 
       return generatedSceneAssetSchema.parse({
@@ -102,44 +121,62 @@ const realRunwayGen4VisualProvider: VisualProvider = {
   displayName: "Runway Gen-4",
   costPerSecond: 0.01,
   async generateScene({ scenePrompt, aspectRatio, createdAt }) {
-    if (!shouldUseRealProvider(["RUNWAYML_API_SECRET"])) {
+    if (
+      !shouldUseRealProvider({
+        provider: "Runway",
+        stage: "visuals",
+        requiredEnvNames: ["RUNWAYML_API_SECRET"],
+      })
+    ) {
       return runwayGen4MockProvider.generateScene({ scenePrompt, aspectRatio, createdAt });
     }
 
     const apiKey = process.env.RUNWAYML_API_SECRET?.trim();
     if (!apiKey) {
-      throw new VideoFactoryRetryableError("Runway credentials are missing.", {
-        retryable: false,
-      });
+      throw providerConfigError("Runway", "RUNWAYML_API_SECRET is missing.", "visuals");
     }
 
-    const createTaskResponse = await fetch(`${runwayBaseUrl()}/v1/image_to_video`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "X-Runway-Version": runwayApiVersion(),
+    const createTaskResponse = await fetchWithProviderTimeout({
+      provider: "Runway",
+      stage: "visuals",
+      url: `${runwayBaseUrl()}/v1/image_to_video`,
+      timeoutMs: providerRequestTimeoutMs("RUNWAY"),
+      init: {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "X-Runway-Version": runwayApiVersion(),
+        },
+        body: JSON.stringify({
+          model: runwayModelId(),
+          promptText: scenePrompt.visualPrompt,
+          ratio: runwayRatio(aspectRatio),
+          duration: runwayDuration(scenePrompt.durationSec),
+        }),
       },
-      body: JSON.stringify({
-        model: runwayModelId(),
-        promptText: scenePrompt.visualPrompt,
-        ratio: runwayRatio(aspectRatio),
-        duration: runwayDuration(scenePrompt.durationSec),
-      }),
     });
 
     if (!createTaskResponse.ok) {
       throw providerHttpError({
         provider: "Runway",
+        stage: "visuals",
         status: createTaskResponse.status,
         message: await createTaskResponse.text(),
       });
     }
 
-    const createdTask = await parseJsonResponse<RunwayTaskResponse>(createTaskResponse);
+    const createdTask = await parseProviderJsonResponse<RunwayTaskResponse>({
+      provider: "Runway",
+      stage: "visuals",
+      response: createTaskResponse,
+    });
     const taskId = createdTask?.id;
     if (!taskId) {
-      throw new VideoFactoryRetryableError("Runway did not return a task ID.", {
+      throw providerInvalidResponseError({
+        provider: "Runway",
+        stage: "visuals",
+        message: "Runway did not return a task ID.",
         retryable: true,
       });
     }
@@ -153,46 +190,67 @@ const realRunwayGen4VisualProvider: VisualProvider = {
 
       if (status === "FAILED" || status === "CANCELLED") {
         const failureCode = task?.failureCode?.trim() ?? "";
-        const retryable =
-          !failureCode.startsWith("SAFETY.") &&
-          failureCode !== "INPUT_PREPROCESSING.SAFETY.TEXT";
-
-        throw new VideoFactoryRetryableError(
+        const failureMessage =
           task?.failure?.trim() ||
-            task?.failureCode?.trim() ||
-            "Runway generation failed.",
-          { retryable },
-        );
+          task?.failureCode?.trim() ||
+          "Runway generation failed.";
+        if (
+          failureCode.startsWith("SAFETY.") ||
+          failureCode === "INPUT_PREPROCESSING.SAFETY.TEXT"
+        ) {
+          throw providerPolicyError({
+            provider: "Runway",
+            stage: "visuals",
+            message: failureMessage,
+          });
+        }
+
+        throw providerRuntimeError({
+          provider: "Runway",
+          stage: "visuals",
+          message: failureMessage,
+          retryable: true,
+        });
       }
 
       await sleep(runwayPollIntervalMs());
 
-      const taskResponse = await fetch(
-        `${runwayBaseUrl()}/v1/tasks/${encodeURIComponent(taskId)}`,
-        {
+      const taskResponse = await fetchWithProviderTimeout({
+        provider: "Runway",
+        stage: "visuals",
+        url: `${runwayBaseUrl()}/v1/tasks/${encodeURIComponent(taskId)}`,
+        timeoutMs: providerRequestTimeoutMs("RUNWAY"),
+        init: {
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "X-Runway-Version": runwayApiVersion(),
           },
         },
-      );
+      });
 
       if (!taskResponse.ok) {
         throw providerHttpError({
           provider: "Runway",
+          stage: "visuals",
           status: taskResponse.status,
           message: await taskResponse.text(),
         });
       }
 
-      task = await parseJsonResponse<RunwayTaskResponse>(taskResponse);
+      task = await parseProviderJsonResponse<RunwayTaskResponse>({
+        provider: "Runway",
+        stage: "visuals",
+        response: taskResponse,
+      });
     }
 
     if (!task?.output?.[0]) {
-      throw new VideoFactoryRetryableError(
-        "Runway task did not complete before the polling window ended.",
-        { retryable: true },
-      );
+      throw providerRuntimeError({
+        provider: "Runway",
+        stage: "visuals",
+        message: "Runway task did not complete before the polling window ended.",
+        retryable: true,
+      });
     }
 
     return generatedSceneAssetSchema.parse({

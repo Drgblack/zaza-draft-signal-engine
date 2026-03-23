@@ -32,6 +32,7 @@ export const FACTORY_RUN_TERMINAL_OUTCOMES = [
   "rejected",
   "discarded",
   "failed",
+  "failed_permanent",
 ] as const;
 
 export const factoryRunProviderSetSchema = z.object({
@@ -97,6 +98,8 @@ function buildLifecycleTransitions(
     { status: "rejected", at: lifecycle.rejectedAt },
     { status: "discarded", at: lifecycle.discardedAt },
     { status: "failed", at: lifecycle.failedAt },
+    { status: "retry_queued", at: lifecycle.retryQueuedAt },
+    { status: "failed_permanent", at: lifecycle.failedPermanentAt },
   ]
     .filter(
       (
@@ -104,7 +107,11 @@ function buildLifecycleTransitions(
       ): transition is { status: FactoryRunLedgerEntry["lifecycleTransitions"][number]["status"]; at: string } =>
         typeof transition.at === "string" && transition.at.trim().length > 0,
     )
-    .map((transition) => factoryRunTransitionSchema.parse(transition));
+    .map((transition) => factoryRunTransitionSchema.parse(transition))
+    .sort(
+      (left, right) =>
+        new Date(left.at).getTime() - new Date(right.at).getTime(),
+    );
 
   return transitions;
 }
@@ -192,7 +199,8 @@ export function buildFactoryRunLedgerEntry(input: {
       input.lifecycle.status === "accepted" ||
       input.lifecycle.status === "rejected" ||
       input.lifecycle.status === "discarded" ||
-      input.lifecycle.status === "failed"
+      input.lifecycle.status === "failed" ||
+      input.lifecycle.status === "failed_permanent"
         ? input.lifecycle.status
         : "review_pending",
     lastUpdatedAt: input.lifecycle.lastUpdatedAt,
@@ -247,7 +255,8 @@ export function updateFactoryRunLedgerOutcome(
         input.lifecycle.status === "accepted" ||
         input.lifecycle.status === "rejected" ||
         input.lifecycle.status === "discarded" ||
-        input.lifecycle.status === "failed"
+        input.lifecycle.status === "failed" ||
+        input.lifecycle.status === "failed_permanent"
           ? input.lifecycle.status
           : entry.terminalOutcome,
       retryState:

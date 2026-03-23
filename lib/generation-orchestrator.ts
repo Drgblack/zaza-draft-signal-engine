@@ -17,6 +17,12 @@ import {
   type VideoFactoryRetryState,
 } from "@/lib/video-factory-retry";
 import type { VideoFactoryStatus } from "@/lib/video-factory-state";
+import {
+  applyVideoFactorySelectionDecision,
+  buildVideoFactorySelectionDecision,
+  retryPolicyForStage,
+  type VideoFactorySelectionDecision,
+} from "@/lib/video-factory-selection";
 
 export interface CompiledGenerationOrchestration {
   compiledProductionPlan: ReturnType<typeof compileVideoBriefForProduction>;
@@ -44,6 +50,14 @@ export interface CompiledGenerationOrchestration {
     generating_captions: VideoFactoryRetryState;
     composing: VideoFactoryRetryState;
   };
+  stageExecutionMetrics: {
+    preparing: { provider: string; durationMs: number; retryCount: number } | null;
+    generating_narration: { provider: string; durationMs: number; retryCount: number } | null;
+    generating_visuals: { provider: string; durationMs: number; retryCount: number } | null;
+    generating_captions: { provider: string; durationMs: number; retryCount: number } | null;
+    composing: { provider: string; durationMs: number; retryCount: number } | null;
+  };
+  selectionDecision: VideoFactorySelectionDecision;
 }
 
 export async function orchestrateCompiledVideoGeneration(input: {
@@ -52,9 +66,48 @@ export async function orchestrateCompiledVideoGeneration(input: {
   provider: RenderProvider;
   renderVersion: string;
   createdAt: string;
+  historicalOpportunities?: ContentOpportunity[];
+  persistedCompiledProductionPlan?: ReturnType<typeof compileVideoBriefForProduction> | null;
+  resumeLifecycleStatus?: VideoFactoryStatus | null;
   onCompiledPlan?: (
     compiledProductionPlan: ReturnType<typeof compileVideoBriefForProduction>,
+    selectionDecision: VideoFactorySelectionDecision,
   ) => Promise<void> | void;
+  onExecutionStageChange?: (status: Extract<
+    VideoFactoryStatus,
+    | "preparing"
+    | "generating_narration"
+    | "generating_visuals"
+    | "generating_captions"
+    | "composing"
+    | "generated"
+  >) => Promise<void> | void;
+  onStageFailure?: (input: {
+    stage: Extract<
+      VideoFactoryStatus,
+      | "preparing"
+      | "generating_narration"
+      | "generating_visuals"
+      | "generating_captions"
+      | "composing"
+    >;
+    provider: string;
+    durationMs: number;
+    error: unknown;
+  }) => Promise<void> | void;
+  onRetryScheduled?: (input: {
+    stage: Extract<
+      VideoFactoryStatus,
+      | "preparing"
+      | "generating_narration"
+      | "generating_visuals"
+      | "generating_captions"
+      | "composing"
+    >;
+    provider: string;
+    retryState: VideoFactoryRetryState;
+    error: unknown;
+  }) => Promise<void> | void;
   onStageChange?: (status: Extract<
     VideoFactoryStatus,
     | "preparing"
@@ -65,69 +118,220 @@ export async function orchestrateCompiledVideoGeneration(input: {
     | "generated"
   >) => Promise<void> | void;
 }): Promise<CompiledGenerationOrchestration> {
-  await input.onStageChange?.("preparing");
-  const { value: compiledProductionPlan, retryState: preparingRetryState } =
-    await executeWithRetry({
+  const lifecycleOrder: VideoFactoryStatus[] = [
+    "draft",
+    "queued",
+    "retry_queued",
+    "preparing",
+    "generating_narration",
+    "generating_visuals",
+    "generating_captions",
+    "composing",
+    "generated",
+    "review_pending",
+    "accepted",
+    "rejected",
+    "discarded",
+    "failed",
+    "failed_permanent",
+  ];
+  const lifecycleIndex = (status: VideoFactoryStatus | null | undefined) =>
+    status ? lifecycleOrder.indexOf(status) : -1;
+  const shouldPersistStage = (
+    status: Extract<
+      VideoFactoryStatus,
+      | "preparing"
+      | "generating_narration"
+      | "generating_visuals"
+      | "generating_captions"
+      | "composing"
+      | "generated"
+    >,
+  ) => lifecycleIndex(status) > lifecycleIndex(input.resumeLifecycleStatus ?? null);
+  const updateStage = async (
+    status: Extract<
+      VideoFactoryStatus,
+      | "preparing"
+      | "generating_narration"
+      | "generating_visuals"
+      | "generating_captions"
+      | "composing"
+      | "generated"
+    >,
+  ) => {
+    await input.onExecutionStageChange?.(status);
+    if (shouldPersistStage(status)) {
+      await input.onStageChange?.(status);
+    }
+  };
+
+  const persistedCompiledPlan = input.persistedCompiledProductionPlan ?? null;
+  let compiledProductionPlan: ReturnType<typeof compileVideoBriefForProduction>;
+  let preparingRetryState: VideoFactoryRetryState;
+  const stageExecutionMetrics: CompiledGenerationOrchestration["stageExecutionMetrics"] = {
+    preparing: null,
+    generating_narration: null,
+    generating_visuals: null,
+    generating_captions: null,
+    composing: null,
+  };
+  const runStage = async <T>(inputStage: {
+    stage: Extract<
+      VideoFactoryStatus,
+      | "preparing"
+      | "generating_narration"
+      | "generating_visuals"
+      | "generating_captions"
+      | "composing"
+    >;
+    provider: string;
+    maxRetries?: number;
+    baseDelayMs?: number;
+    isRetryableFailure?: (error: unknown) => boolean;
+    step: () => Promise<T> | T;
+  }) => {
+    await updateStage(inputStage.stage);
+    const startedAt = Date.now();
+    try {
+      const result = await executeWithRetry({
+        stage: inputStage.stage,
+        maxRetries: inputStage.maxRetries,
+        baseDelayMs: inputStage.baseDelayMs,
+        isRetryableFailure: inputStage.isRetryableFailure,
+        onRetryScheduled: async (retryInput) => {
+          await input.onRetryScheduled?.({
+            stage: inputStage.stage,
+            provider: inputStage.provider,
+            retryState: retryInput.retryState,
+            error: retryInput.error,
+          });
+        },
+        step: inputStage.step,
+      });
+      stageExecutionMetrics[inputStage.stage] = {
+        provider: inputStage.provider,
+        durationMs: Date.now() - startedAt,
+        retryCount: result.retryState.retryCount,
+      };
+      return result;
+    } catch (error) {
+      await input.onStageFailure?.({
+        stage: inputStage.stage,
+        provider: inputStage.provider,
+        durationMs: Date.now() - startedAt,
+        error,
+      });
+      throw error;
+    }
+  };
+
+  if (persistedCompiledPlan) {
+    compiledProductionPlan = persistedCompiledPlan;
+    preparingRetryState = {
+      retryCount: 0,
+      maxRetries: 0,
+      backoffDelayMs: null,
+      nextRetryAt: null,
+      lastFailureAt: null,
+      retryStage: "preparing",
+      failureMode: "none",
+      exhausted: false,
+    };
+  } else {
+    const preparation = await runStage({
       stage: "preparing",
+      provider: "prompt-compiler",
+      isRetryableFailure: () => false,
       step: async () =>
         compileVideoBriefForProduction({
           opportunity: input.opportunity,
           brief: input.brief,
         }),
-      isRetryableFailure: () => false,
     });
-  await input.onCompiledPlan?.(compiledProductionPlan);
+    compiledProductionPlan = preparation.value;
+    preparingRetryState = preparation.retryState;
+  }
+
+  const selectionDecision = buildVideoFactorySelectionDecision({
+    compiledProductionPlan,
+    briefFormat: input.brief.format,
+    briefDurationSec: input.brief.durationSec,
+    historicalOpportunities: persistedCompiledPlan
+      ? []
+      : input.historicalOpportunities ?? [],
+    appliedAt: input.createdAt,
+  });
+  const selectedCompiledProductionPlan = applyVideoFactorySelectionDecision({
+    compiledProductionPlan,
+    decision: selectionDecision,
+  });
+  const narrationRetryPolicy = retryPolicyForStage(selectionDecision, "narration");
+  const visualsRetryPolicy = retryPolicyForStage(selectionDecision, "visuals");
+  const captionsRetryPolicy = retryPolicyForStage(selectionDecision, "captions");
+  const compositionRetryPolicy = retryPolicyForStage(selectionDecision, "composition");
+  await input.onCompiledPlan?.(selectedCompiledProductionPlan, selectionDecision);
+  const narrationProviderId =
+    selectedCompiledProductionPlan.defaultsSnapshot.providerFallbacks.narration[0] ??
+    "elevenlabs";
   const visualProvider = getVisualProvider(
-    compiledProductionPlan.defaultsSnapshot.providerFallbacks.visuals[0] ?? null,
+    selectedCompiledProductionPlan.defaultsSnapshot.providerFallbacks.visuals[0] ?? null,
   );
-  await input.onStageChange?.("generating_narration");
-  const { value: narration, retryState: narrationRetryState } = await executeWithRetry({
+  const { value: narration, retryState: narrationRetryState } = await runStage({
     stage: "generating_narration",
+    provider: narrationProviderId,
+    maxRetries: narrationRetryPolicy?.maxRetries,
+    baseDelayMs: narrationRetryPolicy?.baseDelayMs,
     step: async () =>
       elevenLabsNarrationProvider.generateNarration({
-        narrationSpec: compiledProductionPlan.narrationSpec,
-        voiceId: compiledProductionPlan.defaultsSnapshot.voiceId,
-        voiceSettings: compiledProductionPlan.defaultsSnapshot.voiceSettings,
+        narrationSpec: selectedCompiledProductionPlan.narrationSpec,
+        voiceId: selectedCompiledProductionPlan.defaultsSnapshot.voiceId,
+        voiceSettings: selectedCompiledProductionPlan.defaultsSnapshot.voiceSettings,
         createdAt: input.createdAt,
       }),
   });
-  await input.onStageChange?.("generating_visuals");
-  const { value: sceneAssets, retryState: visualsRetryState } = await executeWithRetry({
+  const { value: sceneAssets, retryState: visualsRetryState } = await runStage({
     stage: "generating_visuals",
+    provider: visualProvider.id,
+    maxRetries: visualsRetryPolicy?.maxRetries,
+    baseDelayMs: visualsRetryPolicy?.baseDelayMs,
     step: async () =>
       Promise.all(
-        compiledProductionPlan.scenePrompts.map((scenePrompt) =>
+        selectedCompiledProductionPlan.scenePrompts.map((scenePrompt) =>
           visualProvider.generateScene({
             scenePrompt,
-            aspectRatio: compiledProductionPlan.defaultsSnapshot.aspectRatio,
+            aspectRatio: selectedCompiledProductionPlan.defaultsSnapshot.aspectRatio,
             createdAt: input.createdAt,
           }),
         ),
       ),
   });
-  await input.onStageChange?.("generating_captions");
-  const { value: captionTrack, retryState: captionsRetryState } = await executeWithRetry({
+  const { value: captionTrack, retryState: captionsRetryState } = await runStage({
     stage: "generating_captions",
+    provider: assemblyAiCaptionProvider.provider,
+    maxRetries: captionsRetryPolicy?.maxRetries,
+    baseDelayMs: captionsRetryPolicy?.baseDelayMs,
     step: async () =>
       assemblyAiCaptionProvider.generateCaptionTrack({
-        captionSpec: compiledProductionPlan.captionSpec,
+        captionSpec: selectedCompiledProductionPlan.captionSpec,
         narration,
         createdAt: input.createdAt,
       }),
   });
-  await input.onStageChange?.("composing");
-  const { value: composedVideo, retryState: composingRetryState } = await executeWithRetry({
+  const { value: composedVideo, retryState: composingRetryState } = await runStage({
     stage: "composing",
+    provider: ffmpegCompositionProvider.provider,
+    maxRetries: compositionRetryPolicy?.maxRetries,
+    baseDelayMs: compositionRetryPolicy?.baseDelayMs,
     step: async () =>
       ffmpegCompositionProvider.composeVideo({
-        compositionSpec: compiledProductionPlan.compositionSpec,
+        compositionSpec: selectedCompiledProductionPlan.compositionSpec,
         narration,
         sceneAssets,
         captionTrack,
         createdAt: input.createdAt,
       }),
   });
-  await input.onStageChange?.("generated");
+  await updateStage("generated");
 
   const resolvedRenderProvider: RenderProvider = sceneAssets.some(
     (asset) => asset.provider === "runway-gen4" && !asset.assetUrl.startsWith("mock://"),
@@ -136,13 +340,13 @@ export async function orchestrateCompiledVideoGeneration(input: {
     : "mock";
 
   return {
-    compiledProductionPlan,
-    narrationSpec: compiledProductionPlan.narrationSpec,
+    compiledProductionPlan: selectedCompiledProductionPlan,
+    narrationSpec: selectedCompiledProductionPlan.narrationSpec,
     renderJobInput: {
       provider: resolvedRenderProvider,
       renderVersion: input.renderVersion,
-      compiledProductionPlan,
-      productionDefaultsSnapshot: compiledProductionPlan.defaultsSnapshot,
+      compiledProductionPlan: selectedCompiledProductionPlan,
+      productionDefaultsSnapshot: selectedCompiledProductionPlan.defaultsSnapshot,
       providerJobId: composedVideo.id,
       submittedAt: input.createdAt,
       completedAt: input.createdAt,
@@ -166,5 +370,7 @@ export async function orchestrateCompiledVideoGeneration(input: {
       generating_captions: captionsRetryState,
       composing: composingRetryState,
     },
+    stageExecutionMetrics,
+    selectionDecision,
   };
 }

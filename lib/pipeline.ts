@@ -44,7 +44,7 @@ import { scoreSignal } from "@/lib/scoring";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
-import { hasGeneration, hasInterpretation, hasScoring, isFilteredOutSignal } from "@/lib/workflow";
+import { hasGeneration, hasInterpretation, hasReviewableDraftPackage, hasScoring, isFilteredOutSignal } from "@/lib/workflow";
 import type { IngestionRunSummary } from "@/lib/ingestion/types";
 import type { ScenarioAngleQuality } from "@/lib/scenario-angle";
 import type { SignalDataSource, SignalRecord, SignalScoringResult } from "@/types/signal";
@@ -1463,7 +1463,7 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
 
   const approvalCandidates = sortAutonomousTargets(
     filterSignalsForActiveReviewQueue(
-      workingSignals.filter((signal) => hasGeneration(signal) && !isFilteredOutSignal(signal)),
+      workingSignals.filter((signal) => hasReviewableDraftPackage(signal) && !isFilteredOutSignal(signal)),
       await listDuplicateClusters(),
     ),
   );

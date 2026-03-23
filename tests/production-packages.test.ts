@@ -79,6 +79,7 @@ function buildOpportunityFixture(
         status: reviewStatus === "accepted" ? "accepted" : "review_pending",
         draftAt: "2026-03-23T10:02:00.000Z",
         queuedAt: "2026-03-23T10:03:00.000Z",
+        retryQueuedAt: null,
         preparingAt: "2026-03-23T10:03:10.000Z",
         generatingNarrationAt: "2026-03-23T10:03:20.000Z",
         generatingVisualsAt: "2026-03-23T10:03:30.000Z",
@@ -90,6 +91,7 @@ function buildOpportunityFixture(
         rejectedAt: null,
         discardedAt: null,
         failedAt: null,
+        failedPermanentAt: null,
         lastUpdatedAt: "2026-03-23T10:04:20.000Z",
         failureStage: null,
         failureMessage: null,
@@ -524,6 +526,48 @@ test("buildProductionPackage exports accepted real artifacts and lineage", () =>
   assert.equal(productionPackage.qualityCheck?.passed, true);
   assert.equal(productionPackage.assetReview?.status, "accepted");
   assert.equal(productionPackage.lineage?.attemptId, "attempt-2");
+  assert.equal(productionPackage.narrationSpec?.id, "narration-spec-1");
+  assert.equal(productionPackage.publishOutcome?.published, false);
+  assert.equal(productionPackage.publishOutcome?.renderedAssetId, "asset-2");
+  assert.equal(productionPackage.publishReadyPackage.isPublishReady, true);
+  assert.equal(
+    productionPackage.publishReadyPackage.acceptedRenderedAsset?.url,
+    "https://blob.example/video.mp4",
+  );
+  assert.equal(
+    productionPackage.publishReadyPackage.narrationArtifact?.storage?.url,
+    "https://blob.example/narration.mp3",
+  );
+  assert.equal(
+    productionPackage.publishReadyPackage.captionArtifact?.storage?.url,
+    "https://blob.example/caption.vtt",
+  );
+  assert.equal(
+    productionPackage.publishReadyPackage.compositionArtifact?.storage?.url,
+    "https://blob.example/video.mp4",
+  );
+  assert.equal(
+    productionPackage.publishReadyPackage.lifecycleSummary?.status,
+    "accepted",
+  );
+  assert.deepEqual(
+    productionPackage.publishReadyPackage.reviewReasonCodes,
+    [],
+  );
+  assert.equal(productionPackage.connectSummary.isPublishReady, true);
+  assert.equal(productionPackage.connectSummary.finalVideoUrl, "https://blob.example/video.mp4");
+  assert.equal(productionPackage.connectSummary.thumbnailUrl, "https://blob.example/thumb.jpg");
+  assert.equal(productionPackage.connectSummary.narrationAudioUrl, "https://blob.example/narration.mp3");
+  assert.equal(productionPackage.connectSummary.captionTrackUrl, "https://blob.example/caption.vtt");
+  assert.deepEqual(productionPackage.connectSummary.sceneAssetUrls, [
+    "https://blob.example/scene-1.mp4",
+  ]);
+  assert.equal(productionPackage.connectSummary.providerStack?.narrationProvider, "elevenlabs");
+  assert.equal(productionPackage.connectSummary.providerStack?.captionProvider, "assemblyai");
+  assert.deepEqual(productionPackage.connectSummary.providerStack?.visualProviders, [
+    "runway-gen4",
+  ]);
+  assert.equal(productionPackage.connectSummary.reviewStatus, "accepted");
 });
 
 test("buildProductionPackage falls back to latest attempt when the current render is not accepted", () => {
@@ -534,4 +578,33 @@ test("buildProductionPackage falls back to latest attempt when the current rende
   assert.equal(productionPackage.exportSource, "latest_attempt");
   assert.equal(productionPackage.artifacts.sceneAssets.length, 1);
   assert.equal(productionPackage.artifacts.composedVideo?.providerId, "ffmpeg");
+  assert.equal(productionPackage.publishReadyPackage.isPublishReady, false);
+  assert.equal(
+    productionPackage.publishReadyPackage.reviewOutcome?.status,
+    "rejected",
+  );
+  assert.equal(productionPackage.connectSummary.handoffStatus, "latest_attempt");
+  assert.equal(productionPackage.connectSummary.isPublishReady, false);
+  assert.equal(productionPackage.connectSummary.reviewStatus, "rejected");
+  assert.deepEqual(productionPackage.connectSummary.reviewReasonCodes, [
+    "not_publish_ready",
+  ]);
+});
+
+test("buildProductionPackage stays deterministic without legacy videoPrompt state", () => {
+  const opportunity = buildOpportunityFixture("accepted");
+  if (!opportunity.generationState) {
+    throw new Error("Expected generation state fixture.");
+  }
+
+  opportunity.generationState.videoPrompt = null;
+
+  const productionPackage = buildProductionPackage({
+    opportunity,
+  });
+
+  assert.equal(productionPackage.videoPrompt, null);
+  assert.equal(productionPackage.narrationSpec?.id, "narration-spec-1");
+  assert.equal(productionPackage.publishReadyPackage.compiledProductionPlanId, "compiled-plan-1");
+  assert.equal(productionPackage.publishReadyPackage.isPublishReady, true);
 });

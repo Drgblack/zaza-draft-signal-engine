@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 
-import { regenerateContentOpportunityVideo } from "@/lib/content-opportunities";
+import {
+  regenerateContentOpportunityVideo,
+  VideoFactoryDailyCapExceededError,
+  VideoFactoryRegenerationBudgetExceededError,
+} from "@/lib/content-opportunities";
 import { VideoFactoryActiveRunError } from "@/lib/video-factory-idempotency";
 import { scheduleVideoFactoryRun } from "@/lib/video-factory-runner";
 import {
   factoryInputRegenerateVideoRequestSchema,
-  type FactoryInputResponse,
+  type FactoryInputRenderActionResponse,
 } from "@/types/api";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +19,14 @@ export async function POST(request: Request) {
   const parsed = factoryInputRegenerateVideoRequestSchema.safeParse(payload);
 
   if (!parsed.success) {
-    return NextResponse.json<FactoryInputResponse>(
+    return NextResponse.json<FactoryInputRenderActionResponse>(
       {
         success: false,
         state: null,
+        jobId: null,
+        estimatedCostUsd: null,
+        regenerationCount: null,
+        budgetRemaining: null,
         error: parsed.error.issues[0]?.message ?? "Invalid regenerate video payload.",
       },
       { status: 400 },
@@ -26,27 +34,73 @@ export async function POST(request: Request) {
   }
 
   try {
-    const state = await regenerateContentOpportunityVideo({
+    const result = await regenerateContentOpportunityVideo({
       opportunityId: parsed.data.opportunityId,
       provider: parsed.data.provider,
       regenerationReason: parsed.data.regenerationReason ?? null,
       regenerationReasonCodes: parsed.data.structuredReasons ?? [],
       regenerationNotes: parsed.data.regenerationNotes,
+      allowDailyCapOverride: parsed.data.allowDailyCapOverride ?? false,
     });
-    scheduleVideoFactoryRun({
+    await scheduleVideoFactoryRun({
       opportunityId: parsed.data.opportunityId,
     });
 
-    return NextResponse.json<FactoryInputResponse>({
+    return NextResponse.json<FactoryInputRenderActionResponse>({
       success: true,
-      state,
+      state: result.state,
+      jobId: result.jobId,
+      estimatedCostUsd: result.estimatedCostUsd,
+      regenerationCount: result.regenerationCount,
+      budgetRemaining: result.budgetRemaining,
+      budgetExhausted: result.budgetExhausted,
       message: "Video regeneration queued and handed to the factory runner.",
     });
   } catch (error) {
-    return NextResponse.json<FactoryInputResponse>(
+    if (error instanceof VideoFactoryDailyCapExceededError) {
+      return NextResponse.json<FactoryInputRenderActionResponse>(
+        {
+          success: false,
+          state: error.state,
+          jobId: error.jobId,
+          estimatedCostUsd: error.estimatedCostUsd,
+          regenerationCount: error.regenerationCount,
+          budgetRemaining: error.budgetRemaining,
+          budgetExhausted: false,
+          dailyCapExceeded: true,
+          dailySpendCapUsd: error.dailySpendGuard.dailySpendCapUsd,
+          dailySpendUsedUsd: error.dailySpendGuard.dailySpendUsedUsd,
+          projectedDailySpendUsd: error.dailySpendGuard.projectedDailySpendUsd,
+          error: error.message,
+        },
+        { status: 409 },
+      );
+    }
+
+    if (error instanceof VideoFactoryRegenerationBudgetExceededError) {
+      return NextResponse.json<FactoryInputRenderActionResponse>(
+        {
+          success: false,
+          state: error.state,
+          jobId: error.jobId,
+          estimatedCostUsd: error.estimatedCostUsd,
+          regenerationCount: error.regenerationCount,
+          budgetRemaining: error.budgetRemaining,
+          budgetExhausted: true,
+          error: error.message,
+        },
+        { status: 409 },
+      );
+    }
+
+    return NextResponse.json<FactoryInputRenderActionResponse>(
       {
         success: false,
         state: null,
+        jobId: null,
+        estimatedCostUsd: null,
+        regenerationCount: null,
+        budgetRemaining: null,
         error: error instanceof Error ? error.message : "Unable to regenerate video.",
       },
       {

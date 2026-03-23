@@ -152,6 +152,7 @@ export type FactoryDatasetExport = z.infer<typeof factoryDatasetExportSchema>;
 
 function maybeBuildProductionPackage(
   opportunity: ContentOpportunity,
+  publishOutcomes: FactoryPublishOutcome[],
 ): ProductionPackage | null {
   if (
     !opportunity.selectedAngleId ||
@@ -161,8 +162,17 @@ function maybeBuildProductionPackage(
     return null;
   }
 
+  const matchedPublishOutcome =
+    opportunity.generationState?.renderedAsset?.id
+      ? publishOutcomes.find(
+          (entry) =>
+            entry.renderedAssetId === opportunity.generationState?.renderedAsset?.id,
+        ) ?? null
+      : null;
+
   return buildProductionPackage({
     opportunity,
+    publishOutcome: matchedPublishOutcome,
   });
 }
 
@@ -193,8 +203,11 @@ function buildBenchmarkMetadata(input: {
       .length,
     discardedAttemptCount: runLedger.filter((entry) => entry.terminalOutcome === "discarded")
       .length,
-    failedAttemptCount: runLedger.filter((entry) => entry.terminalOutcome === "failed")
-      .length,
+    failedAttemptCount: runLedger.filter(
+      (entry) =>
+        entry.terminalOutcome === "failed" ||
+        entry.terminalOutcome === "failed_permanent",
+    ).length,
     publishedOutcomeCount: input.publishOutcomes.filter((entry) => entry.published).length,
     latestProviderSet: runLedger.at(-1)?.providerSet ?? null,
     latestDefaultsProfileId: defaultsSnapshot?.id ?? null,
@@ -210,7 +223,10 @@ function buildDatasetRecord(input: {
 }): FactoryDatasetRecord {
   const { opportunity } = input;
   const generationState = opportunity.generationState;
-  const productionPackage = maybeBuildProductionPackage(opportunity);
+  const productionPackage = maybeBuildProductionPackage(
+    opportunity,
+    input.publishOutcomes,
+  );
 
   return factoryDatasetRecordSchema.parse({
     rowId: opportunity.opportunityId,

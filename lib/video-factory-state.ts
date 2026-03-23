@@ -7,6 +7,7 @@ const VIDEO_FACTORY_RENDER_PROVIDERS = ["mock", "runway", "capcut", "custom"] as
 export const VIDEO_FACTORY_STATUSES = [
   "draft",
   "queued",
+  "retry_queued",
   "preparing",
   "generating_narration",
   "generating_visuals",
@@ -18,6 +19,7 @@ export const VIDEO_FACTORY_STATUSES = [
   "rejected",
   "discarded",
   "failed",
+  "failed_permanent",
 ] as const;
 
 export type VideoFactoryStatus = (typeof VIDEO_FACTORY_STATUSES)[number];
@@ -30,6 +32,7 @@ export const videoFactoryLifecycleSchema = z.object({
   status: z.enum(VIDEO_FACTORY_STATUSES),
   draftAt: z.string().trim().nullable().default(null),
   queuedAt: z.string().trim().nullable().default(null),
+  retryQueuedAt: z.string().trim().nullable().default(null),
   preparingAt: z.string().trim().nullable().default(null),
   generatingNarrationAt: z.string().trim().nullable().default(null),
   generatingVisualsAt: z.string().trim().nullable().default(null),
@@ -41,6 +44,7 @@ export const videoFactoryLifecycleSchema = z.object({
   rejectedAt: z.string().trim().nullable().default(null),
   discardedAt: z.string().trim().nullable().default(null),
   failedAt: z.string().trim().nullable().default(null),
+  failedPermanentAt: z.string().trim().nullable().default(null),
   lastUpdatedAt: z.string().trim().min(1),
   failureStage: z.enum(VIDEO_FACTORY_STATUSES).nullable().default(null),
   failureMessage: z.string().trim().nullable().default(null),
@@ -59,6 +63,8 @@ function timestampFieldForStatus(status: VideoFactoryStatus): keyof VideoFactory
       return "draftAt";
     case "queued":
       return "queuedAt";
+    case "retry_queued":
+      return "retryQueuedAt";
     case "preparing":
       return "preparingAt";
     case "generating_narration":
@@ -81,6 +87,8 @@ function timestampFieldForStatus(status: VideoFactoryStatus): keyof VideoFactory
       return "discardedAt";
     case "failed":
       return "failedAt";
+    case "failed_permanent":
+      return "failedPermanentAt";
   }
 }
 
@@ -93,25 +101,77 @@ function canTransition(from: VideoFactoryStatus, to: VideoFactoryStatus): boolea
     case "draft":
       return to === "queued";
     case "queued":
-      return to === "preparing" || to === "failed";
+      return (
+        to === "preparing" ||
+        to === "retry_queued" ||
+        to === "failed" ||
+        to === "failed_permanent"
+      );
+    case "retry_queued":
+      return (
+        to === "preparing" ||
+        to === "generating_narration" ||
+        to === "generating_visuals" ||
+        to === "generating_captions" ||
+        to === "composing" ||
+        to === "failed" ||
+        to === "failed_permanent"
+      );
     case "preparing":
-      return to === "generating_narration" || to === "failed";
+      return (
+        to === "generating_narration" ||
+        to === "retry_queued" ||
+        to === "failed" ||
+        to === "failed_permanent"
+      );
     case "generating_narration":
-      return to === "generating_visuals" || to === "failed";
+      return (
+        to === "generating_visuals" ||
+        to === "retry_queued" ||
+        to === "failed" ||
+        to === "failed_permanent"
+      );
     case "generating_visuals":
-      return to === "generating_captions" || to === "failed";
+      return (
+        to === "generating_captions" ||
+        to === "retry_queued" ||
+        to === "failed" ||
+        to === "failed_permanent"
+      );
     case "generating_captions":
-      return to === "composing" || to === "failed";
+      return (
+        to === "composing" ||
+        to === "retry_queued" ||
+        to === "failed" ||
+        to === "failed_permanent"
+      );
     case "composing":
-      return to === "generated" || to === "failed";
+      return (
+        to === "generated" ||
+        to === "retry_queued" ||
+        to === "failed" ||
+        to === "failed_permanent"
+      );
     case "generated":
-      return to === "review_pending" || to === "failed";
+      return (
+        to === "review_pending" ||
+        to === "retry_queued" ||
+        to === "failed" ||
+        to === "failed_permanent"
+      );
     case "review_pending":
-      return to === "accepted" || to === "rejected" || to === "discarded" || to === "failed";
+      return (
+        to === "accepted" ||
+        to === "rejected" ||
+        to === "discarded" ||
+        to === "failed" ||
+        to === "failed_permanent"
+      );
     case "accepted":
     case "rejected":
     case "discarded":
     case "failed":
+    case "failed_permanent":
       return false;
   }
 }
@@ -167,8 +227,18 @@ export function transitionVideoFactoryLifecycle(
         : input.renderVersion ?? null,
     status: nextStatus,
     lastUpdatedAt: input.timestamp,
-    failureStage: nextStatus === "failed" ? input.failureStage ?? lifecycle.status : null,
-    failureMessage: nextStatus === "failed" ? input.failureMessage ?? null : null,
+    failureStage:
+      nextStatus === "failed" || nextStatus === "failed_permanent"
+        ? input.failureStage ?? lifecycle.status
+        : nextStatus === "retry_queued"
+          ? input.failureStage ?? lifecycle.failureStage ?? lifecycle.status
+          : null,
+    failureMessage:
+      nextStatus === "failed" || nextStatus === "failed_permanent"
+        ? input.failureMessage ?? null
+        : nextStatus === "retry_queued"
+          ? input.failureMessage ?? lifecycle.failureMessage ?? null
+          : null,
     retryState:
       input.retryState === undefined ? lifecycle.retryState : input.retryState ?? null,
     [timestampField]:

@@ -4,8 +4,10 @@ import type { NarrationSpec } from "@/lib/narration-specs";
 import {
   elevenLabsBaseUrl,
   elevenLabsModelId,
+  fetchWithProviderTimeout,
   providerConfigError,
   providerHttpError,
+  providerRequestTimeoutMs,
   shouldUseRealProvider,
   toBase64,
 } from "./provider-runtime";
@@ -66,7 +68,13 @@ async function generateMockNarration(input: {
 export const elevenLabsNarrationProvider: NarrationProviderAdapter = {
   provider: "elevenlabs",
   async generateNarration(input) {
-    if (!shouldUseRealProvider(["ELEVENLABS_API_KEY"])) {
+    if (
+      !shouldUseRealProvider({
+        provider: "ElevenLabs",
+        stage: "narration",
+        requiredEnvNames: ["ELEVENLABS_API_KEY"],
+      })
+    ) {
       return generateMockNarration(input);
     }
 
@@ -81,12 +89,16 @@ export const elevenLabsNarrationProvider: NarrationProviderAdapter = {
       throw providerConfigError(
         "ElevenLabs",
         "No voice ID was provided. Pass defaultsSnapshot.voiceId or set ELEVENLABS_VOICE_ID.",
+        "narration",
       );
     }
 
-    const response = await fetch(
-      `${elevenLabsBaseUrl()}/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
-      {
+    const response = await fetchWithProviderTimeout({
+      provider: "ElevenLabs",
+      stage: "narration",
+      url: `${elevenLabsBaseUrl()}/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
+      timeoutMs: providerRequestTimeoutMs("ELEVENLABS"),
+      init: {
         method: "POST",
         headers: {
           Accept: "audio/mpeg",
@@ -107,11 +119,12 @@ export const elevenLabsNarrationProvider: NarrationProviderAdapter = {
             : undefined,
         }),
       },
-    );
+    });
 
     if (!response.ok) {
       throw providerHttpError({
         provider: "ElevenLabs",
+        stage: "narration",
         status: response.status,
         message: await response.text(),
       });

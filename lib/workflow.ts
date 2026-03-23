@@ -75,6 +75,18 @@ export function hasGeneration(signal: SignalRecord): boolean {
   );
 }
 
+export function hasReviewableDraftPackage(signal: SignalRecord): boolean {
+  if (hasGeneration(signal)) {
+    return true;
+  }
+
+  const hasCoreTextDrafts = Boolean(signal.xDraft && signal.linkedInDraft && signal.redditDraft);
+  const hasSupportingCreative = Boolean(signal.imagePrompt || signal.videoScript);
+  const isLegacyReviewState = signal.status === "Draft Generated" || signal.status === "Reviewed";
+
+  return hasCoreTextDrafts && hasSupportingCreative && isLegacyReviewState;
+}
+
 export function filterSignals(signals: SignalRecord[], filters: SignalFilters): SignalRecord[] {
   return signals.filter((signal) => {
     if (filters.status && signal.status !== filters.status) {
@@ -114,7 +126,7 @@ export function getWorkflowBuckets(signals: SignalRecord[]) {
   return {
     needsInterpretation: signals.filter((signal) => !isFilteredOutSignal(signal) && (!hasInterpretation(signal) || signal.status === "New")),
     readyForGeneration: signals.filter((signal) => !isFilteredOutSignal(signal) && hasInterpretation(signal) && !hasGeneration(signal)),
-    readyForReview: signals.filter((signal) => hasGeneration(signal) && ["Draft Generated", "Reviewed"].includes(signal.status)),
+    readyForReview: signals.filter((signal) => hasReviewableDraftPackage(signal) && ["Draft Generated", "Reviewed"].includes(signal.status)),
     readyToSchedule: signals.filter((signal) => signal.status === "Approved"),
     scheduledAwaitingPosting: signals.filter((signal) => signal.status === "Scheduled"),
     filteredOut: signals.filter((signal) => isFilteredOutSignal(signal)),

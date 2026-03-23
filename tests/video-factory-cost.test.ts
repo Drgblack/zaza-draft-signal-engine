@@ -5,6 +5,9 @@ import {
   buildCostEstimate,
   buildJobCostRecord,
   evaluateVideoFactoryBudgetGuard,
+  evaluateVideoFactoryDailySpendGuard,
+  getVideoFactoryDailySpendCapUsd,
+  getVideoFactoryMaxRegenerationsPerBrief,
 } from "../lib/video-factory-cost";
 
 test("buildCostEstimate derives deterministic per-stage cost from compiled plan", () => {
@@ -320,4 +323,28 @@ test("evaluateVideoFactoryBudgetGuard marks warnings and hard stops deterministi
   assert.match(warningGuard.warningMessage ?? "", /warning threshold/i);
   assert.equal(blockedGuard.status, "blocked");
   assert.match(blockedGuard.hardStopMessage ?? "", /hard-stop threshold/i);
+});
+
+test("evaluateVideoFactoryDailySpendGuard blocks projected overages deterministically", () => {
+  const withinBudget = evaluateVideoFactoryDailySpendGuard({
+    estimatedCostUsd: 0.8,
+    dailySpendUsedUsd: 18.5,
+    dailySpendCapUsd: 20,
+  });
+  const blocked = evaluateVideoFactoryDailySpendGuard({
+    estimatedCostUsd: 1.8,
+    dailySpendUsedUsd: 18.5,
+    dailySpendCapUsd: 20,
+  });
+
+  assert.equal(withinBudget.status, "within_budget");
+  assert.equal(withinBudget.projectedDailySpendUsd, 19.3);
+  assert.equal(blocked.status, "blocked");
+  assert.equal(blocked.projectedDailySpendUsd, 20.3);
+  assert.match(blocked.message ?? "", /daily cap/i);
+});
+
+test("video factory guardrail defaults stay phase-c compatible", () => {
+  assert.equal(getVideoFactoryDailySpendCapUsd(), 20);
+  assert.equal(getVideoFactoryMaxRegenerationsPerBrief(), 3);
 });

@@ -54,17 +54,29 @@ export interface CostEstimate {
   mode: GenerationMode;
 }
 
+export interface PublishOutcomeSummary {
+  published: boolean;
+  platform: string | null;
+  publishDate: string | null;
+  publishedUrl: string | null;
+  impressions: number | null;
+  clicks: number | null;
+  signups: number | null;
+}
+
 export interface RenderJobProgress {
   jobId: string;
   viewState: "pre-generation" | "generating" | "review";
   status: RenderJobStatus;
   regenerationCount: number;
+  retryCount: number;
   regenerationBudgetMax: number;
   budgetExhausted: boolean;
   currentAttempt: number;
   priorAttemptsCount: number;
   lifecycleLabel: string;
   terminalOutcome: string | null;
+  reviewReasonLabels: string[];
   lastUpdatedAt: string | null;
   providerLabel: string;
   qualitySummary: string | null;
@@ -118,6 +130,48 @@ function buildQualitySummary(qualityCheck: QualityCheckResult | null | undefined
   }
 
   return `Failed with ${qualityCheck.failures.length} issue${qualityCheck.failures.length === 1 ? "" : "s"}`;
+}
+
+function toSentenceLabel(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized.replaceAll("_", " ");
+}
+
+function buildReviewReasonLabels(
+  opportunity: ContentOpportunity,
+  selectedRunEntry: SelectedReviewAttempt["selectedRunEntry"],
+): string[] {
+  const generationState = opportunity.generationState;
+  if (!generationState) {
+    return [];
+  }
+
+  const structuredReasons = [
+    ...(generationState.assetReview?.structuredReasons ?? []),
+    ...(selectedRunEntry?.decisionStructuredReasons ?? []),
+  ]
+    .map((reason) => toSentenceLabel(reason))
+    .filter((reason): reason is string => Boolean(reason));
+
+  const deduped = Array.from(new Set(structuredReasons));
+  if (deduped.length > 0) {
+    return deduped;
+  }
+
+  const fallbackReason =
+    toSentenceLabel(generationState.assetReview?.rejectionReason) ??
+    toSentenceLabel(selectedRunEntry?.decisionNotes) ??
+    null;
+
+  return fallbackReason ? [fallbackReason] : [];
 }
 
 function findMatchingAttempt(
@@ -196,6 +250,10 @@ function buildProviderLabel(
 }
 
 function isFailurePermanent(opportunity: ContentOpportunity): boolean {
+  if (opportunity.generationState?.factoryLifecycle?.status === "failed_permanent") {
+    return true;
+  }
+
   const retryState = opportunity.generationState?.latestRetryState;
   if (!retryState) {
     return true;
@@ -218,12 +276,14 @@ function inferViewState(opportunity: ContentOpportunity): RenderJobProgress["vie
   const lifecycleStatus = generationState.factoryLifecycle?.status ?? null;
   if (
     lifecycleStatus === "queued" ||
+    lifecycleStatus === "retry_queued" ||
     lifecycleStatus === "preparing" ||
     lifecycleStatus === "generating_narration" ||
     lifecycleStatus === "generating_visuals" ||
     lifecycleStatus === "generating_captions" ||
     lifecycleStatus === "composing" ||
-    lifecycleStatus === "failed"
+    lifecycleStatus === "failed" ||
+    lifecycleStatus === "failed_permanent"
   ) {
     return "generating";
   }
@@ -243,11 +303,17 @@ function inferStatus(opportunity: ContentOpportunity): RenderJobStatus {
   }
 
   const lifecycleStatus = generationState.factoryLifecycle?.status ?? null;
-  if (lifecycleStatus === "failed" || generationState.renderJob?.status === "failed") {
+  if (
+    lifecycleStatus === "failed_permanent" ||
+    lifecycleStatus === "failed" ||
+    generationState.renderJob?.status === "failed"
+  ) {
     return isFailurePermanent(opportunity) ? "failed_permanent" : "failed";
   }
 
   switch (lifecycleStatus) {
+    case "retry_queued":
+      return "queued";
     case "generating_narration":
       return "narration_generating";
     case "generating_visuals":
@@ -390,6 +456,12 @@ export function buildVideoFactoryReviewJob(
     selectedRunEntry?.actualCost?.actualCostUsd ??
     selectedAttempt?.actualCost?.actualCostUsd ??
     null;
+  const retryCount =
+    generationState.latestRetryState?.retryCount ??
+    generationState.renderJob?.retryState?.retryCount ??
+    selectedRunEntry?.retryState?.retryCount ??
+    selectedAttempt?.retryState?.retryCount ??
+    0;
   const finalVideoUrl =
     generationState.renderedAsset?.url ??
     selectedAttempt?.composedVideoArtifact?.storage?.url ??
@@ -410,6 +482,7 @@ export function buildVideoFactoryReviewJob(
     viewState: inferViewState(opportunity),
     status: inferStatus(opportunity),
     regenerationCount: priorAttemptsCount,
+    retryCount,
     regenerationBudgetMax,
     budgetExhausted: priorAttemptsCount >= regenerationBudgetMax,
     currentAttempt,
@@ -420,6 +493,7 @@ export function buildVideoFactoryReviewJob(
       generationState.assetReview?.status ??
       generationState.factoryLifecycle?.status ??
       null,
+    reviewReasonLabels: buildReviewReasonLabels(opportunity, selectedRunEntry),
     lastUpdatedAt:
       selectedRunEntry?.lastUpdatedAt ??
       generationState.factoryLifecycle?.lastUpdatedAt ??

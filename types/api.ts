@@ -468,6 +468,7 @@ export const factoryInputGenerateVideoRequestSchema = z.object({
   opportunityId: z.string().trim().min(1),
   provider: z.enum(["mock", "runway", "capcut", "custom"]).default("mock"),
   preTriageConcern: z.enum(RENDER_JOB_PRE_TRIAGE_CONCERNS).nullable().optional(),
+  allowDailyCapOverride: z.boolean().optional(),
 });
 
 export type FactoryInputGenerateVideoRequest = z.infer<
@@ -480,6 +481,7 @@ export const factoryInputRegenerateVideoRequestSchema = z.object({
   regenerationReason: z.enum(RENDER_JOB_REGENERATION_REASONS).nullable().optional(),
   structuredReasons: factoryReviewReasonListSchema.optional(),
   regenerationNotes: z.string().optional(),
+  allowDailyCapOverride: z.boolean().optional(),
 });
 
 export type FactoryInputRegenerateVideoRequest = z.infer<
@@ -1093,6 +1095,22 @@ export interface FactoryInputResponse {
   error?: string;
 }
 
+export interface FactoryInputRenderActionResponse {
+  success: boolean;
+  state: ContentOpportunityState | null;
+  jobId: string | null;
+  estimatedCostUsd: number | null;
+  regenerationCount: number | null;
+  budgetRemaining: number | null;
+  budgetExhausted?: boolean;
+  dailyCapExceeded?: boolean;
+  dailySpendCapUsd?: number | null;
+  dailySpendUsedUsd?: number | null;
+  projectedDailySpendUsd?: number | null;
+  message?: string;
+  error?: string;
+}
+
 export interface FactoryInputRenderStatusResponse {
   success: boolean;
   opportunityId: string | null;
@@ -1110,9 +1128,11 @@ export interface FactoryInputRenderStatusResponse {
       | "awaiting_brief_approval"
       | "ready_to_generate"
       | "queued"
+      | "retry_queued"
       | "submitted"
       | "rendering"
       | "failed"
+      | "failed_permanent"
       | "pending_review"
       | "accepted"
       | "rejected"

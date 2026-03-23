@@ -4,6 +4,7 @@ import type { VideoFactoryLifecycle } from "@/lib/video-factory-state";
 
 export const VIDEO_FACTORY_ACTIVE_STATUSES = [
   "queued",
+  "retry_queued",
   "preparing",
   "generating_narration",
   "generating_visuals",

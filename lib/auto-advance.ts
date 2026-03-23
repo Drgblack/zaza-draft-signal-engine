@@ -2,7 +2,7 @@ import { evaluateDraftQuality, evaluateGenerationReadiness, type DraftQualityEva
 import type { UnifiedGuidance } from "@/lib/guidance";
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import { assessTransformability } from "@/lib/transformability";
-import { hasGeneration, hasInterpretation, hasScoring, isFilteredOutSignal } from "@/lib/workflow";
+import { hasGeneration, hasInterpretation, hasReviewableDraftPackage, hasScoring, isFilteredOutSignal } from "@/lib/workflow";
 import type { SignalGenerationInput, SignalGenerationResult, SignalRecord } from "@/types/signal";
 
 export type AutoAdvanceStage = "auto_interpret" | "auto_generate" | "auto_prepare_for_review";
@@ -369,7 +369,7 @@ export function assessApprovalReadiness(signal: SignalRecord, guidance: UnifiedG
     };
   }
 
-  if (!hasGeneration(signal)) {
+  if (!hasReviewableDraftPackage(signal)) {
     return {
       stage: "auto_prepare_for_review",
       decision: "hold",
@@ -452,6 +452,13 @@ export function assessAutonomousSignal(signal: SignalRecord, guidance: UnifiedGu
     };
   }
 
+  // Some legacy reviewable records are missing CTA metadata, but they still have a
+  // real draft package and should be evaluated in the approval-ready stage rather
+  // than sent back through scoring/interpretation.
+  if (hasReviewableDraftPackage(signal)) {
+    return assessApprovalReadiness(signal, guidance);
+  }
+
   if (!hasScoring(signal)) {
     return {
       stage: "auto_interpret",
@@ -469,9 +476,5 @@ export function assessAutonomousSignal(signal: SignalRecord, guidance: UnifiedGu
     return assessAutoInterpret(signal, guidance);
   }
 
-  if (!hasGeneration(signal)) {
-    return assessAutoGenerate(signal, guidance);
-  }
-
-  return assessApprovalReadiness(signal, guidance);
+  return assessAutoGenerate(signal, guidance);
 }

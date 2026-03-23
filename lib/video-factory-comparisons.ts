@@ -32,14 +32,21 @@ export const factoryComparisonAttemptRefSchema = z.object({
   voiceProvider: z.string().trim().nullable().default(null),
   voiceId: z.string().trim().nullable().default(null),
   terminalOutcome: z
-    .enum(["review_pending", "accepted", "rejected", "discarded", "failed"])
+    .enum([
+      "review_pending",
+      "accepted",
+      "rejected",
+      "discarded",
+      "failed",
+      "failed_permanent",
+    ])
     .nullable()
     .default(null),
 });
 
 export const factoryComparisonDecisionSchema = z.object({
   outcome: z
-    .enum(["accepted", "rejected", "discarded", "failed"])
+    .enum(["accepted", "rejected", "discarded", "failed", "failed_permanent"])
     .nullable()
     .default(null),
   structuredReasons: factoryReviewReasonListSchema,
@@ -327,7 +334,12 @@ export function updateFactoryComparisonDecision(
   existing: FactoryComparisonRecord[],
   input: {
     comparisonRenderJobId: string;
-    outcome: "accepted" | "rejected" | "discarded" | "failed";
+    outcome:
+      | "accepted"
+      | "rejected"
+      | "discarded"
+      | "failed"
+      | "failed_permanent";
     structuredReasons?: FactoryReviewReasonCode[];
     notes?: string | null;
     updatedAt: string;
@@ -343,7 +355,8 @@ export function updateFactoryComparisonDecision(
         ? "comparison"
         : input.outcome === "rejected" ||
             input.outcome === "discarded" ||
-            input.outcome === "failed"
+            input.outcome === "failed" ||
+            input.outcome === "failed_permanent"
           ? "baseline"
           : null;
 

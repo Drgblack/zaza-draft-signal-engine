@@ -9,10 +9,15 @@ import { deriveStructuredReasonsFromLegacyRegenerationReason } from "@/lib/video
 import {
   buildVideoFactoryReviewBrief,
   buildVideoFactoryReviewJob,
+  type PublishOutcomeSummary,
   type PreTriageConcern,
   type RegenerationReason,
 } from "@/lib/video-factory-review-model";
-import type { FactoryInputRenderStatusResponse, FactoryInputResponse } from "@/types/api";
+import type {
+  FactoryInputPublishOutcomeResponse,
+  FactoryInputRenderStatusResponse,
+  FactoryInputResponse,
+} from "@/types/api";
 
 function updateOpportunityFromState(
   state: ContentOpportunityState | null,
@@ -40,6 +45,7 @@ export function VideoFactoryReviewConnected({
 }) {
   const router = useRouter();
   const [opportunity, setOpportunity] = useState(initialOpportunity);
+  const [publishOutcome, setPublishOutcome] = useState<PublishOutcomeSummary | null>(null);
   const [feedback, setFeedback] = useState<{
     kind: "status" | "error";
     message: string;
@@ -49,11 +55,65 @@ export function VideoFactoryReviewConnected({
     () => opportunity.generationState?.renderJob?.provider ?? "runway",
     [opportunity.generationState?.renderJob?.provider],
   );
+  const activeJobId = opportunity.generationState?.renderJob?.id ?? null;
   const pollingEnabled = shouldPoll(opportunity);
 
   useEffect(() => {
     setOpportunity(initialOpportunity);
   }, [initialOpportunity]);
+
+  useEffect(() => {
+    const reviewStatus = opportunity.generationState?.assetReview?.status ?? null;
+    if (reviewStatus !== "accepted") {
+      setPublishOutcome(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadPublishOutcome = async () => {
+      try {
+        const response = await fetch(
+          `/api/factory-inputs/publish-outcome?opportunityId=${encodeURIComponent(opportunity.opportunityId)}`,
+          { cache: "no-store" },
+        );
+        const data =
+          (await response.json().catch(() => null)) as FactoryInputPublishOutcomeResponse | null;
+
+        if (!response.ok || !data?.success || cancelled) {
+          return;
+        }
+
+        setPublishOutcome(
+          data.publishOutcome
+            ? {
+                published: data.publishOutcome.published,
+                platform: data.publishOutcome.platform,
+                publishDate: data.publishOutcome.publishDate,
+                publishedUrl: data.publishOutcome.publishedUrl,
+                impressions: data.publishOutcome.impressions,
+                clicks: data.publishOutcome.clicks,
+                signups: data.publishOutcome.signups,
+              }
+            : null,
+        );
+      } catch {
+        if (!cancelled) {
+          setPublishOutcome(null);
+        }
+      }
+    };
+
+    void loadPublishOutcome();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    opportunity.opportunityId,
+    opportunity.generationState?.assetReview?.status,
+    opportunity.generationState?.renderedAsset?.id,
+  ]);
 
   useEffect(() => {
     if (!pollingEnabled) {
@@ -65,7 +125,9 @@ export function VideoFactoryReviewConnected({
     const pollStatus = async () => {
       try {
         const response = await fetch(
-          `/api/factory-inputs/render-status?opportunityId=${encodeURIComponent(opportunity.opportunityId)}`,
+          activeJobId
+            ? `/api/render/render-status?jobId=${encodeURIComponent(activeJobId)}`
+            : `/api/render/render-status?opportunityId=${encodeURIComponent(opportunity.opportunityId)}`,
           { cache: "no-store" },
         );
         const data =
@@ -96,7 +158,7 @@ export function VideoFactoryReviewConnected({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [opportunity.opportunityId, pollingEnabled]);
+  }, [activeJobId, opportunity.opportunityId, pollingEnabled]);
 
   const brief = useMemo(
     () => buildVideoFactoryReviewBrief(opportunity),
@@ -178,7 +240,7 @@ export function VideoFactoryReviewConnected({
       }
 
       await runFactoryAction({
-        url: "/api/factory-inputs/generate-video",
+        url: "/api/render/generate-video",
         method: "POST",
         body: {
           opportunityId: opportunity.opportunityId,
@@ -192,7 +254,7 @@ export function VideoFactoryReviewConnected({
   function handleApprove() {
     runAction(async () => {
       await runFactoryAction({
-        url: "/api/factory-inputs/render-review",
+        url: "/api/render/render-review",
         method: "PATCH",
         body: {
           opportunityId: opportunity.opportunityId,
@@ -205,7 +267,7 @@ export function VideoFactoryReviewConnected({
   function handleReject() {
     runAction(async () => {
       await runFactoryAction({
-        url: "/api/factory-inputs/render-review",
+        url: "/api/render/render-review",
         method: "PATCH",
         body: {
           opportunityId: opportunity.opportunityId,
@@ -218,7 +280,7 @@ export function VideoFactoryReviewConnected({
   function handleRegenerate(reason: RegenerationReason) {
     runAction(async () => {
       await runFactoryAction({
-        url: "/api/factory-inputs/regenerate-video",
+        url: "/api/render/regenerate-video",
         method: "POST",
         body: {
           opportunityId: opportunity.opportunityId,
@@ -241,7 +303,7 @@ export function VideoFactoryReviewConnected({
   function handleDiscard() {
     runAction(async () => {
       await runFactoryAction({
-        url: "/api/factory-inputs/discard-asset",
+        url: "/api/render/discard-asset",
         method: "POST",
         body: {
           opportunityId: opportunity.opportunityId,
@@ -275,6 +337,7 @@ export function VideoFactoryReviewConnected({
       <VideoFactoryReview
         brief={brief}
         job={job}
+        publishOutcome={publishOutcome}
         onGenerate={handleGenerate}
         onApprove={handleApprove}
         onReject={handleReject}

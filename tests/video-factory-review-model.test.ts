@@ -80,6 +80,7 @@ function buildOpportunityFixture(): ContentOpportunity {
         status: "review_pending",
         draftAt: "2026-03-23T10:02:00.000Z",
         queuedAt: "2026-03-23T10:03:00.000Z",
+        retryQueuedAt: null,
         preparingAt: "2026-03-23T10:03:10.000Z",
         generatingNarrationAt: "2026-03-23T10:03:20.000Z",
         generatingVisualsAt: "2026-03-23T10:03:30.000Z",
@@ -91,6 +92,7 @@ function buildOpportunityFixture(): ContentOpportunity {
         rejectedAt: null,
         discardedAt: null,
         failedAt: null,
+        failedPermanentAt: null,
         lastUpdatedAt: "2026-03-23T10:04:10.000Z",
         failureStage: null,
         failureMessage: null,
@@ -415,8 +417,10 @@ test("buildVideoFactoryReviewJob maps the latest persisted factory attempt", () 
   assert.equal(job?.status, "completed");
   assert.equal(job?.currentAttempt, 2);
   assert.equal(job?.priorAttemptsCount, 1);
+  assert.equal(job?.retryCount, 0);
   assert.equal(job?.providerLabel, "Narration elevenlabs | Visuals runway-gen4 | Captions assemblyai | Composition ffmpeg");
   assert.equal(job?.qualitySummary, "Passed");
+  assert.deepEqual(job?.reviewReasonLabels, []);
   assert.equal(job?.finalVideoUrl, "https://blob.example/video.mp4");
   assert.equal(job?.captionTrackUrl, "https://blob.example/caption.vtt");
   assert.equal(job?.sceneAssetCount, 1);
@@ -496,6 +500,7 @@ test("buildVideoFactoryReviewJob keeps the current reviewable attempt when later
 
   assert.equal(job?.currentAttempt, 2);
   assert.equal(job?.priorAttemptsCount, 1);
+  assert.equal(job?.retryCount, 0);
   assert.equal(job?.providerLabel, "Narration elevenlabs | Visuals runway-gen4 | Captions assemblyai | Composition ffmpeg");
   assert.equal(job?.finalVideoUrl, "https://blob.example/video.mp4");
   assert.equal(job?.sceneAssetCount, 1);

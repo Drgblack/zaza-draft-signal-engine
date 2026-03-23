@@ -125,6 +125,10 @@ export async function executeWithRetry<T>(input: {
   sleep?: (delayMs: number) => Promise<void>;
   now?: () => string;
   isRetryableFailure?: (error: unknown) => boolean;
+  onRetryScheduled?: (input: {
+    error: unknown;
+    retryState: VideoFactoryRetryState;
+  }) => Promise<void> | void;
 }): Promise<{
   value: T;
   retryState: VideoFactoryRetryState;
@@ -187,6 +191,18 @@ export async function executeWithRetry<T>(input: {
 
       retryCount += 1;
       const backoffDelayMs = calculateRetryBackoffDelay(retryCount, baseDelayMs);
+      const retryState = buildNextRetryState({
+        retryCount,
+        maxRetries,
+        stage: input.stage ?? null,
+        failureMode,
+        lastFailureAt,
+        baseDelayMs,
+      });
+      await input.onRetryScheduled?.({
+        error,
+        retryState,
+      });
       await sleep(backoffDelayMs);
     }
   }
