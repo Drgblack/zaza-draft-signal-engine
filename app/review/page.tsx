@@ -920,8 +920,8 @@ export default async function ReviewPage({
                 : "all";
 
   return (
-    <div className="space-y-6">
-      <Card>
+    <div className="space-y-8">
+      <Card className="border-black/8 bg-white shadow-[0_20px_52px_rgba(15,23,42,0.08)]">
         <CardHeader>
           <div className="flex flex-wrap items-center gap-3">
             <Badge className={source === "airtable" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-200"}>
@@ -931,16 +931,16 @@ export default async function ReviewPage({
               {selectedView.replaceAll("_", " ")}
             </Badge>
           </div>
-          <CardTitle className="text-3xl">Review Command Center</CardTitle>
+          <CardTitle className="text-4xl">Review Command Center</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             Approval-first operator queue compressed into focused lanes. Switch views fast, scan compact cards, and drop into final review only when a candidate actually needs deeper work.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-0">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {commandCenterStats.map((item) => (
-              <div key={item.label} className="rounded-2xl bg-white/80 px-4 py-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{item.label}</p>
+              <div key={item.label} className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+                <p className="text-[11px] font-medium text-slate-500">{item.label}</p>
                 <p className="mt-2 text-2xl font-semibold text-slate-950">{item.value}</p>
                 <p className="mt-1 text-sm text-slate-500">{item.detail}</p>
               </div>
@@ -954,7 +954,7 @@ export default async function ReviewPage({
                 className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                   selectedView === view.value
                     ? "bg-slate-950 text-white"
-                    : "bg-white/80 text-slate-700 hover:bg-white"
+                    : "border border-black/5 bg-white/76 text-slate-600 hover:bg-white"
                 }`}
               >
                 {view.label} ({view.count})
@@ -965,18 +965,18 @@ export default async function ReviewPage({
             <Link href="/review/batch" className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800">
               {batchPrep.items.length} candidates ready in batch review
             </Link>
-            <Link href="/digest" className="rounded-full bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-white">
+            <Link href="/digest" className="rounded-full border border-black/5 bg-white/76 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-white">
               Open digest start page
             </Link>
           </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
+          <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
             {queueSummary.map((item) => (
               <Link
                 key={item.label}
                 href={item.href}
-                className="rounded-2xl bg-white/80 px-4 py-4 transition hover:bg-white"
+                className="rounded-2xl border border-black/5 bg-white/74 px-4 py-4 transition hover:bg-white"
               >
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{item.label}</p>
+                <p className="text-[11px] font-medium text-slate-500">{item.label}</p>
                 <p className="mt-2 text-2xl font-semibold text-slate-950">{item.count}</p>
               </Link>
             ))}
@@ -986,24 +986,24 @@ export default async function ReviewPage({
       </Card>
 
       {showScheduledSoon ? (
-      <Card>
+      <Card className="border-black/6 bg-white/72 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
         <CardHeader>
           <CardTitle>Scheduled Soon</CardTitle>
           <CardDescription>Records already scheduled in the next seven days.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {scheduledSoon.length === 0 ? (
-            <div className="rounded-2xl bg-white/80 px-4 py-5 text-sm text-slate-500">Nothing is scheduled in the next seven days.</div>
+            <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-5 text-sm text-slate-500">Nothing is scheduled in the next seven days.</div>
           ) : (
             scheduledSoon.map((signal) => (
-              <div key={signal.recordId} className="flex flex-col gap-3 rounded-2xl bg-white/80 p-4 md:flex-row md:items-center md:justify-between">
+              <div key={signal.recordId} className="flex flex-col gap-3 rounded-2xl border border-black/5 bg-white/76 p-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <Link href={`/signals/${signal.recordId}`} className="font-medium text-slate-950 hover:text-[color:var(--accent)]">
                     {signal.sourceTitle}
                   </Link>
-                  <p className="mt-1 text-sm text-slate-600">{signal.platformPriority ?? "Platform not set"}</p>
+                  <p className="mt-1 text-sm text-slate-500">{signal.platformPriority ?? "Platform not set"}</p>
                 </div>
-                <p className="text-sm text-slate-500">{formatDateTime(signal.scheduledDate)}</p>
+                <p className="text-xs text-slate-500">{formatDateTime(signal.scheduledDate)}</p>
               </div>
             ))
           )}
@@ -1012,7 +1012,7 @@ export default async function ReviewPage({
       ) : null}
 
       {showWeeklyPlan ? (
-      <Card>
+      <Card className="border-black/6 bg-white/72 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
         <CardHeader>
           <CardTitle>Weekly Plan</CardTitle>
           <CardDescription>
@@ -1021,20 +1021,20 @@ export default async function ReviewPage({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl bg-white/80 px-4 py-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Week</p>
+            <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+              <p className="text-[11px] font-medium text-slate-500">Week</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">{weeklyPlanState.weekLabel}</p>
               <p className="mt-1 text-sm text-slate-500">{weeklyPlan.theme ?? "No weekly theme set."}</p>
             </div>
-            <div className="rounded-2xl bg-white/80 px-4 py-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Campaigns</p>
+            <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+              <p className="text-[11px] font-medium text-slate-500">Campaigns</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">{weeklyPlan.activeCampaignIds.length}</p>
               <p className="mt-1 text-sm text-slate-500">
                 {weeklyPlanState.activeCampaignNames.length > 0 ? weeklyPlanState.activeCampaignNames.join(" · ") : "No campaign emphasis set."}
               </p>
             </div>
-            <div className="rounded-2xl bg-white/80 px-4 py-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Platforms</p>
+            <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+              <p className="text-[11px] font-medium text-slate-500">Platforms</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">{weeklyPlan.targetPlatforms.length}</p>
               <p className="mt-1 text-sm text-slate-500">
                 {weeklyPlan.targetPlatforms.length > 0
@@ -1042,8 +1042,8 @@ export default async function ReviewPage({
                   : "No platform emphasis set."}
               </p>
             </div>
-            <div className="rounded-2xl bg-white/80 px-4 py-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Current gaps</p>
+            <div className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4">
+              <p className="text-[11px] font-medium text-slate-500">Current gaps</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">{weeklyPlanState.gaps.length}</p>
               <p className="mt-1 text-sm text-slate-500">
                 {weeklyPlanState.summaries[0] ?? "Current queue looks broadly aligned."}
@@ -1053,7 +1053,7 @@ export default async function ReviewPage({
 
           <div className="grid gap-3 md:grid-cols-2">
             {(weeklyPlanState.gaps.length > 0 ? weeklyPlanState.gaps : weeklyPlanState.summaries).slice(0, 4).map((note) => (
-              <div key={note} className="rounded-2xl bg-white/80 px-4 py-4 text-sm leading-6 text-slate-700">
+              <div key={note} className="rounded-2xl border border-black/5 bg-white/76 px-4 py-4 text-sm leading-6 text-slate-600">
                 {note}
               </div>
             ))}
@@ -1064,7 +1064,7 @@ export default async function ReviewPage({
 
       {showFollowUp ? (
         <div id="missing-outcomes">
-        <Card>
+        <Card className="border-black/6 bg-white/72 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
           <CardHeader>
             <CardTitle>Missing Outcomes</CardTitle>
             <CardDescription>Open follow-up tasks that still block commercial learning.</CardDescription>

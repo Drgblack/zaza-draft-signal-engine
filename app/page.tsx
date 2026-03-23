@@ -119,20 +119,20 @@ export default async function DashboardPage() {
   const recentSignals = signals.slice(0, 5);
 
   return (
-    <div className="space-y-8">
-      <section className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
-        <Card className="overflow-hidden">
-          <CardHeader className="pb-3">
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Dashboard</p>
-            <CardTitle className="max-w-3xl text-balance text-3xl leading-tight sm:text-4xl">
+    <div className="space-y-10">
+      <section className="grid gap-8 xl:grid-cols-[1.3fr_0.7fr]">
+        <Card className="overflow-hidden border-black/8 bg-white shadow-[0_20px_52px_rgba(15,23,42,0.08)]">
+          <CardHeader className="pb-2">
+            <p className="text-[11px] font-medium tracking-[0.16em] text-slate-500">Dashboard</p>
+            <CardTitle className="max-w-3xl text-balance text-4xl leading-tight sm:text-5xl">
               Quiet structure for signal intake, classification, and draft preparation.
             </CardTitle>
-            <CardDescription className="max-w-2xl text-base leading-7">
+            <CardDescription className="max-w-2xl text-base leading-8 text-slate-600">
               V1 stays intentionally tight: one signal in, light interpretation, placeholder draft outputs, then review and scheduling visibility.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4 pt-2">
-            <div className="flex flex-wrap items-center gap-2.5">
+          <CardContent className="space-y-5 pt-1">
+            <div className="flex flex-wrap items-center gap-3">
               <Link href="/signals/new" className={buttonVariants({})}>
                 Intake a signal
               </Link>
@@ -143,7 +143,7 @@ export default async function DashboardPage() {
                 Run pipeline
               </Link>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2.5 text-sm text-slate-500">
               <Link href="/playbook" className={buttonVariants({ variant: "ghost", size: "sm" })}>
                 Playbook
               </Link>
@@ -163,20 +163,20 @@ export default async function DashboardPage() {
                 Adjust tuning
               </Link>
             </div>
-            <p className="text-sm text-slate-600">
+            <p className="text-xs text-slate-500">
               Data source: <span className="font-semibold text-slate-800">{source === "airtable" ? "Airtable" : "Mock fallback"}</span>
             </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Current Queue Shape</CardTitle>
-            <CardDescription>Status distribution across the internal workflow.</CardDescription>
+        <Card className="border-black/6 bg-white/72 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xl">Current Queue Shape</CardTitle>
+            <CardDescription className="text-sm leading-6 text-slate-500">Status distribution across the internal workflow.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-2.5">
             {statusCounts.map((item) => (
-              <div key={item.status} className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3">
+              <div key={item.status} className="flex items-center justify-between rounded-2xl border border-black/5 bg-white/80 px-4 py-3">
                 <span className="text-sm text-slate-600">{item.status}</span>
                 <span className="text-lg font-semibold text-slate-950">{item.count}</span>
               </div>
@@ -193,7 +193,7 @@ export default async function DashboardPage() {
         scheduledOrPosted={signals.filter((signal) => ["Scheduled", "Posted"].includes(signal.status)).length}
       />
 
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <section className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
         <SignalsTable
           signals={recentSignals}
           title="Recent Signals"
@@ -201,12 +201,12 @@ export default async function DashboardPage() {
           guidanceBySignalId={guidanceBySignalId}
         />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Pipeline Watch</CardTitle>
-            <CardDescription>What needs operator attention next and what is scheduled soon.</CardDescription>
+        <Card className="border-black/6 bg-white/70 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xl">Pipeline Watch</CardTitle>
+            <CardDescription className="text-sm leading-6 text-slate-500">What needs operator attention next and what is scheduled soon.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3">
+          <CardContent className="grid gap-3.5">
             {[
               {
                 href: "/review#approval-ready",
@@ -251,31 +251,31 @@ export default async function DashboardPage() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="group rounded-3xl border border-black/6 bg-white/84 p-4 transition hover:bg-white"
+                  className="group rounded-3xl border border-black/5 bg-white/78 p-4 transition hover:bg-white/92"
                 >
                   <div className="flex items-start gap-4">
-                    <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
+                    <div className="rounded-2xl bg-slate-100/80 p-3 text-slate-600">
                       <Icon className="h-5 w-5" />
                     </div>
-                    <div className="space-y-2">
-                      <p className="font-medium text-slate-950">{item.title}</p>
-                      <p className="text-sm leading-6 text-slate-600">{item.copy}</p>
+                    <div className="space-y-1.5">
+                      <p className="font-semibold text-slate-900">{item.title}</p>
+                      <p className="text-sm leading-6 text-slate-500">{item.copy}</p>
                     </div>
                   </div>
                 </Link>
               );
             })}
 
-            <div className="rounded-3xl border border-black/6 bg-white/84 p-5">
-              <p className="text-sm font-medium text-slate-950">Scheduled soon</p>
+            <div className="rounded-3xl border border-black/5 bg-white/78 p-5">
+              <p className="text-sm font-semibold text-slate-900">Scheduled soon</p>
               <div className="mt-4 space-y-3">
                 {scheduledSoon.length === 0 ? (
                   <p className="text-sm text-slate-500">Nothing is scheduled in the next seven days.</p>
                 ) : (
                   scheduledSoon.slice(0, 3).map((signal) => (
-                    <Link key={signal.recordId} href={`/signals/${signal.recordId}`} className="block rounded-2xl bg-slate-50/80 p-4 hover:bg-slate-50">
+                    <Link key={signal.recordId} href={`/signals/${signal.recordId}`} className="block rounded-2xl border border-black/5 bg-white/82 p-4 hover:bg-white">
                       <p className="font-medium text-slate-900">{signal.sourceTitle}</p>
-                      <p className="mt-1 text-sm text-slate-500">{formatDateTime(signal.scheduledDate)}</p>
+                      <p className="mt-1 text-xs text-slate-500">{formatDateTime(signal.scheduledDate)}</p>
                     </Link>
                   ))
                 )}

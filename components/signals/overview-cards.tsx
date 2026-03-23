@@ -42,21 +42,21 @@ export function OverviewCards({
   ];
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => {
         const Icon = card.icon;
         return (
-          <Card key={card.label}>
-            <CardHeader className="flex-row items-start justify-between gap-4 pb-3">
+          <Card key={card.label} className="border-black/6 bg-white/74 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+            <CardHeader className="flex-row items-start justify-between gap-4 pb-2">
               <div>
-                <p className="text-sm font-medium text-slate-600">{card.label}</p>
-                <CardTitle className="mt-2 text-3xl">{card.value}</CardTitle>
+                <p className="text-sm font-medium text-slate-500">{card.label}</p>
+                <CardTitle className="mt-2 text-[2rem]">{card.value}</CardTitle>
               </div>
               <div className={`rounded-2xl p-3 ${card.accent}`}>
                 <Icon className="h-5 w-5" />
               </div>
             </CardHeader>
-            <CardContent className="pt-0 text-sm leading-6 text-slate-600">
+            <CardContent className="pt-0 text-xs leading-6 text-slate-500">
               Quick queue pulse for operator scan speed. No hidden weighting or auto-action here.
             </CardContent>
           </Card>

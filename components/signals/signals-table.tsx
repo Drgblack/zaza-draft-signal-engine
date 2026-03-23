@@ -30,10 +30,10 @@ export function SignalsTable({
   guidanceBySignalId?: Record<string, CopilotGuidance>;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+    <Card className="border-black/6 bg-white/76 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+      <CardHeader className="pb-4">
+        <CardTitle className="text-2xl">{title}</CardTitle>
+        <CardDescription className="text-sm leading-6 text-slate-500">{description}</CardDescription>
       </CardHeader>
       <CardContent className="overflow-hidden px-0 pb-0">
         {signals.length === 0 ? (
@@ -41,7 +41,7 @@ export function SignalsTable({
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full border-collapse text-left">
-              <thead className="border-y border-black/6 bg-white/72 text-[11px] uppercase tracking-[0.2em] text-slate-500">
+              <thead className="border-y border-black/6 bg-white/70 text-[11px] tracking-[0.08em] text-slate-500">
                 <tr>
                   <th className="px-6 py-3.5 font-semibold">Signal</th>
                   <th className="px-4 py-3.5 font-semibold">Status</th>
@@ -56,14 +56,21 @@ export function SignalsTable({
               </thead>
               <tbody className="divide-y divide-black/6 text-sm text-slate-700">
                 {signals.map((signal) => (
-                  <tr key={signal.recordId} className="bg-white/38 transition hover:bg-white/74">
-                    <td className="px-6 py-3.5 align-top">
-                      <div className="space-y-1.5">
-                        <Link href={`/signals/${signal.recordId}`} className="font-semibold text-slate-950 hover:text-[color:var(--accent)]">
+                  <tr key={signal.recordId} className="bg-white/34 transition hover:bg-white/70">
+                    <td className="px-6 py-4 align-top">
+                      <div className="space-y-2">
+                        <Link href={`/signals/${signal.recordId}`} className="text-base font-semibold text-slate-950 hover:text-[color:var(--accent)]">
                           {signal.sourceTitle}
                         </Link>
-                        <SourceContextBadge signal={signal} />
-                        <p className="max-w-md text-sm leading-6 text-slate-600">
+                        <div className="flex flex-wrap items-center gap-2.5 text-xs text-slate-500">
+                          <SourceContextBadge signal={signal} />
+                          {signal.sourceUrl ? (
+                            <Link href={signal.sourceUrl} target="_blank" className="font-medium text-[color:var(--accent)]">
+                              Open source
+                            </Link>
+                          ) : null}
+                        </div>
+                        <p className="max-w-lg text-[13px] leading-6 text-slate-600">
                           {summarizeSignal(signal)}
                         </p>
                         <p className="text-xs text-slate-500">
@@ -71,39 +78,34 @@ export function SignalsTable({
                           {signal.qualityGateResult ?? "Quality gate not set"}
                         </p>
                         {signal.whySelected || signal.whyRejected ? (
-                          <p className="max-w-md text-xs leading-5 text-slate-500">{signal.whySelected ?? signal.whyRejected}</p>
+                          <p className="max-w-lg text-xs leading-5 text-slate-400">{signal.whySelected ?? signal.whyRejected}</p>
                         ) : null}
                         <CopilotHint guidance={guidanceBySignalId?.[signal.recordId] ?? getCopilotGuidance(signal)} />
-                        {signal.sourceUrl ? (
-                          <Link href={signal.sourceUrl} target="_blank" className="text-xs font-medium text-[color:var(--accent)]">
-                            Open source
-                          </Link>
-                        ) : null}
                       </div>
                     </td>
-                    <td className="px-4 py-3.5 align-top">
+                    <td className="px-4 py-4 align-top">
                       <StatusBadge status={signal.status} />
                     </td>
-                    <td className="px-4 py-3.5 align-top">
+                    <td className="px-4 py-4 align-top">
                       <CategoryBadge category={signal.signalCategory} />
                     </td>
-                    <td className="px-4 py-3.5 align-top">
+                    <td className="px-4 py-4 align-top">
                       <SeverityBadge severity={signal.severityScore} />
                     </td>
-                    <td className="px-4 py-3.5 align-top text-slate-600">
+                    <td className="px-4 py-4 align-top text-slate-600">
                       {signal.hookTemplateUsed ?? "Not chosen"}
                     </td>
-                    <td className="px-4 py-3.5 align-top text-slate-600">
+                    <td className="px-4 py-4 align-top text-slate-600">
                       {signal.platformPriority ?? "TBD"}
                     </td>
-                    <td className="px-4 py-3.5 align-top text-slate-600">
+                    <td className="px-4 py-4 align-top text-slate-600">
                       {compactNumber(deriveDisplayEngagementScore(signal))}
                     </td>
-                    <td className="px-4 py-3.5 align-top text-sm text-slate-500">
+                    <td className="px-4 py-4 align-top text-xs leading-5 text-slate-500">
                       <div>{signal.scheduledDate ? `Scheduled ${formatDateTime(signal.scheduledDate)}` : `Created ${formatDate(signal.createdDate)}`}</div>
                       {signal.postedDate ? <div className="mt-1">Posted {formatDateTime(signal.postedDate)}</div> : null}
                     </td>
-                    <td className="px-6 py-3.5 align-top text-right">
+                    <td className="px-6 py-4 align-top text-right">
                       <div className="flex flex-col items-end gap-1.5">
                         <Link
                           href={`/signals/${signal.recordId}`}

@@ -86,10 +86,10 @@ export default async function SignalsPage({
   ).sort((left, right) => left.localeCompare(right));
 
   return (
-    <div className="space-y-5">
-      <Card>
+    <div className="space-y-7">
+      <Card className="border-black/8 bg-white shadow-[0_20px_52px_rgba(15,23,42,0.08)]">
         <CardHeader>
-          <CardTitle className="text-3xl">Signals</CardTitle>
+          <CardTitle className="text-4xl">Signals</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             The working library for intake, interpretation, drafting, and publishing status. Filters stay intentionally light so the queue remains fast to scan, while source-aware cues help distinguish teacher discussion from generic sector coverage.
           </CardDescription>
@@ -98,16 +98,16 @@ export default async function SignalsPage({
           <Badge className={source === "airtable" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-200"}>
             {source === "airtable" ? "Airtable" : "Mock mode"}
           </Badge>
-          <span className="font-medium text-slate-700">Showing {filteredSignals.length} of {signals.length} records</span>
+          <span className="font-medium text-slate-800">Showing {filteredSignals.length} of {signals.length} records</span>
           {error ? (
-            <span className="text-amber-700">
+            <span className="text-xs text-amber-700">
               {error}{" "}
               <Link href="/api/signals/health" target="_blank" className="underline underline-offset-4">
                 View diagnostics
               </Link>
             </span>
           ) : (
-            <span>{source === "airtable" ? "Live records from Airtable." : "Using mock records because Airtable is not configured."}</span>
+            <span className="text-xs text-slate-500">{source === "airtable" ? "Live records from Airtable." : "Using mock records because Airtable is not configured."}</span>
           )}
         </CardContent>
       </Card>

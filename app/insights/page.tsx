@@ -175,8 +175,8 @@ function WindowLink({
       href={href}
       className={
         active
-          ? "rounded-full border border-slate-900 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-50 shadow-[0_8px_18px_rgba(15,23,42,0.14)]"
-          : "rounded-full bg-white/88 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-white hover:text-slate-950"
+          ? "rounded-full border border-slate-900 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-50 shadow-[0_8px_18px_rgba(15,23,42,0.12)]"
+          : "rounded-full border border-black/5 bg-white/74 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-white/88 hover:text-slate-950"
       }
     >
       {label}
@@ -194,10 +194,10 @@ function MetricCard({
   detail: string;
 }) {
   return (
-    <div className="rounded-2xl bg-white/84 px-4 py-4">
-      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-      <p className="mt-1 text-sm text-slate-600">{detail}</p>
+    <div className="rounded-2xl border border-black/5 bg-white/72 px-4 py-4 shadow-[0_8px_22px_rgba(15,23,42,0.03)]">
+      <p className="text-[11px] font-medium text-slate-500">{label}</p>
+      <p className="mt-2 text-[1.7rem] font-semibold text-slate-950">{value}</p>
+      <p className="mt-1 text-sm leading-6 text-slate-500">{detail}</p>
     </div>
   );
 }
@@ -207,7 +207,7 @@ function EmptyState({
 }: {
   copy: string;
 }) {
-  return <div className="rounded-2xl bg-white/80 px-4 py-5 text-sm text-slate-600">{copy}</div>;
+  return <div className="rounded-2xl border border-black/5 bg-white/72 px-4 py-5 text-sm leading-6 text-slate-500">{copy}</div>;
 }
 
 export default async function InsightsPage({
@@ -943,8 +943,8 @@ export default async function InsightsPage({
   const topOverrideStage = insights.operator.overrideStageRows[0];
 
   return (
-    <div className="space-y-6">
-      <Card>
+    <div className="space-y-8">
+      <Card className="border-black/8 bg-white shadow-[0_20px_52px_rgba(15,23,42,0.08)]">
         <CardHeader>
           <div className="flex flex-wrap items-center gap-3">
             <Badge className={source === "airtable" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-200"}>
@@ -952,7 +952,7 @@ export default async function InsightsPage({
             </Badge>
             <Badge className="bg-slate-100 text-slate-700 ring-slate-200">{insights.windowLabel}</Badge>
           </div>
-          <CardTitle className="text-balance text-3xl">Insights</CardTitle>
+          <CardTitle className="text-balance text-4xl">Insights</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
             A compact operating summary derived from current record state and the audit trail. It stays descriptive on purpose: the goal is to show what is moving, what is stalling, and where operator judgement is stepping in.
           </CardDescription>
@@ -963,7 +963,7 @@ export default async function InsightsPage({
             <WindowLink href="/insights?window=7d" label="Last 7 days" active={window === "7d"} />
             <WindowLink href="/insights?window=30d" label="Last 30 days" active={window === "30d"} />
           </div>
-          <div className="flex flex-wrap gap-3 text-sm text-slate-600">
+          <div className="flex flex-wrap gap-3 text-sm text-slate-500">
             <span>{insights.totalSignals} records in view</span>
             <span>{insights.dateRangeLabel}</span>
             {error ? <span className="text-amber-700">{error}</span> : null}
@@ -971,7 +971,7 @@ export default async function InsightsPage({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="border-black/6 bg-white/72 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
         <CardHeader>
           <CardTitle>Current Operator Tuning</CardTitle>
           <CardDescription>
@@ -985,8 +985,8 @@ export default async function InsightsPage({
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {insights.tuning.rows.map((row) => (
-              <div key={row.key} className="rounded-2xl bg-white/80 px-4 py-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{row.label}</p>
+              <div key={row.key} className="rounded-2xl border border-black/5 bg-white/74 px-4 py-4">
+                <p className="text-[11px] font-medium text-slate-500">{row.label}</p>
                 <p className="mt-2 text-lg font-semibold text-slate-950">{row.valueLabel}</p>
               </div>
             ))}
@@ -998,7 +998,7 @@ export default async function InsightsPage({
       <GrowthMemoryPanel memory={growthMemory} />
       <OpportunityRadarPanel state={opportunityRadar} />
 
-      <Card>
+      <Card className="border-black/6 bg-white/72 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
         <CardHeader>
           <CardTitle>Content Fatigue</CardTitle>
           <CardDescription>
@@ -1009,9 +1009,9 @@ export default async function InsightsPage({
           {fatigueModel.topWarnings.length === 0 ? (
             <EmptyState copy="No strong fatigue signal is dominating the recent mix." />
           ) : (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {fatigueModel.topWarnings.map((warning) => (
-                <div key={`${warning.dimension}:${warning.key}`} className="rounded-2xl bg-white/80 px-4 py-4">
+                <div key={`${warning.dimension}:${warning.key}`} className="rounded-2xl border border-black/5 bg-white/74 px-4 py-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className={warning.severity === "moderate" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-700 ring-slate-200"}>
                       {warning.severity === "moderate" ? "Moderate fatigue" : "Light fatigue"}
@@ -1019,7 +1019,7 @@ export default async function InsightsPage({
                     <Badge className="bg-sky-50 text-sky-700 ring-sky-200">{warning.count} / {warning.total}</Badge>
                   </div>
                   <p className="mt-3 font-medium text-slate-950">{warning.summary}</p>
-                  <p className="mt-2 text-sm text-slate-600">{warning.label}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-500">{warning.label}</p>
                 </div>
               ))}
             </div>

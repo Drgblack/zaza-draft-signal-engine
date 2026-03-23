@@ -21,11 +21,11 @@ export function SignalsFilters({
   sourceTypes: string[];
 }) {
   return (
-    <Card>
+    <Card className="border-black/6 bg-white/72 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
       <CardContent className="pt-6">
-        <form className="grid gap-4 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto_auto]">
+        <form className="grid gap-5 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto_auto]">
           <div className="grid gap-2">
-            <Label htmlFor="status">Status</Label>
+            <Label htmlFor="status" className="text-sm font-medium text-slate-600">Status</Label>
             <Select id="status" name="status" defaultValue={status ?? ""}>
               <option value="">All statuses</option>
               {SIGNAL_STATUSES.map((item) => (
@@ -36,7 +36,7 @@ export function SignalsFilters({
             </Select>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="category">Category</Label>
+            <Label htmlFor="category" className="text-sm font-medium text-slate-600">Category</Label>
             <Select id="category" name="category" defaultValue={category ?? ""}>
               <option value="">All categories</option>
               {SIGNAL_CATEGORIES.map((item) => (
@@ -47,7 +47,7 @@ export function SignalsFilters({
             </Select>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="sourceType">Source Type</Label>
+            <Label htmlFor="sourceType" className="text-sm font-medium text-slate-600">Source Type</Label>
             <Select id="sourceType" name="sourceType" defaultValue={sourceType ?? ""}>
               <option value="">All source types</option>
               {sourceTypes.map((item) => (
@@ -58,7 +58,7 @@ export function SignalsFilters({
             </Select>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="sort">Sort</Label>
+            <Label htmlFor="sort" className="text-sm font-medium text-slate-600">Sort</Label>
             <Select id="sort" name="sort" defaultValue={sort}>
               <option value="createdDate-desc">Newest created first</option>
               <option value="createdDate-asc">Oldest created first</option>
@@ -78,7 +78,7 @@ export function SignalsFilters({
             </Link>
           </div>
         </form>
-        <p className="mt-4 text-sm text-slate-600">
+        <p className="mt-4 text-xs text-slate-500">
           Keep the queue narrow: filter for the current decision, then reset back to the full registry.
         </p>
       </CardContent>
