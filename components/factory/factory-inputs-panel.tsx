@@ -11,6 +11,7 @@ import type {
   ContentOpportunityState,
 } from "@/lib/content-opportunities";
 import { isDebugEnabled } from "@/lib/debug";
+import { buildContentIntelligenceFromSignal } from "@/lib/strategic-intelligence-types";
 import {
   applySelectedHookSelection,
   buildHookSet,
@@ -343,22 +344,10 @@ function buildPerformanceSignalSummary(
     .join(" | ");
 }
 
-function intelligenceDriverEntries(opportunity: ContentOpportunity) {
-  const drivers = opportunity.performanceDrivers;
-  if (!drivers) {
-    return [];
-  }
-
-  return [
-    ["hookStrength", drivers.hookStrength],
-    ["stakes", drivers.stakes],
-    ["viewerConnection", drivers.viewerConnection],
-    ["generalistAppeal", drivers.generalistAppeal],
-    ["perspectiveShift", drivers.perspectiveShift],
-    ["authenticityFit", drivers.authenticityFit],
-    ["brandAlignment", drivers.brandAlignment],
-    ["conversionPotential", drivers.conversionPotential],
-  ].filter((entry): entry is [string, number] => typeof entry[1] === "number");
+function intelligenceDriverEntries(drivers: Record<string, number>) {
+  return Object.entries(drivers).filter(
+    (entry): entry is [string, number] => typeof entry[1] === "number",
+  );
 }
 
 function intelligenceLabel(value: string) {
@@ -805,6 +794,42 @@ export function FactoryInputsPanel({
                 selectedAngle && selectedHookSet
                   ? inspectHookTrust(item, selectedAngle, selectedHookSet.primaryHook)
                   : null;
+              const ci = buildContentIntelligenceFromSignal(item);
+              const recommendedFormat =
+                ci.recommendedFormat || item.recommendedFormat;
+              const intendedViewerEffect =
+                ci.intendedViewerEffect ?? item.intendedViewerEffect;
+              const suggestedCta =
+                ci.suggestedCta ?? item.suggestedCTA;
+              const hookCandidates =
+                ci.hookCandidates.length > 0
+                  ? ci.hookCandidates
+                  : (item.hookRanking ?? []).map((hook) => hook.hook);
+              const hookScoresByText = new Map(
+                (item.hookRanking ?? []).map((hook) => [hook.hook, hook.score]),
+              );
+              const performanceScores =
+                Object.keys(ci.performanceDrivers).length > 0
+                  ? ci.performanceDrivers
+                  : Object.fromEntries(
+                      intelligenceDriverEntries(
+                        Object.fromEntries(
+                          [
+                            ["hookStrength", item.performanceDrivers?.hookStrength],
+                            ["stakes", item.performanceDrivers?.stakes],
+                            ["viewerConnection", item.performanceDrivers?.viewerConnection],
+                            ["generalistAppeal", item.performanceDrivers?.generalistAppeal],
+                            ["perspectiveShift", item.performanceDrivers?.perspectiveShift],
+                            ["authenticityFit", item.performanceDrivers?.authenticityFit],
+                            ["brandAlignment", item.performanceDrivers?.brandAlignment],
+                            ["conversionPotential", item.performanceDrivers?.conversionPotential],
+                          ].filter(
+                            (entry): entry is [string, number] =>
+                              typeof entry[1] === "number",
+                          ),
+                        ),
+                      ),
+                    );
 
               return (
               <div
@@ -822,7 +847,7 @@ export function FactoryInputsPanel({
                   </Badge>
                   <Badge className={statusTone(item.status)}>{statusLabel(item.status)}</Badge>
                   <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
-                    {item.recommendedFormat.replaceAll("_", " ")}
+                    {recommendedFormat.replaceAll("_", " ")}
                   </Badge>
                   {item.recommendedPlatforms.map((platform) => (
                     <Badge
@@ -905,7 +930,7 @@ export function FactoryInputsPanel({
                           Format
                         </p>
                         <p className="mt-2 text-sm leading-6 text-slate-700">
-                          {item.recommendedFormat.replaceAll("_", " ")}
+                          {recommendedFormat.replaceAll("_", " ")}
                         </p>
                       </div>
                       <div className="rounded-2xl bg-white/90 px-3 py-3">
@@ -913,7 +938,7 @@ export function FactoryInputsPanel({
                           Viewer effect
                         </p>
                         <p className="mt-2 text-sm leading-6 text-slate-700">
-                          {item.intendedViewerEffect ?? "Not set"}
+                          {intendedViewerEffect ?? "Not set"}
                         </p>
                       </div>
                       <div className="rounded-2xl bg-white/90 px-3 py-3">
@@ -921,7 +946,15 @@ export function FactoryInputsPanel({
                           CTA
                         </p>
                         <p className="mt-2 text-sm leading-6 text-slate-700">
-                          {item.suggestedCTA ?? "Not set"}
+                          {suggestedCta ?? "Not set"}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white/90 px-3 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                          Production complexity
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">
+                          {ci.productionComplexity ?? item.productionComplexity ?? "Not set"}
                         </p>
                       </div>
                       <div className="rounded-2xl bg-white/90 px-3 py-3">
@@ -929,12 +962,15 @@ export function FactoryInputsPanel({
                           Top 3 hooks
                         </p>
                         <div className="mt-2 space-y-2 text-sm leading-6 text-slate-700">
-                          {(item.hookRanking ?? []).slice(0, 3).map((hook) => (
-                            <p key={`${item.opportunityId}:${hook.hook}`}>
-                              {hook.hook} <span className="text-slate-500">({hook.score})</span>
+                          {hookCandidates.slice(0, 3).map((hook) => (
+                            <p key={`${item.opportunityId}:${hook}`}>
+                              {hook}
+                              {typeof hookScoresByText.get(hook) === "number" ? (
+                                <span className="text-slate-500"> ({hookScoresByText.get(hook)})</span>
+                              ) : null}
                             </p>
                           ))}
-                          {(item.hookRanking ?? []).length === 0 ? <p>Not set</p> : null}
+                          {hookCandidates.length === 0 ? <p>Not set</p> : null}
                         </div>
                       </div>
                     </div>
@@ -943,7 +979,7 @@ export function FactoryInputsPanel({
                         Performance scores
                       </p>
                       <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                        {intelligenceDriverEntries(item).map(([label, value]) => (
+                        {intelligenceDriverEntries(performanceScores).map(([label, value]) => (
                           <div
                             key={`${item.opportunityId}:${label}`}
                             className="rounded-2xl bg-slate-50/80 px-3 py-2"
@@ -954,7 +990,7 @@ export function FactoryInputsPanel({
                             <p className="mt-1 text-sm font-medium text-slate-900">{value}</p>
                           </div>
                         ))}
-                        {intelligenceDriverEntries(item).length === 0 ? (
+                        {intelligenceDriverEntries(performanceScores).length === 0 ? (
                           <p className="text-sm leading-6 text-slate-700">Not set</p>
                         ) : null}
                       </div>

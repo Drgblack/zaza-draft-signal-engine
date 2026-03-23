@@ -178,6 +178,27 @@ test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artif
   assert.equal(entry.lifecycleTransitions.length, 9);
 });
 
+test("buildFactoryRunLedgerEntry records growth routing metadata", () => {
+  const entry = buildFactoryRunLedgerEntry({
+    opportunityId: "opportunity-1",
+    videoBriefId: "brief-1",
+    attemptNumber: 1,
+    lifecycle: baseLifecycle,
+    renderProvider: "mock",
+    renderJobId: "render-job-1",
+    growthExecutionPath: "video_factory",
+    growthExecutionPriority: 84,
+    growthRiskLevel: "low",
+    growthReasoning:
+      "Impact potential 82/100; risk low; learning value 68/100; execution path video_factory",
+  });
+
+  assert.equal(entry.growthExecutionPath, "video_factory");
+  assert.equal(entry.growthExecutionPriority, 84);
+  assert.equal(entry.growthRiskLevel, "low");
+  assert.equal(entry.growthReasoning?.includes("execution path video_factory"), true);
+});
+
 test("updateFactoryRunLedgerOutcome updates the matching attempt to terminal state", () => {
   const entry = buildFactoryRunLedgerEntry({
     opportunityId: "opportunity-1",

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ContentOpportunity } from "@/lib/content-opportunities";
 import type { HookSet } from "@/lib/hook-engine";
 import type { MessageAngle } from "@/lib/message-angles";
+import { buildContentIntelligenceFromSignal } from "@/lib/strategic-intelligence-types";
 import {
   buildPhaseBAnchorTokens,
   countPhaseBAnchorOverlap,
@@ -138,15 +139,19 @@ export function chooseVideoBriefFormat(
   opportunity: ContentOpportunity,
   angle: MessageAngle,
 ): VideoBrief["format"] {
-  if (opportunity.recommendedFormat === "carousel") {
+  const ci = buildContentIntelligenceFromSignal(opportunity);
+  const recommendedFormat =
+    ci.recommendedFormat || opportunity.recommendedFormat;
+
+  if (recommendedFormat === "carousel") {
     return "carousel-to-video";
   }
 
-  if (opportunity.recommendedFormat === "multi_asset") {
+  if (recommendedFormat === "multi_asset") {
     return "text-led";
   }
 
-  if (opportunity.recommendedFormat === "short_video") {
+  if (recommendedFormat === "short_video") {
     return opportunity.trustRisk === "high" ? "text-led" : "talking-head";
   }
 
@@ -169,6 +174,10 @@ export function chooseVideoBriefDuration(
   opportunity: ContentOpportunity,
   angle: MessageAngle,
 ): VideoBrief["durationSec"] {
+  const ci = buildContentIntelligenceFromSignal(opportunity);
+  const recommendedFormat =
+    ci.recommendedFormat || opportunity.recommendedFormat;
+
   if (opportunity.trustRisk === "high") {
     return 30;
   }
@@ -177,7 +186,7 @@ export function chooseVideoBriefDuration(
     return 30;
   }
 
-  if (opportunity.recommendedFormat === "multi_asset") {
+  if (recommendedFormat === "multi_asset") {
     return 30;
   }
 

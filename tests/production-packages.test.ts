@@ -37,6 +37,7 @@ function buildOpportunityFixture(
     intendedViewerEffect: null,
     suggestedCTA: null,
     productionComplexity: null,
+    growthIntelligence: null,
     supportingSignals: [],
     memoryContext: {
       bestCombo: null,

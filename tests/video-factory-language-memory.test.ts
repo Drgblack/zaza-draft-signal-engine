@@ -38,6 +38,7 @@ function buildOpportunityFixture(): ContentOpportunity {
     intendedViewerEffect: null,
     suggestedCTA: null,
     productionComplexity: null,
+    growthIntelligence: null,
     supportingSignals: [],
     memoryContext: {
       bestCombo: null,

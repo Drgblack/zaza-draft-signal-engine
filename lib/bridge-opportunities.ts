@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { buildContentIntelligenceFromSignal } from "./strategic-intelligence-types";
 import type { ZazaConnectExportPayload } from "./zaza-connect-bridge";
 
 export const bridgeOpportunitySchema = z.object({
@@ -64,6 +65,8 @@ export type BridgeOpportunitiesResponse = z.infer<
 >;
 
 function toConnectOpportunity(opportunity: BridgeOpportunity): ConnectOpportunity {
+  const ci = buildContentIntelligenceFromSignal(opportunity);
+
   return connectOpportunitySchema.parse({
     opportunityId: opportunity.candidateId,
     title: opportunity.sourceTitle,
@@ -75,7 +78,7 @@ function toConnectOpportunity(opportunity: BridgeOpportunity): ConnectOpportunit
     trustRisk: opportunity.trustRisk ?? "low",
     recommendedAngle: opportunity.recommendedAngle ?? opportunity.reason,
     recommendedHookDirection: opportunity.recommendedHookDirection ?? opportunity.reason,
-    recommendedFormat: opportunity.recommendedFormat ?? "text",
+    recommendedFormat: ci.recommendedFormat || opportunity.recommendedFormat || "text",
     recommendedPlatforms: opportunity.recommendedPlatforms ?? [opportunity.platform],
     whyNow: opportunity.whyNow ?? opportunity.reason,
     proofPoints: opportunity.proofPoints ?? [opportunity.reason],

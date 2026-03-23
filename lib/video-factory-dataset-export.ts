@@ -40,6 +40,7 @@ import {
 import {
   videoFactoryAttemptLineageSchema,
 } from "./video-factory-lineage";
+import { buildContentIntelligenceFromSignal } from "./strategic-intelligence-types";
 
 const datasetVideoBeatSchema = z.object({
   order: z.number().int().min(1).max(4),
@@ -222,6 +223,7 @@ function buildDatasetRecord(input: {
   languageMemory: VideoFactoryLanguageMemoryRecord[];
 }): FactoryDatasetRecord {
   const { opportunity } = input;
+  const ci = buildContentIntelligenceFromSignal(opportunity);
   const generationState = opportunity.generationState;
   const productionPackage = maybeBuildProductionPackage(
     opportunity,
@@ -240,7 +242,7 @@ function buildDatasetRecord(input: {
       teacherLanguage: opportunity.teacherLanguage,
       recommendedAngle: opportunity.recommendedAngle,
       recommendedHookDirection: opportunity.recommendedHookDirection,
-      recommendedFormat: opportunity.recommendedFormat,
+      recommendedFormat: ci.recommendedFormat || opportunity.recommendedFormat,
       recommendedPlatforms: opportunity.recommendedPlatforms,
       whyNow: opportunity.whyNow,
       commercialPotential: opportunity.commercialPotential,

@@ -40,6 +40,9 @@ export type LearningRecord = {
   actionType?: string | null;
   sourceId?: string | null;
   platform?: string | null;
+  format?: string | null;
+  hookType?: string | null;
+  executionPath?: string | null;
   impressions?: number | null;
   clicks?: number | null;
   signups?: number | null;
@@ -58,6 +61,9 @@ const learningRecordSchema = z.object({
   actionType: z.string().trim().nullable().optional(),
   sourceId: z.string().trim().nullable().optional(),
   platform: z.string().trim().nullable().optional(),
+  format: z.string().trim().nullable().optional(),
+  hookType: z.string().trim().nullable().optional(),
+  executionPath: z.string().trim().nullable().optional(),
   impressions: z.number().int().nonnegative().nullable().optional(),
   clicks: z.number().int().nonnegative().nullable().optional(),
   signups: z.number().int().nonnegative().nullable().optional(),
@@ -78,6 +84,9 @@ export interface UpsertLearningRecordInput {
   actionType?: string | null;
   sourceId?: string | null;
   platform?: string | null;
+  format?: string | null;
+  hookType?: string | null;
+  executionPath?: string | null;
   impressions?: number | null;
   clicks?: number | null;
   signups?: number | null;
@@ -85,16 +94,21 @@ export interface UpsertLearningRecordInput {
 }
 
 export interface LearningAggregateRow {
-  inputType: string;
+  key: string;
   totalCount: number;
   successCount: number;
   failedCount: number;
   rejectedCount: number;
   successRate: number;
+  averageRetries: number;
+  costPerSuccess: number | null;
 }
 
 export interface LearningAggregates {
   successRateByInputType: LearningAggregateRow[];
+  successRateByFormat: LearningAggregateRow[];
+  successRateByHookType: LearningAggregateRow[];
+  successRateByExecutionPath: LearningAggregateRow[];
   averageRetries: number;
   costPerSuccess: number | null;
 }
@@ -113,6 +127,18 @@ export interface RepairAutopilotLearningAdjustment {
   reason: string | null;
   sampleSize: number;
   successRate: number | null;
+}
+
+export interface GrowthLearningAdjustment {
+  sampleSize: number;
+  formatSuccessRate: number | null;
+  hookTypeSuccessRate: number | null;
+  executionPathSuccessRate: number | null;
+  averageRetries: number | null;
+  costPerSuccess: number | null;
+  priorityDelta: number;
+  learningValueDelta: number;
+  reason: string | null;
 }
 
 let inMemoryLearningStore: Record<string, LearningRecord> = {};
@@ -146,6 +172,72 @@ function parseSignature(signature: string) {
   return tokens;
 }
 
+function firstNonEmpty(
+  ...values: Array<string | null | undefined>
+): string | null {
+  for (const value of values) {
+    const normalized = normalizeOptionalText(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+export function inferHookType(value: string | null | undefined): string | null {
+  const normalized = normalizeOptionalText(value)?.toLowerCase() ?? "";
+  if (!normalized) {
+    return null;
+  }
+
+  if (
+    normalized.includes("before you send") ||
+    normalized.includes("pause before") ||
+    normalized.includes("pause")
+  ) {
+    return "pause_before_send";
+  }
+
+  if (
+    normalized.includes("escalate") ||
+    normalized.includes("risk") ||
+    normalized.includes("cost you your job") ||
+    normalized.includes("go wrong") ||
+    normalized.includes("complaint")
+  ) {
+    return "risk_warning";
+  }
+
+  if (
+    normalized.includes("belief") ||
+    normalized.includes("perspective") ||
+    normalized.includes("reframe") ||
+    normalized.includes("misconception")
+  ) {
+    return "perspective_shift";
+  }
+
+  if (
+    normalized.includes("most teachers") ||
+    normalized.includes("teachers do not realise") ||
+    normalized.includes("teachers don't realise")
+  ) {
+    return "generalist_insight";
+  }
+
+  if (
+    normalized.includes("relief") ||
+    normalized.includes("calm") ||
+    normalized.includes("confidence") ||
+    normalized.includes("safe")
+  ) {
+    return "relief_reassurance";
+  }
+
+  return "direct_statement";
+}
+
 function matchesSignatureTokens(
   signature: string,
   expected: Record<string, string | null | undefined>,
@@ -166,6 +258,7 @@ function buildLearningRecord(
   existing?: LearningRecord | null,
 ): LearningRecord {
   const timestamp = input.timestamp ?? new Date().toISOString();
+  const parsedSignature = parseSignature(input.inputSignature);
 
   return learningRecordSchema.parse({
     learningRecordId:
@@ -198,6 +291,18 @@ function buildLearningRecord(
       input.platform === undefined
         ? existing?.platform ?? null
         : normalizeOptionalText(input.platform),
+    format:
+      input.format === undefined
+        ? firstNonEmpty(existing?.format, parsedSignature.format)
+        : normalizeOptionalText(input.format),
+    hookType:
+      input.hookType === undefined
+        ? firstNonEmpty(existing?.hookType, parsedSignature.hookType)
+        : normalizeOptionalText(input.hookType),
+    executionPath:
+      input.executionPath === undefined
+        ? firstNonEmpty(existing?.executionPath, parsedSignature.path, parsedSignature.executionPath)
+        : normalizeOptionalText(input.executionPath),
     impressions:
       input.impressions === undefined
         ? existing?.impressions ?? null
@@ -215,6 +320,71 @@ function buildLearningRecord(
         ? existing?.engagementScore ?? null
         : input.engagementScore,
   });
+}
+
+function buildAggregateRows(
+  records: LearningRecord[],
+  keySelector: (record: LearningRecord) => string | null,
+): LearningAggregateRow[] {
+  const counts = new Map<
+    string,
+    {
+      successCount: number;
+      failedCount: number;
+      rejectedCount: number;
+      totalCount: number;
+      retryTotal: number;
+      successCostTotal: number;
+    }
+  >();
+
+  for (const record of records) {
+    const key = normalizeOptionalText(keySelector(record));
+    if (!key) {
+      continue;
+    }
+
+    const row =
+      counts.get(key) ?? {
+        successCount: 0,
+        failedCount: 0,
+        rejectedCount: 0,
+        totalCount: 0,
+        retryTotal: 0,
+        successCostTotal: 0,
+      };
+
+    row.totalCount += 1;
+    row.retryTotal += record.retries;
+    if (record.outcome === "success") {
+      row.successCount += 1;
+      row.successCostTotal += record.cost;
+    } else if (record.outcome === "failed") {
+      row.failedCount += 1;
+    } else {
+      row.rejectedCount += 1;
+    }
+
+    counts.set(key, row);
+  }
+
+  return [...counts.entries()]
+    .map(([key, row]) => ({
+      key,
+      totalCount: row.totalCount,
+      successCount: row.successCount,
+      failedCount: row.failedCount,
+      rejectedCount: row.rejectedCount,
+      successRate: row.totalCount > 0 ? row.successCount / row.totalCount : 0,
+      averageRetries: row.totalCount > 0 ? row.retryTotal / row.totalCount : 0,
+      costPerSuccess: row.successCount > 0 ? row.successCostTotal / row.successCount : null,
+    }))
+    .sort(
+      (left, right) =>
+        right.totalCount - left.totalCount ||
+        right.successRate - left.successRate ||
+        left.key.localeCompare(right.key),
+    );
 }
 
 function readPersistedStoreSync(): Record<string, LearningRecord> {
@@ -347,53 +517,39 @@ export async function upsertLearningRecord(input: UpsertLearningRecordInput) {
 }
 
 export function buildLearningAggregates(records: LearningRecord[]): LearningAggregates {
-  const countsByInputType = new Map<
-    string,
-    { successCount: number; failedCount: number; rejectedCount: number; totalCount: number }
-  >();
   let retryTotal = 0;
   let costTotal = 0;
   let successCount = 0;
 
   for (const record of records) {
-    const inputType = record.inputType ?? parseSignature(record.inputSignature).kind;
-    const row =
-      countsByInputType.get(inputType) ?? {
-        successCount: 0,
-        failedCount: 0,
-        rejectedCount: 0,
-        totalCount: 0,
-      };
-
-    row.totalCount += 1;
     retryTotal += record.retries;
     if (record.outcome === "success") {
-      row.successCount += 1;
       costTotal += record.cost;
       successCount += 1;
-    } else if (record.outcome === "failed") {
-      row.failedCount += 1;
-    } else {
-      row.rejectedCount += 1;
     }
-
-    countsByInputType.set(inputType, row);
   }
 
   return {
-    successRateByInputType: [...countsByInputType.entries()]
-      .map(([inputType, row]) => ({
-        inputType,
-        totalCount: row.totalCount,
-        successCount: row.successCount,
-        failedCount: row.failedCount,
-        rejectedCount: row.rejectedCount,
-        successRate: row.totalCount > 0 ? row.successCount / row.totalCount : 0,
-      }))
-      .sort(
-        (left, right) =>
-          right.totalCount - left.totalCount || left.inputType.localeCompare(right.inputType),
-      ),
+    successRateByInputType: buildAggregateRows(
+      records,
+      (record) => record.inputType ?? parseSignature(record.inputSignature).kind,
+    ),
+    successRateByFormat: buildAggregateRows(
+      records,
+      (record) => record.format ?? parseSignature(record.inputSignature).format ?? null,
+    ),
+    successRateByHookType: buildAggregateRows(
+      records,
+      (record) => record.hookType ?? parseSignature(record.inputSignature).hookType ?? null,
+    ),
+    successRateByExecutionPath: buildAggregateRows(
+      records,
+      (record) =>
+        record.executionPath ??
+        parseSignature(record.inputSignature).path ??
+        parseSignature(record.inputSignature).executionPath ??
+        null,
+    ),
     averageRetries: records.length > 0 ? retryTotal / records.length : 0,
     costPerSuccess: successCount > 0 ? costTotal / successCount : null,
   };
@@ -423,6 +579,132 @@ function costPerSuccess(records: LearningRecord[]) {
   }
 
   return successful.reduce((sum, record) => sum + record.cost, 0) / successful.length;
+}
+
+function selectGrowthRelevantRecords(records: LearningRecord[]) {
+  const videoFactoryRecords = records.filter(
+    (record) => record.inputType === "video_factory",
+  );
+  const higherSignalRecords = videoFactoryRecords.filter(
+    (record) => record.stage === "operator_review" || record.stage === "engagement",
+  );
+
+  return higherSignalRecords.length > 0 ? higherSignalRecords : videoFactoryRecords;
+}
+
+export function buildGrowthLearningAdjustmentFromRecords(
+  records: LearningRecord[],
+  input: {
+    format?: string | null;
+    hookType?: string | null;
+    executionPath?: string | null;
+  },
+): GrowthLearningAdjustment {
+  const relevantBase = selectGrowthRelevantRecords(records);
+  const relevant = relevantBase.filter((record) => {
+    const parsedSignature = parseSignature(record.inputSignature);
+    const formatMatches =
+      !input.format ||
+      record.format === input.format ||
+      parsedSignature.format === input.format;
+    const hookMatches =
+      !input.hookType ||
+      record.hookType === input.hookType ||
+      parsedSignature.hookType === input.hookType;
+    const pathMatches =
+      !input.executionPath ||
+      record.executionPath === input.executionPath ||
+      parsedSignature.path === input.executionPath ||
+      parsedSignature.executionPath === input.executionPath;
+    return formatMatches && hookMatches && pathMatches;
+  });
+
+  const formatRecords = relevantBase.filter(
+    (record) => !input.format || record.format === input.format,
+  );
+  const hookTypeRecords = relevantBase.filter(
+    (record) => !input.hookType || record.hookType === input.hookType,
+  );
+  const executionPathRecords = relevantBase.filter(
+    (record) => !input.executionPath || record.executionPath === input.executionPath,
+  );
+  const samplePool = relevant;
+  const formatSuccessRate = successRate(formatRecords);
+  const hookTypeSuccessRate = successRate(hookTypeRecords);
+  const executionPathSuccessRate = successRate(executionPathRecords);
+  const currentAverageRetries = averageRetries(samplePool);
+  const currentCostPerSuccess = costPerSuccess(samplePool);
+  let priorityDelta = 0;
+  let learningValueDelta = 0;
+  const reasons: string[] = [];
+
+  if (formatRecords.length >= 3 && (formatSuccessRate ?? 0) >= 0.7) {
+    priorityDelta += 6;
+    reasons.push(
+      `${input.format ?? "This format"} is converting similar opportunities at ${Math.round((formatSuccessRate ?? 0) * 100)}% success.`,
+    );
+  } else if (formatRecords.length >= 3 && (formatSuccessRate ?? 1) <= 0.35) {
+    priorityDelta -= 5;
+    reasons.push(
+      `${input.format ?? "This format"} is underperforming with only ${Math.round((formatSuccessRate ?? 0) * 100)}% success.`,
+    );
+  }
+
+  if (executionPathRecords.length >= 3 && (executionPathSuccessRate ?? 0) >= 0.65) {
+    priorityDelta += 4;
+  } else if (executionPathRecords.length >= 3 && (executionPathSuccessRate ?? 1) <= 0.35) {
+    priorityDelta -= 4;
+  }
+
+  if ((currentAverageRetries ?? 0) >= 1.5) {
+    priorityDelta -= 6;
+    reasons.push(
+      `Similar executions are averaging ${currentAverageRetries?.toFixed(1) ?? "0.0"} retries.`,
+    );
+  } else if ((currentAverageRetries ?? 0) >= 1) {
+    priorityDelta -= 3;
+  }
+
+  if ((currentCostPerSuccess ?? 0) >= 8) {
+    priorityDelta -= 3;
+  }
+
+  if (hookTypeRecords.length < 3 || executionPathRecords.length < 3) {
+    learningValueDelta += 6;
+    reasons.push("This pattern is still under-sampled, so it retains learning value.");
+  } else if (
+    hookTypeRecords.length >= 5 &&
+    executionPathRecords.length >= 5 &&
+    (hookTypeSuccessRate ?? 0) >= 0.6 &&
+    (executionPathSuccessRate ?? 0) >= 0.6
+  ) {
+    learningValueDelta -= 4;
+  }
+
+  return {
+    sampleSize: samplePool.length,
+    formatSuccessRate,
+    hookTypeSuccessRate,
+    executionPathSuccessRate,
+    averageRetries: currentAverageRetries,
+    costPerSuccess: currentCostPerSuccess,
+    priorityDelta,
+    learningValueDelta,
+    reason: reasons[0] ?? null,
+  };
+}
+
+export function getGrowthLearningAdjustmentSync(input: {
+  format?: string | null;
+  hookType?: string | null;
+  executionPath?: string | null;
+}) {
+  return buildGrowthLearningAdjustmentFromRecords(
+    listLearningRecordsSync({
+      inputType: "video_factory",
+    }),
+    input,
+  );
 }
 
 export function buildAutonomyLearningAdjustmentFromRecords(

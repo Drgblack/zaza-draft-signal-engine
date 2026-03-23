@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { InfluencerGraphRow, InfluencerGraphSummary } from "@/lib/influencer-graph";
 import { RELATIONSHIP_STAGES, type RelationshipStage } from "@/lib/influencer-graph-definitions";
 import type { NarrativeSequence } from "@/lib/narrative-sequences";
+import { buildContentIntelligenceFromSignal } from "@/lib/strategic-intelligence-types";
 import type { WeeklyPostingPack } from "@/lib/weekly-posting-pack";
 import { getZazaConnectBridgeBlobAccess } from "@/lib/zaza-connect-bridge-config";
 import type { SignalRecord } from "@/types/signal";
@@ -630,8 +631,10 @@ export function buildZazaConnectExportPayload(input: {
             sourceSignalIds: [item.signalId],
           }),
         )
-      : (input.fallbackCandidates ?? []).slice(0, 5).map((candidate) =>
-          strongContentCandidateSchema.parse({
+      : (input.fallbackCandidates ?? []).slice(0, 5).map((candidate) => {
+          const ci = buildContentIntelligenceFromSignal(candidate);
+
+          return strongContentCandidateSchema.parse({
             candidateId: candidate.candidateId,
             signalId: candidate.signalId,
             sourceTitle: candidate.sourceTitle,
@@ -656,7 +659,7 @@ export function buildZazaConnectExportPayload(input: {
               normalizeText(candidate.recommendedHookDirection) ??
               normalizeText(candidate.reason) ??
               "Open with the concrete classroom pain or value tension.",
-            recommendedFormat: candidate.recommendedFormat ?? "text",
+            recommendedFormat: ci.recommendedFormat || candidate.recommendedFormat || "text",
             recommendedPlatforms: candidate.recommendedPlatforms ?? [],
             whyNow:
               normalizeText(candidate.whyNow) ??
@@ -665,8 +668,8 @@ export function buildZazaConnectExportPayload(input: {
             proofPoints: candidate.proofPoints ?? [],
             trustNotes: candidate.trustNotes ?? [],
             sourceSignalIds: candidate.sourceSignalIds ?? [candidate.signalId],
-          }),
-        );
+          });
+        });
 
   const outreachRelevantThemes = [...new Map(
     items

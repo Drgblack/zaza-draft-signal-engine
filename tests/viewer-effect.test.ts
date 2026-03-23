@@ -39,6 +39,7 @@ function buildOpportunityFixture(): ContentOpportunity {
     intendedViewerEffect: null,
     suggestedCTA: null,
     productionComplexity: null,
+    growthIntelligence: null,
     supportingSignals: ["Emotional tension is high in parent communication."],
     memoryContext: {
       bestCombo: null,

@@ -35,6 +35,7 @@ function buildOpportunityFixture(): ContentOpportunity {
     intendedViewerEffect: null,
     suggestedCTA: null,
     productionComplexity: null,
+    growthIntelligence: null,
     supportingSignals: ["Teachers are looking for calmer parent communication."],
     memoryContext: {
       bestCombo: null,

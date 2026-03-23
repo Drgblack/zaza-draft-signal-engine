@@ -38,6 +38,7 @@ function buildOpportunityFixture(): ContentOpportunity {
     intendedViewerEffect: null,
     suggestedCTA: null,
     productionComplexity: null,
+    growthIntelligence: null,
     supportingSignals: ["Most teachers recognise this exact emotional tension."],
     memoryContext: {
       bestCombo: null,

@@ -72,6 +72,13 @@ export const factoryRunLedgerEntrySchema = z.object({
   decisionNotes: z.string().trim().nullable().default(null),
   autonomyPolicyReason: z.string().trim().nullable().default(null),
   autonomyPolicyRiskLevel: zod.enum(["low", "medium", "high"]).nullable().default(null),
+  growthExecutionPath: z
+    .enum(["video_factory", "campaigns", "connect", "hold", "review"])
+    .nullable()
+    .default(null),
+  growthExecutionPriority: z.number().nullable().default(null),
+  growthRiskLevel: zod.enum(["low", "medium", "high"]).nullable().default(null),
+  growthReasoning: z.string().trim().nullable().default(null),
   terminalOutcome: z.enum(FACTORY_RUN_TERMINAL_OUTCOMES),
   lastUpdatedAt: z.string().trim().min(1),
   failureStage: z.enum(VIDEO_FACTORY_STATUSES).nullable().default(null),
@@ -171,6 +178,10 @@ export function buildFactoryRunLedgerEntry(input: {
   decisionNotes?: string | null;
   autonomyPolicyReason?: string | null;
   autonomyPolicyRiskLevel?: "low" | "medium" | "high" | null;
+  growthExecutionPath?: "video_factory" | "campaigns" | "connect" | "hold" | "review" | null;
+  growthExecutionPriority?: number | null;
+  growthRiskLevel?: "low" | "medium" | "high" | null;
+  growthReasoning?: string | null;
 }): FactoryRunLedgerEntry {
   return factoryRunLedgerEntrySchema.parse({
     ledgerEntryId: ledgerEntryId(input.lifecycle.factoryJobId, input.attemptNumber),
@@ -202,6 +213,10 @@ export function buildFactoryRunLedgerEntry(input: {
     decisionNotes: input.decisionNotes ?? null,
     autonomyPolicyReason: input.autonomyPolicyReason ?? null,
     autonomyPolicyRiskLevel: input.autonomyPolicyRiskLevel ?? null,
+    growthExecutionPath: input.growthExecutionPath ?? null,
+    growthExecutionPriority: input.growthExecutionPriority ?? null,
+    growthRiskLevel: input.growthRiskLevel ?? null,
+    growthReasoning: input.growthReasoning ?? null,
     terminalOutcome:
       input.lifecycle.status === "accepted" ||
       input.lifecycle.status === "rejected" ||

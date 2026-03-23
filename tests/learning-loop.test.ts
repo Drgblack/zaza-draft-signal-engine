@@ -3,9 +3,11 @@ import test from "node:test";
 
 import {
   buildAutonomyLearningAdjustmentFromRecords,
+  buildGrowthLearningAdjustmentFromRecords,
   buildLearningAggregates,
   buildLearningInputSignature,
   buildRepairAutopilotAdjustmentFromRecords,
+  inferHookType,
   type LearningRecord,
 } from "../lib/learning-loop";
 
@@ -19,6 +21,9 @@ function buildLearningRecordFixture(
       buildLearningInputSignature("video_factory", {
         action: "auto_run_video_factory",
         content: "campaign",
+        format: "short_video",
+        hookType: "risk_warning",
+        path: "video_factory",
         platform: "linkedin",
         provider: "runway",
       }),
@@ -31,6 +36,9 @@ function buildLearningRecordFixture(
     actionType: overrides.actionType ?? "auto_run_video_factory",
     sourceId: overrides.sourceId ?? "source-1",
     platform: overrides.platform ?? "linkedin",
+    format: overrides.format ?? "short_video",
+    hookType: overrides.hookType ?? "risk_warning",
+    executionPath: overrides.executionPath ?? "video_factory",
     impressions: overrides.impressions ?? null,
     clicks: overrides.clicks ?? null,
     signups: overrides.signups ?? null,
@@ -73,8 +81,11 @@ test("buildLearningAggregates summarizes success rate, retries, and cost per suc
 
   assert.equal(aggregates.averageRetries, 1);
   assert.equal(aggregates.costPerSuccess, 1);
-  assert.equal(aggregates.successRateByInputType[0]?.inputType, "video_factory");
+  assert.equal(aggregates.successRateByInputType[0]?.key, "video_factory");
   assert.equal(aggregates.successRateByInputType[0]?.successRate, 0.5);
+  assert.equal(aggregates.successRateByFormat[0]?.key, "short_video");
+  assert.equal(aggregates.successRateByHookType[0]?.key, "risk_warning");
+  assert.equal(aggregates.successRateByExecutionPath[0]?.key, "video_factory");
 });
 
 test("buildAutonomyLearningAdjustmentFromRecords increases risk when similar runs underperform", () => {
@@ -170,4 +181,55 @@ test("buildRepairAutopilotAdjustmentFromRecords becomes conservative for weak si
   assert.equal(adjustment.useConservativeTextDefaults, true);
   assert.equal(Boolean(adjustment.reason), true);
   assert.equal(adjustment.sampleSize, 3);
+});
+
+test("buildGrowthLearningAdjustmentFromRecords boosts strong formats and penalises retry-heavy patterns", () => {
+  const records = [
+    buildLearningRecordFixture({
+      learningRecordId: "growth-1",
+      outcome: "success",
+      retries: 0,
+      cost: 2,
+      stage: "operator_review",
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "growth-2",
+      outcome: "success",
+      retries: 1,
+      cost: 2,
+      stage: "operator_review",
+      sourceId: "source-2",
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "growth-3",
+      outcome: "success",
+      retries: 2,
+      cost: 3,
+      stage: "operator_review",
+      sourceId: "source-3",
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "growth-4",
+      outcome: "failed",
+      retries: 2,
+      cost: 1,
+      stage: "operator_review",
+      sourceId: "source-4",
+    }),
+  ];
+
+  const adjustment = buildGrowthLearningAdjustmentFromRecords(records, {
+    format: "short_video",
+    hookType: "risk_warning",
+    executionPath: "video_factory",
+  });
+
+  assert.equal(adjustment.formatSuccessRate, 0.75);
+  assert.equal(adjustment.priorityDelta > 0, true);
+  assert.equal(adjustment.averageRetries !== null && adjustment.averageRetries >= 1, true);
+});
+
+test("inferHookType classifies common hook shapes", () => {
+  assert.equal(inferHookType("Before you send this..."), "pause_before_send");
+  assert.equal(inferHookType("This could escalate quickly."), "risk_warning");
 });

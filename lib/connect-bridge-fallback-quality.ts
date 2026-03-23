@@ -1,3 +1,5 @@
+import { buildContentIntelligenceFromSignal } from "./strategic-intelligence-types";
+
 const GENERIC_BRIDGE_REASON_PATTERNS = [
   /^playbook support exists$/i,
   /^pattern support exists$/i,
@@ -67,8 +69,11 @@ export function getBridgeDiversityPenalty(
   selected: BridgeCandidateDiversityShape[],
 ) {
   let penalty = 0;
+  const candidateContentIntelligence = buildContentIntelligenceFromSignal(candidate);
 
   for (const item of selected) {
+    const itemContentIntelligence = buildContentIntelligenceFromSignal(item);
+
     if (normalizeBridgeFingerprint(item.platform) === normalizeBridgeFingerprint(candidate.platform)) {
       penalty += 12;
     }
@@ -88,8 +93,10 @@ export function getBridgeDiversityPenalty(
     }
 
     if (
-      normalizeBridgeFingerprint(item.recommendedFormat) ===
-      normalizeBridgeFingerprint(candidate.recommendedFormat)
+      normalizeBridgeFingerprint(itemContentIntelligence.recommendedFormat ?? item.recommendedFormat) ===
+      normalizeBridgeFingerprint(
+        candidateContentIntelligence.recommendedFormat ?? candidate.recommendedFormat,
+      )
     ) {
       penalty += 3;
     }

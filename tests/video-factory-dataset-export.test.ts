@@ -35,6 +35,7 @@ function buildOpportunityFixture(): ContentOpportunity {
     intendedViewerEffect: null,
     suggestedCTA: null,
     productionComplexity: null,
+    growthIntelligence: null,
     supportingSignals: [],
     memoryContext: {
       bestCombo: null,
@@ -219,6 +220,10 @@ function buildOpportunityFixture(): ContentOpportunity {
           retryState: null,
           autonomyPolicyReason: null,
           autonomyPolicyRiskLevel: null,
+          growthExecutionPath: "video_factory",
+          growthExecutionPriority: 82,
+          growthRiskLevel: "low",
+          growthReasoning: "Impact potential 80/100; risk low; execution path video_factory",
           regenerationReasonCodes: [],
           regenerationNotes: null,
           decisionStructuredReasons: ["poor_visuals"],
