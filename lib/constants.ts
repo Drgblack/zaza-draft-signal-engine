@@ -34,6 +34,7 @@ export const NAV_GROUPS = [
     items: [
       { href: "/factory-inputs", label: "Factory Inputs" },
       { href: "/ingestion", label: "Ingestion" },
+      { href: "/connect-bridge", label: "Connect Bridge" },
       { href: "/settings", label: "Settings" },
     ],
   },
