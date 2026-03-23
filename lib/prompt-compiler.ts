@@ -19,6 +19,10 @@ import {
   productionDefaultsSchema,
 } from "@/lib/production-defaults";
 import {
+  applyPromptOverrideScenePrompts,
+  resolvePromptOverrideResolution,
+} from "@/lib/prompt-overrides";
+import {
   buildNarrationSpec,
   narrationSpecSchema,
 } from "@/lib/narration-specs";
@@ -183,25 +187,37 @@ export function compileVideoBriefForProduction(input: {
   opportunity: ContentOpportunity;
   brief: VideoBrief;
 }): CompiledProductionPlan {
-  const defaultsSnapshot = getActiveProductionDefaults();
   const brief = videoBriefSchema.parse(input.brief);
-  const narrationSpec = buildNarrationSpec(input.opportunity, brief);
-  const scenePrompts = buildScenePrompts({
+  const defaultsSnapshot = getActiveProductionDefaults();
+  const overrideResolution = resolvePromptOverrideResolution({
     opportunity: input.opportunity,
     brief,
-    defaults: defaultsSnapshot,
+    defaultsSnapshot,
+  });
+  const effectiveDefaultsSnapshot = productionDefaultsSchema.parse(
+    overrideResolution.effectiveDefaults,
+  );
+  const narrationSpec = buildNarrationSpec(input.opportunity, brief);
+  const baseScenePrompts = buildScenePrompts({
+    opportunity: input.opportunity,
+    brief,
+    defaults: effectiveDefaultsSnapshot,
+  });
+  const scenePrompts = applyPromptOverrideScenePrompts({
+    scenePrompts: baseScenePrompts,
+    resolution: overrideResolution,
   });
   const captionSpec = buildCaptionSpec({
     brief,
     narrationSpec,
-    defaults: defaultsSnapshot,
+    defaults: effectiveDefaultsSnapshot,
   });
   const initialCompositionSpec = buildCompositionSpec({
     brief,
     narrationSpec,
     captionSpec,
     scenePrompts,
-    defaults: defaultsSnapshot,
+    defaults: effectiveDefaultsSnapshot,
   });
   const initialTrustAssessment = buildCompiledTrustAssessment({
     opportunity: input.opportunity,
@@ -246,7 +262,7 @@ export function compileVideoBriefForProduction(input: {
     id: compiledProductionPlanId(brief.id),
     opportunityId: input.opportunity.opportunityId,
     videoBriefId: brief.id,
-    defaultsSnapshot,
+    defaultsSnapshot: effectiveDefaultsSnapshot,
     narrationSpec,
     scenePrompts,
     captionSpec,

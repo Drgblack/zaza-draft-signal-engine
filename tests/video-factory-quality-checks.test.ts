@@ -14,6 +14,11 @@ const baseCompiledPlan: CompiledProductionPlan = {
   videoBriefId: "brief-1",
   defaultsSnapshot: {
     id: "prod-default:teacher-real-core",
+    profileId: "prod-default:teacher-real-core",
+    version: 1,
+    changedAt: "2026-03-22T00:00:00.000Z",
+    changedSource: "system-bootstrap",
+    changeNote: null,
     name: "Teacher-Real Core",
     isActive: true,
     voiceProvider: "elevenlabs",

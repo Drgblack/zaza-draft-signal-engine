@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildFactoryProviderBenchmarkCollection } from "../lib/video-factory-provider-benchmarks";
+import {
+  buildFactoryProviderBenchmarkCollection,
+  buildFactoryProviderRunBenchmarkReport,
+} from "../lib/video-factory-provider-benchmarks";
 
 test("buildFactoryProviderBenchmarkCollection aggregates provider quality, retry, latency, and cost signals", () => {
   const collection = buildFactoryProviderBenchmarkCollection({
@@ -257,4 +260,144 @@ test("buildFactoryProviderBenchmarkCollection aggregates provider quality, retry
     { reasonCode: "poor_visuals", count: 1 },
     { reasonCode: "weak_hook", count: 1 },
   ]);
+});
+
+test("buildFactoryProviderRunBenchmarkReport rolls up provider metrics and A/B-ready comparison groups", () => {
+  const report = buildFactoryProviderRunBenchmarkReport({
+    generatedAt: "2026-03-23T14:00:00.000Z",
+    runs: [
+      {
+        attemptNumber: 1,
+        format: "talking-head",
+        terminalOutcome: "accepted",
+        isActive: false,
+        providerSet: {
+          renderProvider: "runway",
+        },
+        defaultsVersion: 3,
+        trustStatus: "safe",
+        trustAdjusted: false,
+        retryCount: 0,
+        createdAt: "2026-03-23T10:00:00.000Z",
+        updatedAt: "2026-03-23T10:04:00.000Z",
+        timeline: [
+          { status: "queued", at: "2026-03-23T10:00:00.000Z" },
+          { status: "accepted", at: "2026-03-23T10:04:00.000Z" },
+        ],
+        estimatedCostUsd: 1.2,
+        actualCostUsd: 1.1,
+        reviewOutcome: {
+          status: "accepted",
+        },
+      },
+      {
+        attemptNumber: 2,
+        format: "talking-head",
+        terminalOutcome: "rejected",
+        isActive: false,
+        providerSet: {
+          renderProvider: "runway",
+        },
+        defaultsVersion: 3,
+        trustStatus: "safe",
+        trustAdjusted: false,
+        retryCount: 2,
+        createdAt: "2026-03-23T11:00:00.000Z",
+        updatedAt: "2026-03-23T11:06:00.000Z",
+        timeline: [
+          { status: "queued", at: "2026-03-23T11:00:00.000Z" },
+          { status: "rejected", at: "2026-03-23T11:06:00.000Z" },
+        ],
+        estimatedCostUsd: 1.5,
+        actualCostUsd: null,
+        reviewOutcome: {
+          status: "rejected",
+        },
+      },
+      {
+        attemptNumber: 1,
+        format: "scenario-cut",
+        terminalOutcome: "accepted",
+        isActive: false,
+        providerSet: {
+          renderProvider: "kling",
+        },
+        defaultsVersion: 4,
+        trustStatus: "adjusted",
+        trustAdjusted: true,
+        retryCount: 1,
+        createdAt: "2026-03-23T12:00:00.000Z",
+        updatedAt: "2026-03-23T12:03:00.000Z",
+        timeline: [
+          { status: "queued", at: "2026-03-23T12:00:00.000Z" },
+          { status: "accepted", at: "2026-03-23T12:03:00.000Z" },
+        ],
+        estimatedCostUsd: 0.95,
+        actualCostUsd: 0.92,
+        reviewOutcome: {
+          status: "accepted",
+        },
+      },
+      {
+        attemptNumber: 1,
+        format: "talking-head",
+        terminalOutcome: null,
+        isActive: true,
+        providerSet: {
+          renderProvider: "runway",
+        },
+        defaultsVersion: 4,
+        trustStatus: "safe",
+        trustAdjusted: false,
+        retryCount: 1,
+        createdAt: "2026-03-23T13:00:00.000Z",
+        updatedAt: "2026-03-23T13:02:00.000Z",
+        timeline: [{ status: "generating_visuals", at: "2026-03-23T13:00:00.000Z" }],
+        estimatedCostUsd: 1.25,
+        actualCostUsd: null,
+        reviewOutcome: {
+          status: null,
+        },
+      },
+    ],
+  });
+
+  const runway = report.providerSummaries.find(
+    (summary) => summary.provider === "runway",
+  );
+  const kling = report.providerSummaries.find(
+    (summary) => summary.provider === "kling",
+  );
+  const runwayV3TalkingHead = report.comparisonGroups.find(
+    (group) =>
+      group.provider === "runway" &&
+      group.defaultsVersion === 3 &&
+      group.format === "talking-head" &&
+      group.trustStatus === "safe",
+  );
+
+  assert.equal(report.generatedAt, "2026-03-23T14:00:00.000Z");
+
+  assert.equal(runway?.runCount, 3);
+  assert.equal(runway?.terminalRunCount, 2);
+  assert.equal(runway?.approvalRate, 0.5);
+  assert.equal(runway?.regenerationRate, 0.3333);
+  assert.equal(runway?.averageRetries, 1);
+  assert.equal(runway?.averageCostUsd, 1.2833);
+  assert.equal(runway?.averageTimeToTerminalMs, 300000);
+  assert.deepEqual(runway?.defaultsVersions, [3, 4]);
+  assert.deepEqual(runway?.formats, ["talking-head"]);
+  assert.equal(runway?.adjustedCount, 0);
+  assert.equal(runway?.evidence.level, "directional");
+
+  assert.equal(kling?.approvalRate, 1);
+  assert.equal(kling?.evidence.level, "low_sample");
+
+  assert.equal(runwayV3TalkingHead?.runCount, 2);
+  assert.equal(runwayV3TalkingHead?.terminalRunCount, 2);
+  assert.equal(runwayV3TalkingHead?.approvalRate, 0.5);
+  assert.equal(runwayV3TalkingHead?.regenerationRate, 0.5);
+  assert.equal(runwayV3TalkingHead?.averageRetries, 1);
+  assert.equal(runwayV3TalkingHead?.averageCostUsd, 1.3);
+  assert.equal(runwayV3TalkingHead?.averageTimeToTerminalMs, 300000);
 });

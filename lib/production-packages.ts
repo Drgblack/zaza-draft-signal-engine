@@ -3,6 +3,12 @@ import { z } from "zod";
 import type { ContentOpportunity } from "./content-opportunities";
 import { productionDefaultsSchema } from "./production-defaults";
 import {
+  applyVideoFactoryRetentionPolicyToArtifactRef,
+  buildVideoFactoryRetentionPolicy,
+  isVideoFactoryRetentionDeletionEligible,
+  videoFactoryRetentionPolicySchema,
+} from "./video-factory-artifact-storage";
+import {
   assetReviewStateSchema,
   renderedAssetSchema,
 } from "./rendered-assets";
@@ -220,6 +226,9 @@ const productionPackageLifecycleSummarySchema = z.object({
 const productionPackagePublishReadySchema = z.object({
   handoffStatus: z.enum(["accepted_render", "latest_attempt", "brief_only"]),
   isPublishReady: z.boolean(),
+  approvedOutputRetention: videoFactoryRetentionPolicySchema
+    .nullable()
+    .default(null),
   compiledProductionPlanId: z.string().trim().nullable().default(null),
   acceptedRenderedAsset: renderedAssetSchema.nullable().default(null),
   thumbnailUrl: z.string().trim().nullable().default(null),
@@ -243,6 +252,7 @@ export const productionPackageSchema = z.object({
   opportunityId: z.string().trim().min(1),
   videoBriefId: z.string().trim().min(1),
   createdAt: z.string().trim().min(1),
+  retention: videoFactoryRetentionPolicySchema,
   title: z.string().trim().min(1),
   brief: exportVideoBriefSchema,
   narrationSpec: exportNarrationSpecSchema.nullable().default(null),
@@ -275,6 +285,25 @@ export type ProductionPackage = z.infer<typeof productionPackageSchema>;
 
 function productionPackageId(videoBriefId: string) {
   return `${videoBriefId}:production-package`;
+}
+
+function promoteApprovedOutputArtifactStorage<
+  T extends {
+    storage?: ReturnType<typeof applyVideoFactoryRetentionPolicyToArtifactRef> | null;
+    createdAt: string;
+  } | null,
+>(artifact: T): T {
+  if (!artifact?.storage) {
+    return artifact;
+  }
+
+  return {
+    ...artifact,
+    storage: applyVideoFactoryRetentionPolicyToArtifactRef(artifact.storage, {
+      createdAt: artifact.createdAt,
+      retentionClass: "final_approved_output",
+    }),
+  };
 }
 
 function requireStableBrief(opportunity: ContentOpportunity): VideoBrief {
@@ -524,6 +553,7 @@ export function buildProductionPackage(input: {
   opportunity: ContentOpportunity;
   publishOutcome?: FactoryPublishOutcome | null;
 }): ProductionPackage {
+  const createdAt = new Date().toISOString();
   const brief = exportVideoBriefSchema.parse(
     requireStableBrief(input.opportunity),
   );
@@ -559,6 +589,15 @@ export function buildProductionPackage(input: {
     publishOutcome,
   });
   const lifecycleSummary = buildLifecycleSummary(input.opportunity);
+  const approvedOutputRetention =
+    selectedAttempt.exportSource === "accepted_render" &&
+    selectedAttempt.renderedAsset
+      ? buildVideoFactoryRetentionPolicy({
+          createdAt: selectedAttempt.renderedAsset.createdAt,
+          retentionClass: "final_approved_output",
+          asOf: createdAt,
+        })
+      : null;
   const publishReadyPackage = productionPackagePublishReadySchema.parse({
     handoffStatus: selectedAttempt.exportSource,
     isPublishReady: buildPublishReadyFlag({
@@ -566,6 +605,7 @@ export function buildProductionPackage(input: {
       compiledProductionPlan,
       publishOutcome,
     }),
+    approvedOutputRetention,
     compiledProductionPlanId: compiledProductionPlan?.id ?? null,
     acceptedRenderedAsset:
       selectedAttempt.exportSource === "accepted_render"
@@ -580,8 +620,18 @@ export function buildProductionPackage(input: {
     narrationArtifact: selectedAttempt.lineage?.narrationArtifact ?? null,
     captionArtifact: selectedAttempt.lineage?.captionArtifact ?? null,
     sceneArtifacts: selectedAttempt.lineage?.sceneArtifacts ?? [],
-    compositionArtifact: selectedAttempt.lineage?.composedVideoArtifact ?? null,
-    thumbnailArtifact: selectedAttempt.lineage?.thumbnailArtifact ?? null,
+    compositionArtifact:
+      selectedAttempt.exportSource === "accepted_render"
+        ? promoteApprovedOutputArtifactStorage(
+            selectedAttempt.lineage?.composedVideoArtifact ?? null,
+          )
+        : selectedAttempt.lineage?.composedVideoArtifact ?? null,
+    thumbnailArtifact:
+      selectedAttempt.exportSource === "accepted_render"
+        ? promoteApprovedOutputArtifactStorage(
+            selectedAttempt.lineage?.thumbnailArtifact ?? null,
+          )
+        : selectedAttempt.lineage?.thumbnailArtifact ?? null,
     providerStack: buildProviderStack({
       selectedAttempt,
     }),
@@ -598,7 +648,12 @@ export function buildProductionPackage(input: {
     id: productionPackageId(brief.id),
     opportunityId: input.opportunity.opportunityId,
     videoBriefId: brief.id,
-    createdAt: new Date().toISOString(),
+    createdAt,
+    retention: buildVideoFactoryRetentionPolicy({
+      createdAt,
+      retentionClass: "exported_production_package",
+      asOf: createdAt,
+    }),
     title: brief.title,
     brief,
     narrationSpec,
@@ -626,4 +681,16 @@ export function buildProductionPackage(input: {
     exportFormat: "json",
     version: 1,
   });
+}
+
+export function listCleanupEligibleProductionPackages(
+  packages: ProductionPackage[],
+  options?: { asOf?: string | Date },
+) {
+  return packages.filter((productionPackage) =>
+    isVideoFactoryRetentionDeletionEligible(
+      productionPackage.retention,
+      options?.asOf,
+    ),
+  );
 }

@@ -66,6 +66,11 @@ export async function PATCH(request: Request) {
         actor: "operator",
         summary: "Updated production defaults.",
         metadata: {
+          defaultsProfileId: productionDefaults.profileId,
+          previousDefaultsVersion: previous.version,
+          defaultsVersion: productionDefaults.version,
+          changedSource: productionDefaults.changedSource,
+          changeNote: productionDefaults.changeNote,
           changedVoiceId:
             previous.voiceId !== productionDefaults.voiceId,
           changedAspectRatio:

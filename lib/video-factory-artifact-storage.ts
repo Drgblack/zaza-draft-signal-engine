@@ -9,7 +9,122 @@ import type { GeneratedCaptionTrack } from "@/lib/providers/caption-provider";
 import type { GeneratedNarration } from "@/lib/providers/narration-provider";
 import type { GeneratedSceneAsset } from "@/lib/providers/visual-provider";
 
-export const videoFactoryPersistedArtifactRefSchema = z.object({
+export const VIDEO_FACTORY_RETENTION_CLASSES = [
+  "intermediate_artifact",
+  "final_approved_output",
+  "exported_production_package",
+  "diagnostics_log",
+] as const;
+
+const VIDEO_FACTORY_RETENTION_DAYS: Record<
+  (typeof VIDEO_FACTORY_RETENTION_CLASSES)[number],
+  number
+> = {
+  intermediate_artifact: 14,
+  final_approved_output: 180,
+  exported_production_package: 365,
+  diagnostics_log: 30,
+};
+
+export const videoFactoryRetentionClassSchema = z.enum(
+  VIDEO_FACTORY_RETENTION_CLASSES,
+);
+
+export const videoFactoryRetentionPolicySchema = z.object({
+  createdAt: z.string().trim().nullable().default(null),
+  retentionClass: videoFactoryRetentionClassSchema,
+  retentionDays: z.number().int().positive().nullable().default(null),
+  expiresAt: z.string().trim().nullable().default(null),
+  deletionEligible: z.boolean().default(false),
+});
+
+function normalizeText(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function toIsoAfterDays(createdAt: string, retentionDays: number) {
+  const createdAtMs = new Date(createdAt).getTime();
+  if (!Number.isFinite(createdAtMs)) {
+    throw new Error(`Invalid retention createdAt timestamp: ${createdAt}`);
+  }
+
+  return new Date(createdAtMs + retentionDays * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function asOfTimestamp(asOf?: string | Date) {
+  if (!asOf) {
+    return Date.now();
+  }
+
+  const timestamp =
+    asOf instanceof Date ? asOf.getTime() : new Date(asOf).getTime();
+  if (!Number.isFinite(timestamp)) {
+    throw new Error(`Invalid retention asOf timestamp: ${String(asOf)}`);
+  }
+
+  return timestamp;
+}
+
+export function getVideoFactoryRetentionDays(
+  retentionClass: z.infer<typeof videoFactoryRetentionClassSchema>,
+) {
+  return VIDEO_FACTORY_RETENTION_DAYS[retentionClass];
+}
+
+export function buildVideoFactoryRetentionPolicy(input: {
+  createdAt: string | null | undefined;
+  retentionClass: z.infer<typeof videoFactoryRetentionClassSchema>;
+  retentionDays?: number | null;
+  asOf?: string | Date;
+}) {
+  const createdAt = normalizeText(input.createdAt);
+  const retentionDays =
+    input.retentionDays ?? getVideoFactoryRetentionDays(input.retentionClass);
+  const expiresAt =
+    createdAt && retentionDays > 0
+      ? toIsoAfterDays(createdAt, retentionDays)
+      : null;
+  const deletionEligible = expiresAt
+    ? asOfTimestamp(input.asOf) >= new Date(expiresAt).getTime()
+    : false;
+
+  return videoFactoryRetentionPolicySchema.parse({
+    createdAt,
+    retentionClass: input.retentionClass,
+    retentionDays,
+    expiresAt,
+    deletionEligible,
+  });
+}
+
+export function isVideoFactoryRetentionDeletionEligible(
+  policy:
+    | Partial<z.infer<typeof videoFactoryRetentionPolicySchema>>
+    | null
+    | undefined,
+  asOf?: string | Date,
+) {
+  if (!policy) {
+    return false;
+  }
+
+  if (!policy.expiresAt) {
+    return false;
+  }
+
+  return asOfTimestamp(asOf) >= new Date(policy.expiresAt).getTime();
+}
+
+export function listCleanupEligibleRetentionPolicies<
+  T extends z.infer<typeof videoFactoryRetentionPolicySchema>,
+>(policies: T[], options?: { asOf?: string | Date }) {
+  return policies.filter((policy) =>
+    isVideoFactoryRetentionDeletionEligible(policy, options?.asOf),
+  );
+}
+
+const videoFactoryPersistedArtifactRefCoreSchema = z.object({
   backend: z.enum(["blob", "source"]),
   pathname: z.string().trim().nullable().default(null),
   url: z.string().trim().nullable().default(null),
@@ -18,9 +133,76 @@ export const videoFactoryPersistedArtifactRefSchema = z.object({
   persistedAt: z.string().trim().nullable().default(null),
 });
 
-export type VideoFactoryPersistedArtifactRef = z.infer<
+export const videoFactoryPersistedArtifactRefSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const artifactRef = value as Record<string, unknown>;
+    const retentionClass = videoFactoryRetentionClassSchema.safeParse(
+      artifactRef.retentionClass,
+    ).success
+      ? (artifactRef.retentionClass as z.infer<
+          typeof videoFactoryRetentionClassSchema
+        >)
+      : "intermediate_artifact";
+    const createdAt =
+      normalizeText(
+        typeof artifactRef.createdAt === "string" ? artifactRef.createdAt : null,
+      ) ??
+      normalizeText(
+        typeof artifactRef.persistedAt === "string" ? artifactRef.persistedAt : null,
+      );
+    const retentionDays =
+      typeof artifactRef.retentionDays === "number" &&
+      Number.isInteger(artifactRef.retentionDays) &&
+      artifactRef.retentionDays > 0
+        ? artifactRef.retentionDays
+        : getVideoFactoryRetentionDays(retentionClass);
+    const expiresAt =
+      normalizeText(
+        typeof artifactRef.expiresAt === "string" ? artifactRef.expiresAt : null,
+      ) ??
+      (createdAt ? toIsoAfterDays(createdAt, retentionDays) : null);
+
+    return {
+      ...artifactRef,
+      createdAt,
+      retentionClass,
+      retentionDays,
+      expiresAt,
+      deletionEligible:
+        typeof artifactRef.deletionEligible === "boolean"
+          ? artifactRef.deletionEligible
+          : false,
+    };
+  },
+  videoFactoryPersistedArtifactRefCoreSchema.extend({
+    createdAt: z.string().trim().nullable().optional(),
+    retentionClass: videoFactoryRetentionClassSchema.optional(),
+    retentionDays: z.number().int().positive().nullable().optional(),
+    expiresAt: z.string().trim().nullable().optional(),
+    deletionEligible: z.boolean().optional(),
+  }),
+);
+
+export type VideoFactoryPersistedArtifactRef = z.input<
   typeof videoFactoryPersistedArtifactRefSchema
 >;
+export type ResolvedVideoFactoryPersistedArtifactRef = z.output<
+  typeof videoFactoryPersistedArtifactRefSchema
+>;
+export type VideoFactoryRetentionPolicy = z.infer<
+  typeof videoFactoryRetentionPolicySchema
+>;
+export type PersistedVideoFactoryArtifacts = {
+  narration: ResolvedVideoFactoryPersistedArtifactRef;
+  sceneAssets: ResolvedVideoFactoryPersistedArtifactRef[];
+  caption: ResolvedVideoFactoryPersistedArtifactRef;
+  composedVideo: ResolvedVideoFactoryPersistedArtifactRef;
+  thumbnail: ResolvedVideoFactoryPersistedArtifactRef | null;
+};
 
 type BlobAccess = "public" | "private";
 
@@ -46,11 +228,6 @@ function asSlug(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
-}
-
-function normalizeText(value: string | null | undefined) {
-  const trimmed = value?.trim() ?? "";
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 function isRemoteUrl(value: string | null | undefined) {
@@ -136,12 +313,20 @@ async function persistArtifact(input: {
   pathname: string;
   body: string | Buffer;
   contentType: string;
+  createdAt?: string | null;
+  retentionClass: z.infer<typeof videoFactoryRetentionClassSchema>;
   sourceUrl?: string | null;
   persistedAt: string;
   persistBlob: PersistBlobFn;
   blobEnabled: boolean;
   access: BlobAccess;
-}): Promise<VideoFactoryPersistedArtifactRef> {
+}): Promise<ResolvedVideoFactoryPersistedArtifactRef> {
+  const retention = buildVideoFactoryRetentionPolicy({
+    createdAt: input.createdAt ?? input.persistedAt,
+    retentionClass: input.retentionClass,
+    asOf: input.persistedAt,
+  });
+
   if (!input.blobEnabled) {
     return videoFactoryPersistedArtifactRefSchema.parse({
       backend: "source",
@@ -150,6 +335,7 @@ async function persistArtifact(input: {
       sourceUrl: normalizeText(input.sourceUrl),
       contentType: input.contentType,
       persistedAt: null,
+      ...retention,
     });
   }
 
@@ -167,12 +353,15 @@ async function persistArtifact(input: {
     sourceUrl: normalizeText(input.sourceUrl),
     contentType: input.contentType,
     persistedAt: input.persistedAt,
+    ...retention,
   });
 }
 
 async function persistJsonArtifact(input: {
   pathname: string;
   payload: unknown;
+  createdAt?: string | null;
+  retentionClass: z.infer<typeof videoFactoryRetentionClassSchema>;
   sourceUrl?: string | null;
   persistedAt: string;
   persistBlob: PersistBlobFn;
@@ -183,6 +372,8 @@ async function persistJsonArtifact(input: {
     pathname: input.pathname,
     body: `${JSON.stringify(input.payload, null, 2)}\n`,
     contentType: "application/json; charset=utf-8",
+    createdAt: input.createdAt,
+    retentionClass: input.retentionClass,
     sourceUrl: input.sourceUrl,
     persistedAt: input.persistedAt,
     persistBlob: input.persistBlob,
@@ -195,6 +386,8 @@ async function persistBinaryArtifact(input: {
   pathname: string;
   bytes: Buffer;
   contentType: string;
+  createdAt?: string | null;
+  retentionClass: z.infer<typeof videoFactoryRetentionClassSchema>;
   sourceUrl?: string | null;
   persistedAt: string;
   persistBlob: PersistBlobFn;
@@ -205,6 +398,8 @@ async function persistBinaryArtifact(input: {
     pathname: input.pathname,
     body: input.bytes,
     contentType: input.contentType,
+    createdAt: input.createdAt,
+    retentionClass: input.retentionClass,
     sourceUrl: input.sourceUrl,
     persistedAt: input.persistedAt,
     persistBlob: input.persistBlob,
@@ -233,7 +428,7 @@ export async function persistVideoFactoryArtifacts(
     access?: BlobAccess;
     persistBlob?: PersistBlobFn;
   },
-) {
+): Promise<PersistedVideoFactoryArtifacts> {
   const persistBlob: PersistBlobFn =
     overrides?.persistBlob ??
     (async (pathname, body, options) => {
@@ -269,6 +464,8 @@ export async function persistVideoFactoryArtifacts(
         bytes: Buffer.from(input.providerResults.narration.audioBase64, "base64"),
         contentType:
           input.providerResults.narration.audioMimeType ?? "audio/mpeg",
+        createdAt: input.providerResults.narration.createdAt,
+        retentionClass: "intermediate_artifact",
         sourceUrl: input.providerResults.narration.audioUrl,
       })
     : isRemoteUrl(input.providerResults.narration.audioUrl)
@@ -283,6 +480,8 @@ export async function persistVideoFactoryArtifacts(
           bytes: await fetchBuffer(input.providerResults.narration.audioUrl),
           contentType:
             input.providerResults.narration.audioMimeType ?? "audio/mpeg",
+          createdAt: input.providerResults.narration.createdAt,
+          retentionClass: "intermediate_artifact",
           sourceUrl: input.providerResults.narration.audioUrl,
         })
       : await persistJsonArtifact({
@@ -301,6 +500,8 @@ export async function persistVideoFactoryArtifacts(
             durationSec: input.providerResults.narration.durationSec ?? null,
             createdAt: input.providerResults.narration.createdAt,
           },
+          createdAt: input.providerResults.narration.createdAt,
+          retentionClass: "intermediate_artifact",
           sourceUrl: input.providerResults.narration.audioUrl,
         });
 
@@ -317,6 +518,8 @@ export async function persistVideoFactoryArtifacts(
             }),
             bytes: await fetchBuffer(sceneAsset.assetUrl),
             contentType: "video/mp4",
+            createdAt: sceneAsset.createdAt,
+            retentionClass: "intermediate_artifact",
             sourceUrl: sceneAsset.assetUrl,
           })
         : persistJsonArtifact({
@@ -335,6 +538,8 @@ export async function persistVideoFactoryArtifacts(
               sourceUrl: sceneAsset.assetUrl,
               createdAt: sceneAsset.createdAt,
             },
+            createdAt: sceneAsset.createdAt,
+            retentionClass: "intermediate_artifact",
             sourceUrl: sceneAsset.assetUrl,
           }),
     ),
@@ -355,6 +560,8 @@ export async function persistVideoFactoryArtifacts(
         durationSec: input.providerResults.composedVideo.durationSec,
       }),
     contentType: "text/vtt; charset=utf-8",
+    createdAt: input.providerResults.captionTrack.createdAt,
+    retentionClass: "intermediate_artifact",
     sourceUrl: input.providerResults.captionTrack.captionUrl,
   });
 
@@ -370,6 +577,8 @@ export async function persistVideoFactoryArtifacts(
         bytes: await readFile(input.providerResults.composedVideo.videoFilePath),
         contentType:
           input.providerResults.composedVideo.videoMimeType ?? "video/mp4",
+        createdAt: input.providerResults.composedVideo.createdAt,
+        retentionClass: "intermediate_artifact",
         sourceUrl: input.providerResults.composedVideo.videoUrl,
       })
     : isRemoteUrl(input.providerResults.composedVideo.videoUrl)
@@ -384,6 +593,8 @@ export async function persistVideoFactoryArtifacts(
           bytes: await fetchBuffer(input.providerResults.composedVideo.videoUrl),
           contentType:
             input.providerResults.composedVideo.videoMimeType ?? "video/mp4",
+          createdAt: input.providerResults.composedVideo.createdAt,
+          retentionClass: "intermediate_artifact",
           sourceUrl: input.providerResults.composedVideo.videoUrl,
         })
       : await persistJsonArtifact({
@@ -403,6 +614,8 @@ export async function persistVideoFactoryArtifacts(
             durationSec: input.providerResults.composedVideo.durationSec ?? null,
             createdAt: input.providerResults.composedVideo.createdAt,
           },
+          createdAt: input.providerResults.composedVideo.createdAt,
+          retentionClass: "intermediate_artifact",
           sourceUrl: input.providerResults.composedVideo.videoUrl,
         });
 
@@ -418,6 +631,8 @@ export async function persistVideoFactoryArtifacts(
         bytes: await readFile(input.providerResults.composedVideo.thumbnailFilePath),
         contentType:
           input.providerResults.composedVideo.thumbnailMimeType ?? "image/jpeg",
+        createdAt: input.providerResults.composedVideo.createdAt,
+        retentionClass: "intermediate_artifact",
         sourceUrl: input.providerResults.composedVideo.thumbnailUrl,
       })
     : input.providerResults.composedVideo.thumbnailUrl &&
@@ -433,6 +648,8 @@ export async function persistVideoFactoryArtifacts(
           bytes: await fetchBuffer(input.providerResults.composedVideo.thumbnailUrl),
           contentType:
             input.providerResults.composedVideo.thumbnailMimeType ?? "image/jpeg",
+          createdAt: input.providerResults.composedVideo.createdAt,
+          retentionClass: "intermediate_artifact",
           sourceUrl: input.providerResults.composedVideo.thumbnailUrl,
         })
       : input.providerResults.composedVideo.thumbnailUrl
@@ -450,6 +667,8 @@ export async function persistVideoFactoryArtifacts(
               sourceUrl: input.providerResults.composedVideo.thumbnailUrl,
               createdAt: input.providerResults.composedVideo.createdAt,
             },
+            createdAt: input.providerResults.composedVideo.createdAt,
+            retentionClass: "intermediate_artifact",
             sourceUrl: input.providerResults.composedVideo.thumbnailUrl,
           })
         : null;
@@ -468,4 +687,39 @@ export async function persistVideoFactoryArtifacts(
     composedVideo,
     thumbnail,
   };
+}
+
+export function listCleanupEligibleArtifactRefs(
+  refs: Array<VideoFactoryPersistedArtifactRef | null | undefined>,
+  options?: { asOf?: string | Date },
+): ResolvedVideoFactoryPersistedArtifactRef[] {
+  return refs
+    .filter((ref): ref is VideoFactoryPersistedArtifactRef => Boolean(ref))
+    .map((ref) => videoFactoryPersistedArtifactRefSchema.parse(ref))
+    .filter((ref) =>
+      isVideoFactoryRetentionDeletionEligible(ref, options?.asOf),
+    );
+}
+
+export function applyVideoFactoryRetentionPolicyToArtifactRef(
+  ref: VideoFactoryPersistedArtifactRef,
+  input: {
+    createdAt?: string | null;
+    retentionClass: z.infer<typeof videoFactoryRetentionClassSchema>;
+    retentionDays?: number | null;
+    asOf?: string | Date;
+  },
+): ResolvedVideoFactoryPersistedArtifactRef {
+  const normalizedRef = videoFactoryPersistedArtifactRefSchema.parse(ref);
+
+  return videoFactoryPersistedArtifactRefSchema.parse({
+    ...normalizedRef,
+    ...buildVideoFactoryRetentionPolicy({
+      createdAt:
+        input.createdAt ?? normalizedRef.createdAt ?? normalizedRef.persistedAt,
+      retentionClass: input.retentionClass,
+      retentionDays: input.retentionDays,
+      asOf: input.asOf,
+    }),
+  });
 }

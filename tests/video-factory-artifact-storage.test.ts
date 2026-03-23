@@ -99,11 +99,17 @@ test("persistVideoFactoryArtifacts writes deterministic blob pathnames for each 
     /WEBVTT/,
   );
   assert.equal(persisted.narration.backend, "blob");
+  assert.equal(persisted.narration.createdAt, "2026-03-22T10:00:00.000Z");
+  assert.equal(persisted.narration.retentionClass, "intermediate_artifact");
+  assert.equal(persisted.narration.retentionDays, 14);
+  assert.equal(persisted.narration.expiresAt, "2026-04-05T10:00:00.000Z");
+  assert.equal(persisted.narration.deletionEligible, false);
   assert.equal(persisted.caption.contentType, "text/vtt; charset=utf-8");
   assert.equal(
     persisted.composedVideo.url,
     "https://blob.example/video-factory/opportunity-1/brief-1/brief-1-factory-job-phase-c-render-v1/attempt-2-phase-c-render-v1/composed-video/composed-video-1.json",
   );
+  assert.equal(persisted.composedVideo.retentionClass, "intermediate_artifact");
   assert.equal(persisted.thumbnail?.backend, "blob");
 });
 
@@ -196,4 +202,7 @@ test("persistVideoFactoryArtifacts uploads composed media binaries when local ff
     persisted.thumbnail?.url?.endsWith("/thumbnail-image/composed-video-2-thumbnail.jpg"),
     true,
   );
+  assert.equal(persisted.composedVideo.createdAt, "2026-03-23T09:00:00.000Z");
+  assert.equal(persisted.composedVideo.retentionDays, 14);
+  assert.equal(persisted.thumbnail?.retentionClass, "intermediate_artifact");
 });

@@ -5,7 +5,10 @@ import type { GeneratedCaptionTrack } from "@/lib/providers/caption-provider";
 import type { GeneratedNarration } from "@/lib/providers/narration-provider";
 import type { GeneratedSceneAsset } from "@/lib/providers/visual-provider";
 import {
+  isVideoFactoryRetentionDeletionEligible,
+  listCleanupEligibleArtifactRefs,
   videoFactoryPersistedArtifactRefSchema,
+  type ResolvedVideoFactoryPersistedArtifactRef,
   type VideoFactoryPersistedArtifactRef,
 } from "./video-factory-artifact-storage";
 import {
@@ -141,6 +144,16 @@ export const videoFactoryAttemptLineageSchema = z.object({
   createdAt: z.string().trim().min(1),
 });
 
+export const videoFactoryCleanupEligibleArtifactSchema = z.object({
+  attemptId: z.string().trim().min(1),
+  factoryJobId: z.string().trim().nullable().default(null),
+  renderJobId: z.string().trim().nullable().default(null),
+  artifactId: z.string().trim().min(1),
+  artifactType: z.string().trim().min(1),
+  createdAt: z.string().trim().min(1),
+  storage: videoFactoryPersistedArtifactRefSchema,
+});
+
 export type ProviderExecutionRecord = z.infer<typeof providerExecutionRecordSchema>;
 export type GeneratedNarrationArtifact = z.infer<typeof generatedNarrationArtifactSchema>;
 export type GeneratedSceneAssetArtifact = z.infer<typeof generatedSceneAssetArtifactSchema>;
@@ -148,6 +161,9 @@ export type GeneratedCaptionTrackArtifact = z.infer<typeof generatedCaptionTrack
 export type GeneratedThumbnailArtifact = z.infer<typeof generatedThumbnailArtifactSchema>;
 export type ComposedVideoArtifact = z.infer<typeof composedVideoArtifactSchema>;
 export type VideoFactoryAttemptLineage = z.infer<typeof videoFactoryAttemptLineageSchema>;
+export type VideoFactoryCleanupEligibleArtifact = z.infer<
+  typeof videoFactoryCleanupEligibleArtifactSchema
+>;
 
 function executionId(
   renderJobId: string,
@@ -487,4 +503,57 @@ export function appendVideoFactoryAttemptLineage(
     (left, right) =>
       new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
   );
+}
+
+export function listCleanupEligibleLineageArtifacts(
+  attempts: VideoFactoryAttemptLineage[],
+  options?: { asOf?: string | Date },
+) {
+  return attempts.flatMap((attempt) => {
+    const artifactRecords = [
+      attempt.narrationArtifact,
+      ...attempt.sceneArtifacts,
+      attempt.captionArtifact,
+      attempt.composedVideoArtifact,
+      attempt.thumbnailArtifact,
+    ].filter(
+      (
+        artifact,
+      ): artifact is
+        | GeneratedNarrationArtifact
+        | GeneratedSceneAssetArtifact
+        | GeneratedCaptionTrackArtifact
+        | ComposedVideoArtifact
+        | GeneratedThumbnailArtifact => Boolean(artifact),
+    );
+
+    const eligibleRefs = listCleanupEligibleArtifactRefs(
+      artifactRecords.map((artifact) => artifact.storage),
+      options,
+    );
+
+    return artifactRecords
+      .filter(
+        (artifact): artifact is typeof artifact & { storage: ResolvedVideoFactoryPersistedArtifactRef } =>
+          Boolean(artifact.storage) &&
+          isVideoFactoryRetentionDeletionEligible(artifact.storage, options?.asOf) &&
+          eligibleRefs.some(
+            (eligibleRef) =>
+              eligibleRef.pathname === artifact.storage?.pathname &&
+              eligibleRef.url === artifact.storage?.url &&
+              eligibleRef.sourceUrl === artifact.storage?.sourceUrl,
+          ),
+      )
+      .map((artifact) =>
+        videoFactoryCleanupEligibleArtifactSchema.parse({
+          attemptId: attempt.attemptId,
+          factoryJobId: attempt.factoryJobId,
+          renderJobId: attempt.renderJobId,
+          artifactId: artifact.artifactId,
+          artifactType: artifact.artifactType,
+          createdAt: artifact.createdAt,
+          storage: artifact.storage,
+        }),
+      );
+  });
 }

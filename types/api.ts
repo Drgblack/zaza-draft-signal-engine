@@ -561,6 +561,8 @@ export const productionDefaultsUpdateRequestSchema = z.object({
     transitionStyle: z.string().trim().min(1).optional(),
     musicMode: z.enum(["none", "light-bed"]).optional(),
   }),
+  changedSource: z.string().trim().min(1).optional(),
+  changeNote: z.string().trim().min(1).nullable().optional(),
 });
 
 export type ProductionDefaultsUpdateRequest = z.infer<

@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/connect-bridge-export",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}

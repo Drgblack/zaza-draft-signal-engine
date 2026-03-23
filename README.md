@@ -484,6 +484,19 @@ Active internal workflow with ingestion, scoring, scenario framing, generation, 
   - compact bridge notes in `/digest`
   - light planning context in `/plan`
   - bridge-aware outreach generation in `/signals/[id]/outreach`
+- Operational bridge routes:
+  - `POST /api/connect-bridge` manually creates and persists the latest export snapshot
+  - `GET /api/connect-bridge/health` reports storage, automation, freshness, and opportunity-count status
+  - `GET /api/bridge/opportunities` returns the latest persisted Connect-ready opportunities payload
+  - `GET /api/cron/connect-bridge-export` is the scheduled refresh path used by `vercel.json`
+- Production bridge env requirements:
+  - `BLOB_READ_WRITE_TOKEN` for durable persisted exports
+  - `CRON_SECRET` for the scheduled export route
+  - `ZAZA_CONNECT_BRIDGE_BLOB_ACCESS=private` if you need to override access explicitly; private is the safe default
+- Production bootstrap:
+  - deploy the app with the bridge env vars above
+  - trigger `POST /api/connect-bridge` once, or use `/connect-bridge`, to create the first persisted export
+  - verify `GET /api/connect-bridge/health` reports a recent export and non-zero Connect opportunities
 - Limitations:
   - no live CRM sync
   - no outreach sending

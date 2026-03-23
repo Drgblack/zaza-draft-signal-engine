@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ContentOpportunity } from "../lib/content-opportunities";
-import { buildProductionPackage } from "../lib/production-packages";
+import {
+  buildProductionPackage,
+  listCleanupEligibleProductionPackages,
+} from "../lib/production-packages";
 
 function buildOpportunityFixture(
   reviewStatus: "accepted" | "rejected" | "discarded" | "pending_review" = "accepted",
@@ -356,6 +359,11 @@ function buildOpportunityFixture(
           videoBriefId: "brief-1",
           defaultsSnapshot: {
             id: "prod-default:teacher-real-core",
+            profileId: "prod-default:teacher-real-core",
+            version: 1,
+            changedAt: "2026-03-22T00:00:00.000Z",
+            changedSource: "system-bootstrap",
+            changeNote: null,
             name: "Teacher-Real Core",
             isActive: true,
             voiceProvider: "elevenlabs",
@@ -536,7 +544,15 @@ test("buildProductionPackage exports accepted real artifacts and lineage", () =>
   assert.equal(productionPackage.narrationSpec?.id, "narration-spec-1");
   assert.equal(productionPackage.publishOutcome?.published, false);
   assert.equal(productionPackage.publishOutcome?.renderedAssetId, "asset-2");
+  assert.equal(
+    productionPackage.retention.retentionClass,
+    "exported_production_package",
+  );
   assert.equal(productionPackage.publishReadyPackage.isPublishReady, true);
+  assert.equal(
+    productionPackage.publishReadyPackage.approvedOutputRetention?.retentionClass,
+    "final_approved_output",
+  );
   assert.equal(
     productionPackage.publishReadyPackage.acceptedRenderedAsset?.url,
     "https://blob.example/video.mp4",
@@ -552,6 +568,10 @@ test("buildProductionPackage exports accepted real artifacts and lineage", () =>
   assert.equal(
     productionPackage.publishReadyPackage.compositionArtifact?.storage?.url,
     "https://blob.example/video.mp4",
+  );
+  assert.equal(
+    productionPackage.publishReadyPackage.compositionArtifact?.storage?.retentionClass,
+    "final_approved_output",
   );
   assert.equal(
     productionPackage.publishReadyPackage.lifecycleSummary?.status,
@@ -586,6 +606,7 @@ test("buildProductionPackage falls back to latest attempt when the current rende
   assert.equal(productionPackage.artifacts.sceneAssets.length, 1);
   assert.equal(productionPackage.artifacts.composedVideo?.providerId, "ffmpeg");
   assert.equal(productionPackage.publishReadyPackage.isPublishReady, false);
+  assert.equal(productionPackage.publishReadyPackage.approvedOutputRetention, null);
   assert.equal(
     productionPackage.publishReadyPackage.reviewOutcome?.status,
     "rejected",
@@ -614,4 +635,30 @@ test("buildProductionPackage stays deterministic without legacy videoPrompt stat
   assert.equal(productionPackage.narrationSpec?.id, "narration-spec-1");
   assert.equal(productionPackage.publishReadyPackage.compiledProductionPlanId, "compiled-plan-1");
   assert.equal(productionPackage.publishReadyPackage.isPublishReady, true);
+});
+
+test("listCleanupEligibleProductionPackages returns expired exported packages only", () => {
+  const productionPackage = buildProductionPackage({
+    opportunity: buildOpportunityFixture("accepted"),
+  });
+
+  const eligible = listCleanupEligibleProductionPackages(
+    [
+      {
+        ...productionPackage,
+        retention: {
+          ...productionPackage.retention,
+          createdAt: "2025-01-01T00:00:00.000Z",
+          retentionDays: 30,
+          expiresAt: "2025-01-31T00:00:00.000Z",
+          deletionEligible: false,
+        },
+      },
+      productionPackage,
+    ],
+    { asOf: "2026-03-23T10:00:00.000Z" },
+  );
+
+  assert.equal(eligible.length, 1);
+  assert.equal(eligible[0]?.id, productionPackage.id);
 });

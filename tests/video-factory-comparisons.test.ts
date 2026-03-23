@@ -14,6 +14,11 @@ const baselineRenderJob = {
   renderVersion: "phase-c-render-v1",
   productionDefaultsSnapshot: {
     id: "prod-default:teacher-real-core",
+    profileId: "prod-default:teacher-real-core",
+    version: 1,
+    changedAt: "2026-03-22T00:00:00.000Z",
+    changedSource: "system-bootstrap",
+    changeNote: null,
     name: "Teacher-Real Core",
     isActive: true,
     voiceProvider: "elevenlabs" as const,
@@ -69,6 +74,11 @@ test("buildFactoryComparisonRecord captures provider/defaults/voice differences"
       productionDefaultsSnapshot: {
         ...baselineRenderJob.productionDefaultsSnapshot,
         id: "prod-default:teacher-real-alt",
+        profileId: "prod-default:teacher-real-alt",
+        version: 2,
+        changedAt: "2026-03-23T00:00:00.000Z",
+        changedSource: "operator:test",
+        changeNote: "Alternative defaults profile for comparison.",
         voiceId: "teacher-real-core-v2",
         updatedAt: "2026-03-23T00:00:00.000Z",
       },
