@@ -98,6 +98,13 @@ import {
   RENDER_JOB_REGENERATION_REASONS,
 } from "@/lib/render-jobs";
 import type { VideoFactoryDiagnostics } from "@/lib/video-factory-diagnostics";
+import type { FactoryDatasetExport } from "@/lib/video-factory-dataset-export";
+import {
+  factoryPublishOutcomeSchema,
+  FACTORY_ATTRIBUTION_SOURCES,
+} from "@/lib/video-factory-publish-outcomes";
+import type { ProviderBenchmarkCollection } from "@/lib/video-factory-provider-benchmarks";
+import { factoryReviewReasonListSchema } from "@/lib/video-factory-review-reasons";
 import type {
   ZazaConnectBridgeSummary,
   ZazaConnectExportPayload,
@@ -471,6 +478,8 @@ export const factoryInputRegenerateVideoRequestSchema = z.object({
   opportunityId: z.string().trim().min(1),
   provider: z.enum(["mock", "runway", "capcut", "custom"]).default("mock"),
   regenerationReason: z.enum(RENDER_JOB_REGENERATION_REASONS).nullable().optional(),
+  structuredReasons: factoryReviewReasonListSchema.optional(),
+  regenerationNotes: z.string().optional(),
 });
 
 export type FactoryInputRegenerateVideoRequest = z.infer<
@@ -479,6 +488,8 @@ export type FactoryInputRegenerateVideoRequest = z.infer<
 
 export const factoryInputDiscardAssetRequestSchema = z.object({
   opportunityId: z.string().trim().min(1),
+  structuredReasons: factoryReviewReasonListSchema.optional(),
+  reviewNotes: z.string().optional(),
 });
 
 export type FactoryInputDiscardAssetRequest = z.infer<
@@ -490,6 +501,7 @@ export const factoryInputRenderReviewRequestSchema = z.object({
   status: z.enum(["accepted", "rejected"]),
   reviewNotes: z.string().optional(),
   rejectionReason: z.string().optional(),
+  structuredReasons: factoryReviewReasonListSchema.optional(),
 });
 
 export type FactoryInputRenderReviewRequest = z.infer<
@@ -502,6 +514,33 @@ export const factoryInputExportPackageRequestSchema = z.object({
 
 export type FactoryInputExportPackageRequest = z.infer<
   typeof factoryInputExportPackageRequestSchema
+>;
+
+export const factoryInputPublishOutcomeRequestSchema = z
+  .object({
+    opportunityId: z.string().trim().min(1),
+    published: z.boolean(),
+    platform: z.enum(["x", "linkedin", "reddit"]).nullable().optional(),
+    publishDate: z.string().optional(),
+    publishedUrl: z.string().optional(),
+    impressions: z.number().int().nonnegative().nullable().optional(),
+    clicks: z.number().int().nonnegative().nullable().optional(),
+    signups: z.number().int().nonnegative().nullable().optional(),
+    notes: z.string().optional(),
+    attributionSource: z.enum(FACTORY_ATTRIBUTION_SOURCES).nullable().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.published && !value.platform) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["platform"],
+        message: "Platform is required when a publish outcome is marked as published.",
+      });
+    }
+  });
+
+export type FactoryInputPublishOutcomeRequest = z.infer<
+  typeof factoryInputPublishOutcomeRequestSchema
 >;
 
 export const productionDefaultsUpdateRequestSchema = z.object({
@@ -1093,6 +1132,28 @@ export interface FactoryInputProductionPackageResponse {
 export interface FactoryInputDiagnosticsResponse {
   success: boolean;
   diagnostics: VideoFactoryDiagnostics | null;
+  error?: string;
+}
+
+export interface FactoryInputPublishOutcomeResponse {
+  success: boolean;
+  opportunityId: string | null;
+  publishOutcome: z.infer<typeof factoryPublishOutcomeSchema> | null;
+  message?: string;
+  error?: string;
+}
+
+export interface FactoryInputProviderBenchmarkResponse {
+  success: boolean;
+  benchmarks: ProviderBenchmarkCollection | null;
+  message?: string;
+  error?: string;
+}
+
+export interface FactoryInputDatasetExportResponse {
+  success: boolean;
+  dataset: FactoryDatasetExport | null;
+  message?: string;
   error?: string;
 }
 

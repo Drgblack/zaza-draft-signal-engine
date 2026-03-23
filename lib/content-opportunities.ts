@@ -110,6 +110,8 @@ import {
   type VideoFactoryBudgetGuard,
 } from "@/lib/video-factory-cost";
 import { persistVideoFactoryArtifacts } from "@/lib/video-factory-artifact-storage";
+import { syncVideoFactoryLanguageMemoryFromReview } from "@/lib/video-factory-language-memory";
+import { ensureFactoryPublishOutcomePlaceholder } from "@/lib/video-factory-publish-outcomes";
 import {
   lifecycleStatusForQualityFailure,
   isRetryableQualityCheckResult,
@@ -134,6 +136,14 @@ import {
   type FactoryRunLedgerEntry,
 } from "@/lib/video-factory-run-ledger";
 import {
+  appendFactoryComparisonRecord,
+  factoryComparisonRecordSchema,
+  maybeBuildFactoryComparisonRecord,
+  updateFactoryComparisonDecision,
+  updateFactoryComparisonRecordForRenderJob,
+  type FactoryComparisonRecord,
+} from "@/lib/video-factory-comparisons";
+import {
   appendVideoFactoryAttemptLineage,
   buildVideoFactoryAttemptLineage,
   videoFactoryAttemptLineageSchema,
@@ -146,6 +156,11 @@ import {
   resolveVideoFactoryDuplicateRunDecision,
   VideoFactoryActiveRunError,
 } from "@/lib/video-factory-idempotency";
+import {
+  deriveStructuredReasonsFromLegacyRegenerationReason,
+  normalizeFactoryReviewReasonCodes,
+  type FactoryReviewReasonCode,
+} from "@/lib/video-factory-review-reasons";
 import type { PostingPlatform } from "@/lib/posting-memory";
 
 const CONTENT_OPPORTUNITY_STORE_PATH = path.join(process.cwd(), "data", "content-opportunities.json");
@@ -204,6 +219,7 @@ export interface ContentOpportunityGenerationState {
   latestQualityCheck: QualityCheckResult | null;
   latestRetryState: VideoFactoryRetryState | null;
   runLedger: FactoryRunLedgerEntry[];
+  comparisonRecords: FactoryComparisonRecord[];
   attemptLineage: VideoFactoryAttemptLineage[];
   narrationSpec: NarrationSpec | null;
   videoPrompt: VideoPrompt | null;
@@ -282,6 +298,7 @@ export const contentOpportunityGenerationStateSchema = z.object({
   latestQualityCheck: qualityCheckResultSchema.nullable().default(null),
   latestRetryState: videoFactoryRetryStateSchema.nullable().default(null),
   runLedger: z.array(factoryRunLedgerEntrySchema).default([]),
+  comparisonRecords: z.array(factoryComparisonRecordSchema).default([]),
   attemptLineage: z.array(videoFactoryAttemptLineageSchema).default([]),
   narrationSpec: narrationSpecSchema.nullable().default(null),
   videoPrompt: videoPromptSchema.nullable().default(null),
@@ -1013,6 +1030,8 @@ async function runContentOpportunityVideoGeneration(input: {
   isRegenerate: boolean;
   preTriageConcern?: RenderJob["preTriageConcern"];
   regenerationReason?: RenderJob["regenerationReason"];
+  regenerationReasonCodes?: FactoryReviewReasonCode[];
+  regenerationNotes?: string | null;
   mode?: "enqueue_only" | "run_active" | "enqueue_and_run";
 }) {
   const mode = input.mode ?? "enqueue_and_run";
@@ -1056,6 +1075,24 @@ async function runContentOpportunityVideoGeneration(input: {
   let queuedState = summarizeState(store.opportunities);
   let costEstimate: CostEstimate | null = null;
   let budgetGuard: VideoFactoryBudgetGuard | null = null;
+  let baselineAttemptNumber: number | null = null;
+  let baselineRenderJob: RenderJob | null = null;
+  let baselineFactoryJobId: string | null = null;
+  let baselineTerminalOutcome:
+    | "review_pending"
+    | "accepted"
+    | "rejected"
+    | "discarded"
+    | "failed"
+    | null = null;
+  const normalizedRegenerationReasonCodes = normalizeFactoryReviewReasonCodes(
+    input.regenerationReasonCodes?.length
+      ? input.regenerationReasonCodes
+      : deriveStructuredReasonsFromLegacyRegenerationReason(
+          input.regenerationReason ?? null,
+        ),
+  );
+  const normalizedRegenerationNotes = normalizeText(input.regenerationNotes);
 
   if (mode !== "run_active") {
     queuedState = await updateOpportunity(input.opportunityId, (opportunity) => {
@@ -1129,6 +1166,24 @@ async function runContentOpportunityVideoGeneration(input: {
       attemptBrief = latestBrief;
       attemptApprovedAt = latestApprovedAt;
       attemptApprovedBy = latestApprovedBy;
+      baselineAttemptNumber =
+        latestGenerationState.runLedger.at(-1)?.attemptNumber ??
+        latestGenerationState.attemptLineage.length ??
+        null;
+      baselineRenderJob = latestGenerationState.renderJob;
+      baselineFactoryJobId =
+        latestGenerationState.factoryLifecycle?.factoryJobId ?? null;
+      baselineTerminalOutcome =
+        latestGenerationState.runLedger.at(-1)?.terminalOutcome ??
+        (latestGenerationState.assetReview?.status === "pending_review"
+          ? "review_pending"
+          : latestGenerationState.assetReview?.status === "accepted" ||
+              latestGenerationState.assetReview?.status === "rejected" ||
+              latestGenerationState.assetReview?.status === "discarded"
+            ? latestGenerationState.assetReview.status
+          : latestGenerationState.factoryLifecycle?.status === "failed"
+            ? "failed"
+            : null);
       idempotencyKey = requestedIdempotencyKey;
       queuedVideoPrompt = buildVideoPrompt(latestOpportunity, latestBrief);
       generationRequest = buildVideoGenerationRequest({
@@ -1158,8 +1213,23 @@ async function runContentOpportunityVideoGeneration(input: {
           renderVersion,
           preTriageConcern: input.preTriageConcern ?? null,
           regenerationReason: input.regenerationReason ?? null,
+          regenerationReasonCodes: normalizedRegenerationReasonCodes,
+          regenerationNotes: normalizedRegenerationNotes,
         }),
         submittedAt: timestamp,
+      });
+      const comparisonRecord = maybeBuildFactoryComparisonRecord({
+        opportunityId: latestOpportunity.opportunityId,
+        videoBriefId: latestBrief.id,
+        includeRegenerate: input.isRegenerate,
+        baselineAttemptNumber,
+        baselineRenderJob,
+        baselineFactoryJobId,
+        baselineOutcome: baselineTerminalOutcome,
+        comparisonAttemptNumber: attemptNumber,
+        comparisonRenderJob: queuedRenderJob,
+        comparisonFactoryJobId: factoryLifecycle.factoryJobId,
+        createdAt: timestamp,
       });
 
       return {
@@ -1180,6 +1250,12 @@ async function runContentOpportunityVideoGeneration(input: {
           renderJob: queuedRenderJob,
           renderedAsset: null,
           assetReview: null,
+          comparisonRecords: comparisonRecord
+            ? appendFactoryComparisonRecord(
+                latestGenerationState.comparisonRecords,
+                comparisonRecord,
+              )
+            : latestGenerationState.comparisonRecords,
         }),
         updatedAt: timestamp,
       };
@@ -1247,6 +1323,15 @@ async function runContentOpportunityVideoGeneration(input: {
             opportunity.generationState ?? {},
           );
           const currentRenderJob = persistedGenerationState.renderJob;
+          const nextRenderJob = currentRenderJob
+            ? renderJobSchema.parse({
+                ...currentRenderJob,
+                compiledProductionPlan,
+                productionDefaultsSnapshot: compiledProductionPlan.defaultsSnapshot,
+                costEstimate,
+                budgetGuard,
+              })
+            : null;
 
           return {
             ...opportunity,
@@ -1254,15 +1339,18 @@ async function runContentOpportunityVideoGeneration(input: {
               ...persistedGenerationState,
               latestCostEstimate: costEstimate,
               latestBudgetGuard: budgetGuard,
-              renderJob: currentRenderJob
-                ? renderJobSchema.parse({
-                    ...currentRenderJob,
-                    compiledProductionPlan,
-                    productionDefaultsSnapshot: compiledProductionPlan.defaultsSnapshot,
-                    costEstimate,
-                    budgetGuard,
-                  })
-                : null,
+              comparisonRecords: nextRenderJob
+                ? updateFactoryComparisonRecordForRenderJob(
+                    persistedGenerationState.comparisonRecords,
+                    {
+                      comparisonRenderJob: nextRenderJob,
+                      comparisonFactoryJobId:
+                        persistedGenerationState.factoryLifecycle?.factoryJobId ?? null,
+                      updatedAt: new Date().toISOString(),
+                    },
+                  )
+                : persistedGenerationState.comparisonRecords,
+              renderJob: nextRenderJob,
             }),
             updatedAt: new Date().toISOString(),
           };
@@ -1490,6 +1578,8 @@ async function runContentOpportunityVideoGeneration(input: {
         budgetGuard,
         qualityCheck,
         retryState: attemptRetryState,
+        regenerationReasonCodes: activeQueuedRenderJob.regenerationReasonCodes,
+        regenerationNotes: activeQueuedRenderJob.regenerationNotes,
       });
 
       return updateOpportunity(input.opportunityId, (opportunity) => {
@@ -1512,6 +1602,23 @@ async function runContentOpportunityVideoGeneration(input: {
             runLedger: appendFactoryRunLedgerEntry(
               persistedGenerationState.runLedger,
               failedLedgerEntry,
+            ),
+            comparisonRecords: updateFactoryComparisonDecision(
+              updateFactoryComparisonRecordForRenderJob(
+                persistedGenerationState.comparisonRecords,
+                {
+                  comparisonRenderJob: failedRenderJob,
+                  comparisonFactoryJobId: factoryLifecycle.factoryJobId,
+                  comparisonOutcome: "failed",
+                  updatedAt: timestamp,
+                },
+              ),
+              {
+                comparisonRenderJobId: failedRenderJob.id,
+                outcome: "failed",
+                notes: summarizeQualityCheckFailures(qualityCheck),
+                updatedAt: timestamp,
+              },
             ),
             attemptLineage: appendVideoFactoryAttemptLineage(
               persistedGenerationState.attemptLineage,
@@ -1562,6 +1669,8 @@ async function runContentOpportunityVideoGeneration(input: {
       budgetGuard,
       qualityCheck,
       retryState: attemptRetryState,
+      regenerationReasonCodes: activeQueuedRenderJob.regenerationReasonCodes,
+      regenerationNotes: activeQueuedRenderJob.regenerationNotes,
     });
     const generationSignalMetadata = buildPerformanceSignalMetadata({
       opportunity: attemptOpportunity,
@@ -1620,6 +1729,15 @@ async function runContentOpportunityVideoGeneration(input: {
           runLedger: appendFactoryRunLedgerEntry(
             persistedGenerationState.runLedger,
             runLedgerEntry,
+          ),
+          comparisonRecords: updateFactoryComparisonRecordForRenderJob(
+            persistedGenerationState.comparisonRecords,
+            {
+              comparisonRenderJob: renderJob,
+              comparisonFactoryJobId: factoryLifecycle.factoryJobId,
+              comparisonOutcome: "review_pending",
+              updatedAt: timestamp,
+            },
           ),
           attemptLineage: appendVideoFactoryAttemptLineage(
             persistedGenerationState.attemptLineage,
@@ -1719,6 +1837,8 @@ async function runContentOpportunityVideoGeneration(input: {
       estimatedCost: costEstimate,
       budgetGuard,
       retryState,
+      regenerationReasonCodes: activeQueuedRenderJob.regenerationReasonCodes,
+      regenerationNotes: activeQueuedRenderJob.regenerationNotes,
     });
 
     await updateOpportunity(input.opportunityId, (opportunity) => {
@@ -1750,6 +1870,26 @@ async function runContentOpportunityVideoGeneration(input: {
           runLedger: appendFactoryRunLedgerEntry(
             persistedGenerationState.runLedger,
             failedLedgerEntry,
+          ),
+          comparisonRecords: updateFactoryComparisonDecision(
+            updateFactoryComparisonRecordForRenderJob(
+              persistedGenerationState.comparisonRecords,
+              {
+                comparisonRenderJob: failedRenderJob,
+                comparisonFactoryJobId: failedLifecycle.factoryJobId,
+                comparisonOutcome: "failed",
+                updatedAt: failureTimestamp,
+              },
+            ),
+            {
+              comparisonRenderJobId: failedRenderJob.id,
+              outcome: "failed",
+              notes:
+                error instanceof Error
+                  ? error.message
+                  : "Video generation failed.",
+              updatedAt: failureTimestamp,
+            },
           ),
           generationRequest: videoGenerationRequestSchema.parse({
             ...activeGenerationRequest,
@@ -2253,12 +2393,16 @@ export async function regenerateContentOpportunityVideo(input: {
   opportunityId: string;
   provider?: RenderProvider;
   regenerationReason?: RenderJob["regenerationReason"];
+  regenerationReasonCodes?: FactoryReviewReasonCode[];
+  regenerationNotes?: string;
 }) {
   return runContentOpportunityVideoGeneration({
     opportunityId: input.opportunityId,
     provider: input.provider,
     isRegenerate: true,
     regenerationReason: input.regenerationReason ?? null,
+    regenerationReasonCodes: input.regenerationReasonCodes ?? [],
+    regenerationNotes: input.regenerationNotes ?? null,
     mode: "enqueue_only",
   });
 }
@@ -2278,6 +2422,7 @@ export async function reviewContentOpportunityRenderedAsset(input: {
   status: "accepted" | "rejected";
   reviewNotes?: string;
   rejectionReason?: string;
+  structuredReasons?: FactoryReviewReasonCode[];
 }) {
   const timestamp = new Date().toISOString();
   const store = await readPersistedStore();
@@ -2301,6 +2446,9 @@ export async function reviewContentOpportunityRenderedAsset(input: {
   const nextReviewNotes = normalizeText(input.reviewNotes);
   const nextRejectionReason =
     input.status === "rejected" ? normalizeText(input.rejectionReason) : null;
+  const nextStructuredReasons = normalizeFactoryReviewReasonCodes(
+    input.structuredReasons,
+  );
   const videoBriefId = normalizedCurrent.selectedVideoBrief?.id ?? null;
   const currentDefaultsSnapshot =
     normalizedCurrent.generationState.renderJob?.productionDefaultsSnapshot ??
@@ -2329,6 +2477,11 @@ export async function reviewContentOpportunityRenderedAsset(input: {
             trustAdjusted: currentTrustAssessment?.adjusted ?? null,
             extra: {
             hasReviewNotes: Boolean(nextReviewNotes),
+            structuredReasonCount: nextStructuredReasons.length,
+            structuredReasons:
+              nextStructuredReasons.length > 0
+                ? nextStructuredReasons.join(",")
+                : null,
             },
           }),
         })
@@ -2351,6 +2504,11 @@ export async function reviewContentOpportunityRenderedAsset(input: {
             extra: {
             hasReviewNotes: Boolean(nextReviewNotes),
             hasRejectionReason: Boolean(nextRejectionReason),
+            structuredReasonCount: nextStructuredReasons.length,
+            structuredReasons:
+              nextStructuredReasons.length > 0
+                ? nextStructuredReasons.join(",")
+                : null,
             },
           }),
         });
@@ -2386,13 +2544,29 @@ export async function reviewContentOpportunityRenderedAsset(input: {
                     normalizedCurrent.generationState.renderJob?.renderVersion ?? null,
                 },
               ),
+              decisionStructuredReasons: nextStructuredReasons,
+              decisionNotes: nextReviewNotes,
             },
           )
         : normalizedCurrent.generationState?.runLedger ?? [],
+      comparisonRecords: normalizedCurrent.generationState?.renderJob
+        ? updateFactoryComparisonDecision(
+            normalizedCurrent.generationState.comparisonRecords,
+            {
+              comparisonRenderJobId:
+                normalizedCurrent.generationState.renderJob.id,
+              outcome: input.status,
+              structuredReasons: nextStructuredReasons,
+              notes: nextReviewNotes,
+              updatedAt: timestamp,
+            },
+          )
+        : normalizedCurrent.generationState?.comparisonRecords ?? [],
       assetReview: {
         ...normalizedCurrent.generationState!.assetReview!,
         status: input.status,
         reviewedAt: timestamp,
+        structuredReasons: nextStructuredReasons,
         reviewNotes: nextReviewNotes,
         rejectionReason: nextRejectionReason,
       },
@@ -2413,19 +2587,62 @@ export async function reviewContentOpportunityRenderedAsset(input: {
         reviewStatus: input.status,
         hasReviewNotes: Boolean(nextReviewNotes),
         hasRejectionReason: Boolean(nextRejectionReason),
+        structuredReasons:
+          nextStructuredReasons.length > 0
+            ? nextStructuredReasons.join(",")
+            : null,
       },
     },
   ]);
+
+  const acceptedVideoBriefId =
+    normalizedCurrent.selectedVideoBrief?.id ??
+    normalizedCurrent.generationState.renderJob?.compiledProductionPlan?.videoBriefId ??
+    normalizedCurrent.generationState.factoryLifecycle?.videoBriefId ??
+    null;
+  const acceptedRenderJobId = normalizedCurrent.generationState.renderJob?.id ?? null;
+
+  if (
+    input.status === "accepted" &&
+    acceptedVideoBriefId &&
+    acceptedRenderJobId
+  ) {
+    await ensureFactoryPublishOutcomePlaceholder({
+      opportunityId: normalizedCurrent.opportunityId,
+      videoBriefId: acceptedVideoBriefId,
+      factoryJobId:
+        normalizedCurrent.generationState.factoryLifecycle?.factoryJobId ?? null,
+      renderJobId: acceptedRenderJobId,
+      renderedAssetId: normalizedCurrent.generationState.renderedAsset.id,
+      assetReviewId: normalizedCurrent.generationState.assetReview?.id ?? null,
+      createdAt: timestamp,
+    });
+  }
+
+  await syncVideoFactoryLanguageMemoryFromReview({
+    opportunity: normalizePersistedOpportunity(
+      state.opportunities.find((item) => item.opportunityId === input.opportunityId) ??
+        current,
+    ),
+    reviewOutcome: input.status,
+    reviewedAt: timestamp,
+  });
 
   return state;
 }
 
 export async function discardContentOpportunityRenderedAsset(
-  opportunityId: string,
+  input: {
+    opportunityId: string;
+    reviewNotes?: string;
+    structuredReasons?: FactoryReviewReasonCode[];
+  },
 ) {
   const timestamp = new Date().toISOString();
   const store = await readPersistedStore();
-  const current = store.opportunities.find((item) => item.opportunityId === opportunityId);
+  const current = store.opportunities.find(
+    (item) => item.opportunityId === input.opportunityId,
+  );
   if (!current) {
     throw new Error("Content opportunity not found.");
   }
@@ -2445,6 +2662,10 @@ export async function discardContentOpportunityRenderedAsset(
     createPendingAssetReview({
       renderedAssetId: renderedAsset.id,
     });
+  const nextReviewNotes = normalizeText(input.reviewNotes);
+  const nextStructuredReasons = normalizeFactoryReviewReasonCodes(
+    input.structuredReasons,
+  );
   const performanceSignal = buildAssetDiscardedPerformanceSignal({
     opportunityId: normalizedCurrent.opportunityId,
     videoBriefId: normalizedCurrent.selectedVideoBrief?.id ?? null,
@@ -2479,11 +2700,17 @@ export async function discardContentOpportunityRenderedAsset(
         null,
       extra: {
         renderJobId: normalizedCurrent.generationState?.renderJob?.id ?? null,
+        hasReviewNotes: Boolean(nextReviewNotes),
+        structuredReasonCount: nextStructuredReasons.length,
+        structuredReasons:
+          nextStructuredReasons.length > 0
+            ? nextStructuredReasons.join(",")
+            : null,
       },
     }),
   });
 
-  const state = await updateOpportunity(opportunityId, (opportunity) => ({
+  const state = await updateOpportunity(input.opportunityId, (opportunity) => ({
     ...opportunity,
     generationState: {
       ...contentOpportunityGenerationStateSchema.parse(opportunity.generationState ?? {}),
@@ -2514,14 +2741,30 @@ export async function discardContentOpportunityRenderedAsset(
                     normalizedCurrent.generationState?.renderJob?.renderVersion ?? null,
                 },
               ),
+              decisionStructuredReasons: nextStructuredReasons,
+              decisionNotes: nextReviewNotes,
             },
           )
         : normalizedCurrent.generationState?.runLedger ?? [],
+      comparisonRecords: normalizedCurrent.generationState?.renderJob
+        ? updateFactoryComparisonDecision(
+            normalizedCurrent.generationState.comparisonRecords,
+            {
+              comparisonRenderJobId:
+                normalizedCurrent.generationState.renderJob.id,
+              outcome: "discarded",
+              structuredReasons: nextStructuredReasons,
+              notes: nextReviewNotes,
+              updatedAt: timestamp,
+            },
+          )
+        : normalizedCurrent.generationState?.comparisonRecords ?? [],
       assetReview: {
         ...nextAssetReview,
         status: "discarded" as const,
         reviewedAt: timestamp,
-        reviewNotes: null,
+        structuredReasons: nextStructuredReasons,
+        reviewNotes: nextReviewNotes,
         rejectionReason: null,
       },
       performanceSignals: appendPerformanceSignals(
@@ -2540,9 +2783,23 @@ export async function discardContentOpportunityRenderedAsset(
       metadata: {
         renderedAssetId: renderedAsset.id,
         renderJobId: normalizedCurrent.generationState?.renderJob?.id ?? null,
+        hasReviewNotes: Boolean(nextReviewNotes),
+        structuredReasons:
+          nextStructuredReasons.length > 0
+            ? nextStructuredReasons.join(",")
+            : null,
       },
     },
   ]);
+
+  await syncVideoFactoryLanguageMemoryFromReview({
+    opportunity: normalizePersistedOpportunity(
+      state.opportunities.find((item) => item.opportunityId === input.opportunityId) ??
+        current,
+    ),
+    reviewOutcome: "discarded",
+    reviewedAt: timestamp,
+  });
 
   return state;
 }

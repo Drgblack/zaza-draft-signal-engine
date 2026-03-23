@@ -23,6 +23,7 @@ import {
   jobCostRecordSchema,
   videoFactoryBudgetGuardSchema,
 } from "./video-factory-cost";
+import { factoryReviewReasonListSchema } from "./video-factory-review-reasons";
 import { videoFactoryRetryStateSchema } from "./video-factory-retry";
 
 const exportVideoBeatSchema = z.object({
@@ -144,6 +145,8 @@ const exportRenderJobSchema = z.object({
   providerJobId: z.string().trim().nullable().default(null),
   preTriageConcern: z.string().trim().nullable().default(null),
   regenerationReason: z.string().trim().nullable().default(null),
+  regenerationReasonCodes: factoryReviewReasonListSchema,
+  regenerationNotes: z.string().trim().nullable().default(null),
   costEstimate: costEstimateSchema.nullable().default(null),
   actualCost: jobCostRecordSchema.nullable().default(null),
   budgetGuard: videoFactoryBudgetGuardSchema.nullable().default(null),

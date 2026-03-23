@@ -29,6 +29,7 @@ export async function PATCH(request: Request) {
       status: parsed.data.status,
       reviewNotes: parsed.data.reviewNotes,
       rejectionReason: parsed.data.rejectionReason,
+      structuredReasons: parsed.data.structuredReasons ?? [],
     });
 
     return NextResponse.json<FactoryInputResponse>({

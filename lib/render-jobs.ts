@@ -8,6 +8,7 @@ import {
   videoFactoryBudgetGuardSchema,
 } from "@/lib/video-factory-cost";
 import { qualityCheckResultSchema } from "@/lib/video-factory-quality-checks";
+import { factoryReviewReasonListSchema } from "@/lib/video-factory-review-reasons";
 import { videoFactoryRetryStateSchema } from "@/lib/video-factory-retry";
 
 export const RENDER_PROVIDERS = ["mock", "runway", "capcut", "custom"] as const;
@@ -49,6 +50,8 @@ export const renderJobSchema = z.object({
   providerJobId: z.string().trim().nullable().default(null),
   preTriageConcern: z.enum(RENDER_JOB_PRE_TRIAGE_CONCERNS).nullable().default(null),
   regenerationReason: z.enum(RENDER_JOB_REGENERATION_REASONS).nullable().default(null),
+  regenerationReasonCodes: factoryReviewReasonListSchema,
+  regenerationNotes: z.string().trim().nullable().default(null),
   costEstimate: costEstimateSchema.nullable().default(null),
   actualCost: jobCostRecordSchema.nullable().default(null),
   budgetGuard: videoFactoryBudgetGuardSchema.nullable().default(null),
@@ -80,6 +83,8 @@ export function createRenderJob(input: {
   productionDefaultsSnapshot?: z.infer<typeof productionDefaultsSchema> | null;
   preTriageConcern?: (typeof RENDER_JOB_PRE_TRIAGE_CONCERNS)[number] | null;
   regenerationReason?: (typeof RENDER_JOB_REGENERATION_REASONS)[number] | null;
+  regenerationReasonCodes?: z.infer<typeof factoryReviewReasonListSchema>;
+  regenerationNotes?: string | null;
   costEstimate?: z.infer<typeof costEstimateSchema> | null;
   actualCost?: z.infer<typeof jobCostRecordSchema> | null;
   budgetGuard?: z.infer<typeof videoFactoryBudgetGuardSchema> | null;
@@ -101,6 +106,8 @@ export function createRenderJob(input: {
     providerJobId: null,
     preTriageConcern: input.preTriageConcern ?? null,
     regenerationReason: input.regenerationReason ?? null,
+    regenerationReasonCodes: input.regenerationReasonCodes ?? [],
+    regenerationNotes: input.regenerationNotes ?? null,
     costEstimate: input.costEstimate ?? null,
     actualCost: input.actualCost ?? null,
     budgetGuard: input.budgetGuard ?? null,

@@ -205,6 +205,38 @@ test("updateFactoryRunLedgerOutcome updates the matching attempt to terminal sta
   assert.equal(updated[0]?.lifecycleTransitions.at(-1)?.status, "accepted");
 });
 
+test("updateFactoryRunLedgerOutcome persists structured review reasons and notes", () => {
+  const entry = buildFactoryRunLedgerEntry({
+    opportunityId: "opportunity-1",
+    videoBriefId: "brief-1",
+    attemptNumber: 1,
+    lifecycle: baseLifecycle,
+    renderProvider: "mock",
+    renderJobId: "render-job-1",
+    renderedAssetId: "rendered-asset-1",
+    regenerationReasonCodes: ["tone_mismatch"],
+    regenerationNotes: "Founder asked for a calmer tone.",
+  });
+
+  const updated = updateFactoryRunLedgerOutcome([entry], {
+    renderJobId: "render-job-1",
+    renderedAssetId: "rendered-asset-1",
+    lifecycle: {
+      ...baseLifecycle,
+      status: "rejected",
+      rejectedAt: "2026-03-22T10:05:00.000Z",
+      lastUpdatedAt: "2026-03-22T10:05:00.000Z",
+    },
+    decisionStructuredReasons: ["not_publish_ready", "weak_hook"],
+    decisionNotes: "Hook did not land strongly enough.",
+  });
+
+  assert.deepEqual(updated[0]?.regenerationReasonCodes, ["tone_mismatch"]);
+  assert.equal(updated[0]?.regenerationNotes, "Founder asked for a calmer tone.");
+  assert.deepEqual(updated[0]?.decisionStructuredReasons, ["not_publish_ready", "weak_hook"]);
+  assert.equal(updated[0]?.decisionNotes, "Hook did not land strongly enough.");
+});
+
 test("appendFactoryRunLedgerEntry preserves distinct regenerate attempts", () => {
   const first = buildFactoryRunLedgerEntry({
     opportunityId: "opportunity-1",

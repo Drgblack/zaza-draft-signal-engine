@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import VideoFactoryReview from "@/components/video-factory/VideoFactoryReview";
 import type { ContentOpportunity, ContentOpportunityState } from "@/lib/content-opportunities";
+import { deriveStructuredReasonsFromLegacyRegenerationReason } from "@/lib/video-factory-review-reasons";
 import {
   buildVideoFactoryReviewBrief,
   buildVideoFactoryReviewJob,
@@ -223,6 +224,7 @@ export function VideoFactoryReviewConnected({
           opportunityId: opportunity.opportunityId,
           provider: activeProvider,
           regenerationReason: reason,
+          structuredReasons: deriveStructuredReasonsFromLegacyRegenerationReason(reason),
         },
       });
     });

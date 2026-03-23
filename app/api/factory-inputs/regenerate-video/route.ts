@@ -30,6 +30,8 @@ export async function POST(request: Request) {
       opportunityId: parsed.data.opportunityId,
       provider: parsed.data.provider,
       regenerationReason: parsed.data.regenerationReason ?? null,
+      regenerationReasonCodes: parsed.data.structuredReasons ?? [],
+      regenerationNotes: parsed.data.regenerationNotes,
     });
     scheduleVideoFactoryRun({
       opportunityId: parsed.data.opportunityId,

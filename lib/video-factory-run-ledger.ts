@@ -20,6 +20,10 @@ import {
   videoFactoryRetryStateSchema,
   type VideoFactoryRetryState,
 } from "./video-factory-retry";
+import {
+  factoryReviewReasonListSchema,
+  type FactoryReviewReasonCode,
+} from "./video-factory-review-reasons";
 import type { VideoFactoryAttemptLineage } from "@/lib/video-factory-lineage";
 
 export const FACTORY_RUN_TERMINAL_OUTCOMES = [
@@ -60,6 +64,10 @@ export const factoryRunLedgerEntrySchema = z.object({
   budgetGuard: videoFactoryBudgetGuardSchema.nullable().default(null),
   qualityCheck: qualityCheckResultSchema.nullable().default(null),
   retryState: videoFactoryRetryStateSchema.nullable().default(null),
+  regenerationReasonCodes: factoryReviewReasonListSchema,
+  regenerationNotes: z.string().trim().nullable().default(null),
+  decisionStructuredReasons: factoryReviewReasonListSchema,
+  decisionNotes: z.string().trim().nullable().default(null),
   terminalOutcome: z.enum(FACTORY_RUN_TERMINAL_OUTCOMES),
   lastUpdatedAt: z.string().trim().min(1),
   failureStage: z.enum(VIDEO_FACTORY_STATUSES).nullable().default(null),
@@ -147,6 +155,10 @@ export function buildFactoryRunLedgerEntry(input: {
   budgetGuard?: VideoFactoryBudgetGuard | null;
   qualityCheck?: QualityCheckResult | null;
   retryState?: VideoFactoryRetryState | null;
+  regenerationReasonCodes?: FactoryReviewReasonCode[];
+  regenerationNotes?: string | null;
+  decisionStructuredReasons?: FactoryReviewReasonCode[];
+  decisionNotes?: string | null;
 }): FactoryRunLedgerEntry {
   return factoryRunLedgerEntrySchema.parse({
     ledgerEntryId: ledgerEntryId(input.lifecycle.factoryJobId, input.attemptNumber),
@@ -172,6 +184,10 @@ export function buildFactoryRunLedgerEntry(input: {
       input.attemptLineage?.retryState ??
       input.lifecycle.retryState ??
       null,
+    regenerationReasonCodes: input.regenerationReasonCodes ?? [],
+    regenerationNotes: input.regenerationNotes ?? null,
+    decisionStructuredReasons: input.decisionStructuredReasons ?? [],
+    decisionNotes: input.decisionNotes ?? null,
     terminalOutcome:
       input.lifecycle.status === "accepted" ||
       input.lifecycle.status === "rejected" ||
@@ -210,6 +226,8 @@ export function updateFactoryRunLedgerOutcome(
     renderedAssetId?: string | null;
     lifecycle: VideoFactoryLifecycle;
     retryState?: VideoFactoryRetryState | null;
+    decisionStructuredReasons?: FactoryReviewReasonCode[];
+    decisionNotes?: string | null;
   },
 ): FactoryRunLedgerEntry[] {
   return existing.map((entry) => {
@@ -234,6 +252,12 @@ export function updateFactoryRunLedgerOutcome(
           : entry.terminalOutcome,
       retryState:
         input.retryState ?? input.lifecycle.retryState ?? entry.retryState ?? null,
+      decisionStructuredReasons:
+        input.decisionStructuredReasons ?? entry.decisionStructuredReasons ?? [],
+      decisionNotes:
+        input.decisionNotes === undefined
+          ? entry.decisionNotes ?? null
+          : input.decisionNotes,
       lastUpdatedAt: input.lifecycle.lastUpdatedAt,
       failureStage: input.lifecycle.failureStage ?? null,
       failureMessage: input.lifecycle.failureMessage ?? null,

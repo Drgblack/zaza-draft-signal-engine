@@ -24,9 +24,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const state = await discardContentOpportunityRenderedAsset(
-      parsed.data.opportunityId,
-    );
+    const state = await discardContentOpportunityRenderedAsset({
+      opportunityId: parsed.data.opportunityId,
+      reviewNotes: parsed.data.reviewNotes,
+      structuredReasons: parsed.data.structuredReasons ?? [],
+    });
 
     return NextResponse.json<FactoryInputResponse>({
       success: true,

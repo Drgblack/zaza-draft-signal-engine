@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { factoryReviewReasonListSchema } from "./video-factory-review-reasons";
+
 export const RENDERED_ASSET_TYPES = ["video"] as const;
 export const ASSET_REVIEW_STATUSES = [
   "pending_review",
@@ -23,6 +25,7 @@ export const assetReviewStateSchema = z.object({
   renderedAssetId: z.string().trim().min(1),
   status: z.enum(ASSET_REVIEW_STATUSES),
   reviewedAt: z.string().trim().nullable().default(null),
+  structuredReasons: factoryReviewReasonListSchema,
   reviewNotes: z.string().trim().nullable().default(null),
   rejectionReason: z.string().trim().nullable().default(null),
 });
@@ -69,6 +72,7 @@ export function createPendingAssetReview(input: {
     renderedAssetId: input.renderedAssetId,
     status: "pending_review",
     reviewedAt: null,
+    structuredReasons: [],
     reviewNotes: null,
     rejectionReason: null,
   });

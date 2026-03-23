@@ -2,11 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ContentOpportunity } from "../lib/content-opportunities";
-import { buildProductionPackage } from "../lib/production-packages";
+import { buildFactoryDatasetExport } from "../lib/video-factory-dataset-export";
 
-function buildOpportunityFixture(
-  reviewStatus: "accepted" | "rejected" | "discarded" | "pending_review" = "accepted",
-): ContentOpportunity {
+function buildOpportunityFixture(): ContentOpportunity {
   return {
     opportunityId: "opportunity-1",
     signalId: "signal-1",
@@ -76,7 +74,7 @@ function buildOpportunityFixture(
         videoBriefId: "brief-1",
         provider: "runway",
         renderVersion: "v2",
-        status: reviewStatus === "accepted" ? "accepted" : "review_pending",
+        status: "accepted",
         draftAt: "2026-03-23T10:02:00.000Z",
         queuedAt: "2026-03-23T10:03:00.000Z",
         preparingAt: "2026-03-23T10:03:10.000Z",
@@ -86,7 +84,7 @@ function buildOpportunityFixture(
         composingAt: "2026-03-23T10:03:50.000Z",
         generatedAt: "2026-03-23T10:04:00.000Z",
         reviewPendingAt: "2026-03-23T10:04:10.000Z",
-        acceptedAt: reviewStatus === "accepted" ? "2026-03-23T10:04:20.000Z" : null,
+        acceptedAt: "2026-03-23T10:04:20.000Z",
         rejectedAt: null,
         discardedAt: null,
         failedAt: null,
@@ -100,7 +98,7 @@ function buildOpportunityFixture(
         narrationCostUsd: 0.22,
         visualsCostUsd: 0.9,
         transcriptionCostUsd: 0.12,
-        compositionCostUsd: 0,
+        compositionCostUsd: 0.05,
         providerId: "runway-gen4",
         mode: "quality",
         estimatedAt: "2026-03-23T10:03:00.000Z",
@@ -112,7 +110,7 @@ function buildOpportunityFixture(
         narrationActualUsd: 0.18,
         visualsActualUsd: 0.88,
         transcriptActualUsd: 0.12,
-        compositionActualUsd: 0,
+        compositionActualUsd: 0.04,
         providerId: "runway-gen4",
         completedAt: "2026-03-23T10:04:10.000Z",
       },
@@ -121,7 +119,7 @@ function buildOpportunityFixture(
         estimatedTotalUsd: 1.24,
         warningThresholdUsd: 1,
         hardStopThresholdUsd: 2,
-        warningMessage: "Estimated run cost $1.24 exceeds the warning threshold of $1.00.",
+        warningMessage: "Estimated run cost exceeded the warning threshold.",
         hardStopMessage: null,
         evaluatedAt: "2026-03-23T10:03:00.000Z",
       },
@@ -146,22 +144,35 @@ function buildOpportunityFixture(
         failureMode: "none",
         exhausted: false,
       },
-      runLedger: [],
-      comparisonRecords: [],
-      attemptLineage: [
+      runLedger: [
         {
-          attemptId: "attempt-2",
+          ledgerEntryId: "factory-job-2:attempt:1",
           factoryJobId: "factory-job-2",
-          renderVersion: "v2",
+          opportunityId: "opportunity-1",
+          videoBriefId: "brief-1",
+          attemptNumber: 1,
           generationRequestId: "generation-2",
           renderJobId: "render-2",
           renderedAssetId: "asset-2",
-          costEstimate: {
+          providerSet: {
+            renderProvider: "runway",
+            narrationProvider: "elevenlabs",
+            visualProviders: ["runway-gen4"],
+            captionProvider: "assemblyai",
+            compositionProvider: "ffmpeg",
+          },
+          lifecycleTransitions: [
+            { status: "queued", at: "2026-03-23T10:03:00.000Z" },
+            { status: "review_pending", at: "2026-03-23T10:04:10.000Z" },
+            { status: "accepted", at: "2026-03-23T10:04:20.000Z" },
+          ],
+          artifactIds: ["narration-1", "scene-1", "caption-1", "video-1", "thumb-1"],
+          estimatedCost: {
             estimatedTotalUsd: 1.24,
             narrationCostUsd: 0.22,
             visualsCostUsd: 0.9,
             transcriptionCostUsd: 0.12,
-            compositionCostUsd: 0,
+            compositionCostUsd: 0.05,
             providerId: "runway-gen4",
             mode: "quality",
             estimatedAt: "2026-03-23T10:03:00.000Z",
@@ -173,7 +184,7 @@ function buildOpportunityFixture(
             narrationActualUsd: 0.18,
             visualsActualUsd: 0.88,
             transcriptActualUsd: 0.12,
-            compositionActualUsd: 0,
+            compositionActualUsd: 0.04,
             providerId: "runway-gen4",
             completedAt: "2026-03-23T10:04:10.000Z",
           },
@@ -182,7 +193,7 @@ function buildOpportunityFixture(
             estimatedTotalUsd: 1.24,
             warningThresholdUsd: 1,
             hardStopThresholdUsd: 2,
-            warningMessage: "Estimated run cost $1.24 exceeds the warning threshold of $1.00.",
+            warningMessage: "Estimated run cost exceeded the warning threshold.",
             hardStopMessage: null,
             evaluatedAt: "2026-03-23T10:03:00.000Z",
           },
@@ -198,11 +209,172 @@ function buildOpportunityFixture(
             checkedAt: "2026-03-23T10:04:00.000Z",
           },
           retryState: null,
-          providerExecutions: [],
+          regenerationReasonCodes: [],
+          regenerationNotes: null,
+          decisionStructuredReasons: ["poor_visuals"],
+          decisionNotes: "Accepted after manual review.",
+          terminalOutcome: "accepted",
+          lastUpdatedAt: "2026-03-23T10:04:20.000Z",
+          failureStage: null,
+          failureMessage: null,
+        },
+      ],
+      comparisonRecords: [
+        {
+          comparisonId: "render-1:vs:render-2",
+          opportunityId: "opportunity-1",
+          videoBriefId: "brief-1",
+          baselineAttempt: {
+            attemptNumber: 1,
+            attemptId: "render-1:attempt-lineage",
+            renderJobId: "render-1",
+            factoryJobId: "factory-job-1",
+            renderVersion: "v1",
+            provider: "mock",
+            defaultsProfileId: "prod-default:teacher-real-core",
+            defaultsUpdatedAt: "2026-03-22T00:00:00.000Z",
+            voiceProvider: "elevenlabs",
+            voiceId: "teacher-real-core-v1",
+            terminalOutcome: "rejected",
+          },
+          comparisonAttempt: {
+            attemptNumber: 2,
+            attemptId: "render-2:attempt-lineage",
+            renderJobId: "render-2",
+            factoryJobId: "factory-job-2",
+            renderVersion: "v2",
+            provider: "runway",
+            defaultsProfileId: "prod-default:teacher-real-core",
+            defaultsUpdatedAt: "2026-03-22T00:00:00.000Z",
+            voiceProvider: "elevenlabs",
+            voiceId: "teacher-real-core-v1",
+            terminalOutcome: "accepted",
+          },
+          whatChanged: ["regenerate", "provider_change"],
+          providerDifference: {
+            baseline: "mock",
+            comparison: "runway",
+          },
+          defaultsDifference: null,
+          voiceDifference: null,
+          winner: "comparison",
+          decisionBasis: {
+            outcome: "accepted",
+            structuredReasons: [],
+            notes: "Runway version won review.",
+          },
+          createdAt: "2026-03-23T10:03:00.000Z",
+          updatedAt: "2026-03-23T10:04:20.000Z",
+        },
+      ],
+      attemptLineage: [
+        {
+          attemptId: "attempt-2",
+          factoryJobId: "factory-job-2",
+          renderVersion: "v2",
+          generationRequestId: "generation-2",
+          renderJobId: "render-2",
+          renderedAssetId: "asset-2",
+          costEstimate: {
+            estimatedTotalUsd: 1.24,
+            narrationCostUsd: 0.22,
+            visualsCostUsd: 0.9,
+            transcriptionCostUsd: 0.12,
+            compositionCostUsd: 0.05,
+            providerId: "runway-gen4",
+            mode: "quality",
+            estimatedAt: "2026-03-23T10:03:00.000Z",
+          },
+          actualCost: {
+            jobId: "render-2",
+            estimatedCostUsd: 1.24,
+            actualCostUsd: 1.18,
+            narrationActualUsd: 0.18,
+            visualsActualUsd: 0.88,
+            transcriptActualUsd: 0.12,
+            compositionActualUsd: 0.04,
+            providerId: "runway-gen4",
+            completedAt: "2026-03-23T10:04:10.000Z",
+          },
+          budgetGuard: {
+            status: "warning",
+            estimatedTotalUsd: 1.24,
+            warningThresholdUsd: 1,
+            hardStopThresholdUsd: 2,
+            warningMessage: "Estimated run cost exceeded the warning threshold.",
+            hardStopMessage: null,
+            evaluatedAt: "2026-03-23T10:03:00.000Z",
+          },
+          qualityCheck: {
+            passed: true,
+            hasAudio: true,
+            durationSeconds: 30,
+            expectedDuration: 30,
+            durationInRange: true,
+            captionsPresent: true,
+            sceneCount: 1,
+            failures: [],
+            checkedAt: "2026-03-23T10:04:00.000Z",
+          },
+          retryState: null,
+          providerExecutions: [
+            {
+              executionId: "render-2:provider-execution:narration:elevenlabs",
+              stage: "narration",
+              providerId: "elevenlabs",
+              status: "completed",
+              providerJobId: "provider-job-narration",
+              inputIds: ["narration-spec-1"],
+              outputArtifactIds: ["narration-1"],
+              startedAt: "2026-03-23T10:03:20.000Z",
+              completedAt: "2026-03-23T10:03:25.000Z",
+              errorMessage: null,
+              retryState: null,
+            },
+            {
+              executionId: "render-2:provider-execution:visuals:runway-gen4",
+              stage: "visuals",
+              providerId: "runway-gen4",
+              status: "completed",
+              providerJobId: "provider-job-visuals",
+              inputIds: ["scene-prompt-1"],
+              outputArtifactIds: ["scene-1"],
+              startedAt: "2026-03-23T10:03:30.000Z",
+              completedAt: "2026-03-23T10:03:55.000Z",
+              errorMessage: null,
+              retryState: null,
+            },
+            {
+              executionId: "render-2:provider-execution:captions:assemblyai",
+              stage: "captions",
+              providerId: "assemblyai",
+              status: "completed",
+              providerJobId: "provider-job-captions",
+              inputIds: ["caption-spec-1"],
+              outputArtifactIds: ["caption-1"],
+              startedAt: "2026-03-23T10:03:40.000Z",
+              completedAt: "2026-03-23T10:03:48.000Z",
+              errorMessage: null,
+              retryState: null,
+            },
+            {
+              executionId: "render-2:provider-execution:composition:ffmpeg",
+              stage: "composition",
+              providerId: "ffmpeg",
+              status: "completed",
+              providerJobId: "provider-job-composition",
+              inputIds: ["composition-spec-1"],
+              outputArtifactIds: ["video-1"],
+              startedAt: "2026-03-23T10:03:50.000Z",
+              completedAt: "2026-03-23T10:04:00.000Z",
+              errorMessage: null,
+              retryState: null,
+            },
+          ],
           narrationArtifact: {
             artifactId: "narration-1",
             artifactType: "narration_audio",
-            executionId: "exec-narration-1",
+            executionId: "render-2:provider-execution:narration:elevenlabs",
             renderJobId: "render-2",
             renderVersion: "v2",
             narrationSpecId: "narration-spec-1",
@@ -223,21 +395,21 @@ function buildOpportunityFixture(
             {
               artifactId: "scene-1",
               artifactType: "scene_video",
-              executionId: "exec-scene-1",
+              executionId: "render-2:provider-execution:visuals:runway-gen4",
               renderJobId: "render-2",
               renderVersion: "v2",
               scenePromptId: "scene-prompt-1",
               providerId: "runway-gen4",
               assetUrl: "https://blob.example/scene-1.mp4",
-              order: 1,
               storage: null,
+              order: 1,
               createdAt: "2026-03-23T10:03:31.000Z",
             },
           ],
           captionArtifact: {
             artifactId: "caption-1",
             artifactType: "caption_track",
-            executionId: "exec-caption-1",
+            executionId: "render-2:provider-execution:captions:assemblyai",
             renderJobId: "render-2",
             renderVersion: "v2",
             captionSpecId: "caption-spec-1",
@@ -258,14 +430,13 @@ function buildOpportunityFixture(
           composedVideoArtifact: {
             artifactId: "video-1",
             artifactType: "composed_video",
-            executionId: "exec-video-1",
+            executionId: "render-2:provider-execution:composition:ffmpeg",
             renderJobId: "render-2",
             renderVersion: "v2",
             compositionSpecId: "composition-spec-1",
             providerId: "ffmpeg",
             videoUrl: "https://blob.example/video.mp4",
             thumbnailUrl: "https://blob.example/thumb.jpg",
-            durationSec: 30,
             storage: {
               backend: "blob",
               pathname: "video-factory/video.mp4",
@@ -274,6 +445,7 @@ function buildOpportunityFixture(
               contentType: "video/mp4",
               persistedAt: "2026-03-23T10:04:01.000Z",
             },
+            durationSec: 30,
             createdAt: "2026-03-23T10:04:00.000Z",
           },
           thumbnailArtifact: {
@@ -439,7 +611,7 @@ function buildOpportunityFixture(
           narrationCostUsd: 0.22,
           visualsCostUsd: 0.9,
           transcriptionCostUsd: 0.12,
-          compositionCostUsd: 0,
+          compositionCostUsd: 0.05,
           providerId: "runway-gen4",
           mode: "quality",
           estimatedAt: "2026-03-23T10:03:00.000Z",
@@ -451,7 +623,7 @@ function buildOpportunityFixture(
           narrationActualUsd: 0.18,
           visualsActualUsd: 0.88,
           transcriptActualUsd: 0.12,
-          compositionActualUsd: 0,
+          compositionActualUsd: 0.04,
           providerId: "runway-gen4",
           completedAt: "2026-03-23T10:04:10.000Z",
         },
@@ -460,7 +632,7 @@ function buildOpportunityFixture(
           estimatedTotalUsd: 1.24,
           warningThresholdUsd: 1,
           hardStopThresholdUsd: 2,
-          warningMessage: "Estimated run cost $1.24 exceeds the warning threshold of $1.00.",
+          warningMessage: "Estimated run cost exceeded the warning threshold.",
           hardStopMessage: null,
           evaluatedAt: "2026-03-23T10:03:00.000Z",
         },
@@ -493,15 +665,10 @@ function buildOpportunityFixture(
       assetReview: {
         id: "review-2",
         renderedAssetId: "asset-2",
-        status: reviewStatus,
-        reviewedAt: reviewStatus === "accepted" ? "2026-03-23T10:04:20.000Z" : null,
-        structuredReasons:
-          reviewStatus === "accepted"
-            ? []
-            : reviewStatus === "pending_review"
-              ? []
-              : ["not_publish_ready"],
-        reviewNotes: null,
+        status: "accepted",
+        structuredReasons: ["poor_visuals"],
+        reviewedAt: "2026-03-23T10:04:20.000Z",
+        reviewNotes: "Use for publish-ready export.",
         rejectionReason: null,
       },
       performanceSignals: [],
@@ -510,28 +677,88 @@ function buildOpportunityFixture(
   };
 }
 
-test("buildProductionPackage exports accepted real artifacts and lineage", () => {
-  const productionPackage = buildProductionPackage({
-    opportunity: buildOpportunityFixture("accepted"),
+test("buildFactoryDatasetExport assembles a structured factory learning dataset", () => {
+  const dataset = buildFactoryDatasetExport({
+    generatedAt: "2026-03-23T14:00:00.000Z",
+    opportunities: [buildOpportunityFixture()],
+    publishOutcomes: [
+      {
+        publishOutcomeId: "asset-2:publish-outcome",
+        opportunityId: "opportunity-1",
+        videoBriefId: "brief-1",
+        factoryJobId: "factory-job-2",
+        renderJobId: "render-2",
+        renderedAssetId: "asset-2",
+        assetReviewId: "review-2",
+        published: true,
+        platform: "linkedin",
+        publishDate: "2026-03-24",
+        publishedUrl: "https://linkedin.example/post/1",
+        impressions: 1200,
+        clicks: 44,
+        signups: 7,
+        notes: "Manual attribution import.",
+        attributionSource: "manual_operator",
+        createdAt: "2026-03-24T08:00:00.000Z",
+        lastUpdatedAt: "2026-03-24T08:00:00.000Z",
+      },
+    ],
+    languageMemory: [
+      {
+        memoryRecordId: "render-2:language-memory:accepted:accepted_narration_phrase:narration_script:1",
+        phraseType: "accepted_narration_phrase",
+        sourceKind: "narration_script",
+        phrase: "Narration text for testing.",
+        opportunityId: "opportunity-1",
+        videoBriefId: "brief-1",
+        factoryJobId: "factory-job-2",
+        renderJobId: "render-2",
+        renderedAssetId: "asset-2",
+        assetReviewId: "review-2",
+        attemptId: "attempt-2",
+        renderVersion: "v2",
+        reviewOutcome: "accepted",
+        reviewedAt: "2026-03-23T10:04:20.000Z",
+        createdAt: "2026-03-23T10:04:20.000Z",
+      },
+    ],
   });
 
-  assert.equal(productionPackage.exportSource, "accepted_render");
-  assert.equal(productionPackage.renderJob?.id, "render-2");
-  assert.equal(productionPackage.artifacts.narration?.storage?.url, "https://blob.example/narration.mp3");
-  assert.equal(productionPackage.artifacts.captions?.storage?.url, "https://blob.example/caption.vtt");
-  assert.equal(productionPackage.artifacts.composedVideo?.storage?.url, "https://blob.example/video.mp4");
-  assert.equal(productionPackage.artifacts.thumbnail?.storage?.url, "https://blob.example/thumb.jpg");
-  assert.equal(productionPackage.qualityCheck?.passed, true);
-  assert.equal(productionPackage.assetReview?.status, "accepted");
-  assert.equal(productionPackage.lineage?.attemptId, "attempt-2");
+  const record = dataset.records[0];
+  assert.equal(dataset.generatedAt, "2026-03-23T14:00:00.000Z");
+  assert.equal(dataset.exportFormat, "json");
+  assert.equal(dataset.recordCount, 1);
+  assert.equal(dataset.acceptedRecordCount, 1);
+  assert.equal(record?.opportunity.opportunityId, "opportunity-1");
+  assert.equal(record?.selection.selectedAngleId, "angle-1");
+  assert.equal(record?.productionPackage?.compiledProductionPlan?.id, "compiled-plan-1");
+  assert.equal(record?.productionPackage?.artifacts.composedVideo?.storage?.url, "https://blob.example/video.mp4");
+  assert.equal(record?.publishOutcomes[0]?.publishedUrl, "https://linkedin.example/post/1");
+  assert.equal(record?.languageMemory[0]?.phrase, "Narration text for testing.");
+  assert.equal(record?.benchmarkMetadata.latestProviderSet?.captionProvider, "assemblyai");
+  assert.equal(record?.benchmarkMetadata.latestDefaultsProfileId, "prod-default:teacher-real-core");
+  assert.equal(record?.benchmarkMetadata.publishedOutcomeCount, 1);
+  assert.equal(record?.generation.comparisonRecords.length, 1);
+
+  const visualsBenchmark = dataset.providerBenchmarks.summaries.find(
+    (summary) => summary.provider === "runway-gen4" && summary.stage === "visuals",
+  );
+  assert.equal(visualsBenchmark?.runCount, 1);
+  assert.equal(visualsBenchmark?.successRate, 1);
 });
 
-test("buildProductionPackage falls back to latest attempt when the current render is not accepted", () => {
-  const productionPackage = buildProductionPackage({
-    opportunity: buildOpportunityFixture("rejected"),
+test("buildFactoryDatasetExport keeps rows exportable when no stable brief exists", () => {
+  const opportunity = buildOpportunityFixture();
+  opportunity.selectedAngleId = null;
+  opportunity.selectedHookId = null;
+  opportunity.selectedVideoBrief = null;
+
+  const dataset = buildFactoryDatasetExport({
+    generatedAt: "2026-03-23T15:00:00.000Z",
+    opportunities: [opportunity],
   });
 
-  assert.equal(productionPackage.exportSource, "latest_attempt");
-  assert.equal(productionPackage.artifacts.sceneAssets.length, 1);
-  assert.equal(productionPackage.artifacts.composedVideo?.providerId, "ffmpeg");
+  assert.equal(dataset.records[0]?.productionPackage, null);
+  assert.equal(dataset.records[0]?.selection.selectedVideoBrief, null);
+  assert.equal(dataset.records[0]?.benchmarkMetadata.attemptCount, 1);
 });
