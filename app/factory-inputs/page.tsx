@@ -1,13 +1,6 @@
-import Link from "next/link";
-
-import { FactoryInputsPanel } from "@/components/factory/factory-inputs-panel";
 import { VideoFactoryReviewConnected } from "@/components/video-factory/video-factory-review-connected";
-import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { listContentOpportunityState } from "@/lib/content-opportunities";
-import { getVideoFactoryDiagnostics } from "@/lib/video-factory-diagnostics";
-import { formatDateTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +10,6 @@ export default async function FactoryInputsPage({
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const state = await listContentOpportunityState();
-  const diagnostics = getVideoFactoryDiagnostics();
   const requestedOpportunityId = Array.isArray(searchParams?.opportunityId)
     ? searchParams?.opportunityId[0]
     : searchParams?.opportunityId;
@@ -25,169 +17,23 @@ export default async function FactoryInputsPage({
     state.opportunities.find((item) => item.opportunityId === requestedOpportunityId) ??
     state.opportunities.find((item) => item.selectedVideoBrief) ??
     null;
-  const readyNowCount = state.opportunities.filter(
-    (item) => item.status === "open" && item.priority === "high" && item.trustRisk !== "high",
-  ).length;
-  const highRiskCount = state.opportunities.filter(
-    (item) => item.status === "open" && item.trustRisk === "high",
-  ).length;
-  const highCommercialCount = state.opportunities.filter(
-    (item) => item.status === "open" && item.commercialPotential === "high",
-  ).length;
 
   return (
-    <div className="space-y-6 bg-[#F0EFFF]">
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge className="bg-slate-100 text-slate-700 ring-slate-200">Start here</Badge>
-            <Badge className="bg-sky-50 text-sky-700 ring-sky-200">
-              Snapshot {formatDateTime(state.generatedAt)}
-            </Badge>
-          </div>
-          <CardTitle className="text-3xl">ZazaReel</CardTitle>
-          <CardDescription className="max-w-3xl text-base leading-7">
-            Review the current approved brief, generate when it feels right, and decide what to keep. Background queue and diagnostics stay below when you need them.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-3 pt-0">
-          <Link href="/digest" className={buttonVariants({ variant: "secondary", size: "sm" })}>
-            Open digest
-          </Link>
-          <Link href="/review" className={buttonVariants({ variant: "secondary", size: "sm" })}>
-            Operator review
-          </Link>
-          <Link href="/execution" className={buttonVariants({ variant: "secondary", size: "sm" })}>
-            Execution
-          </Link>
-        </CardContent>
-      </Card>
-
+    <div className="min-h-[calc(100vh-8rem)] bg-[#F0EFFF]">
       {selectedOpportunity?.selectedVideoBrief ? (
         <VideoFactoryReviewConnected initialOpportunity={selectedOpportunity} />
       ) : (
-        <Card className="border-black/6 bg-white/86 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
-          <CardContent className="py-5">
-            <p className="text-sm font-medium text-slate-900">No brief is selected yet.</p>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Choose the next approved brief from the queue below and ZazaReel will open it here.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-8">
+          <Card className="w-full max-w-xl border-black/6 bg-white/90 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+            <CardContent className="py-10 text-center">
+              <p className="text-xl font-semibold text-slate-950">No brief ready for production</p>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Approve a content opportunity in the signal queue to begin.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       )}
-
-      <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-          Background tools
-        </p>
-        <p className="max-w-3xl text-sm leading-6 text-slate-600">
-          Queue management, diagnostics, and deeper factory controls stay available below without competing with the main ZazaReel review flow.
-        </p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Open</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{state.openCount}</p>
-          <p className="mt-1 text-sm text-slate-600">Opportunities still waiting for a production decision.</p>
-        </div>
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Ready now</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{readyNowCount}</p>
-          <p className="mt-1 text-sm text-slate-600">High-priority opportunities without high trust risk.</p>
-        </div>
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">High commercial potential</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{highCommercialCount}</p>
-          <p className="mt-1 text-sm text-slate-600">Signals that look commercially promising enough to review first.</p>
-        </div>
-        <div className="rounded-2xl bg-white/84 px-4 py-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Trust-risk flagged</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{highRiskCount}</p>
-          <p className="mt-1 text-sm text-slate-600">Never promoted as top ready-now items without clear flagging.</p>
-        </div>
-      </div>
-
-      {state.topSummary.length > 0 ? (
-        <div className="grid gap-3 xl:grid-cols-3">
-          {state.topSummary.slice(0, 3).map((summary) => (
-            <div
-              key={summary}
-              className="rounded-2xl bg-white/84 px-4 py-4 text-sm leading-6 text-slate-700"
-            >
-              {summary}
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge
-              className={
-                diagnostics.status === "ready"
-                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                  : diagnostics.status === "degraded"
-                    ? "bg-amber-50 text-amber-700 ring-amber-200"
-                    : "bg-rose-50 text-rose-700 ring-rose-200"
-              }
-            >
-              Factory {diagnostics.status}
-            </Badge>
-            <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
-              Mode {diagnostics.providerMode}
-            </Badge>
-          </div>
-          <CardTitle>Diagnostics</CardTitle>
-          <CardDescription>
-            Background checks for provider configuration, Blob readiness, and composition assumptions.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            {diagnostics.checks.map((check) => (
-              <div key={check.key} className="rounded-2xl bg-white/84 px-4 py-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{check.label}</p>
-                  <Badge
-                    className={
-                      check.status === "ready"
-                        ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                        : check.status === "degraded"
-                          ? "bg-amber-50 text-amber-700 ring-amber-200"
-                          : "bg-rose-50 text-rose-700 ring-rose-200"
-                    }
-                  >
-                    {check.status}
-                  </Badge>
-                </div>
-                <p className="mt-2 text-sm font-medium text-slate-950">
-                  {check.configured ? "Configured" : "Not configured"}
-                </p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  {check.messages[0]}
-                </p>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs leading-5 text-slate-500">
-            Checked {formatDateTime(diagnostics.checkedAt)}. Route: <span className="font-mono">/api/factory-inputs/diagnostics</span>
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Brief Queue</CardTitle>
-          <CardDescription>
-            Operator-facing controls for selecting briefs and checking production context. Founder review and generation stay in ZazaReel above.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FactoryInputsPanel key={state.generatedAt} initialState={state} />
-        </CardContent>
-      </Card>
     </div>
   );
 }
