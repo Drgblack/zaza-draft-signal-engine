@@ -123,44 +123,47 @@ export default async function DashboardPage() {
       <section className="grid gap-8 xl:grid-cols-[1.3fr_0.7fr]">
         <Card className="overflow-hidden border-black/8 bg-white shadow-[0_20px_52px_rgba(15,23,42,0.08)]">
           <CardHeader className="pb-2">
-            <p className="text-[11px] font-medium tracking-[0.16em] text-slate-500">Dashboard</p>
+            <p className="text-[11px] font-medium tracking-[0.16em] text-slate-500">Start here</p>
             <CardTitle className="max-w-3xl text-balance text-4xl leading-tight sm:text-5xl">
-              Quiet structure for signal intake, classification, and draft preparation.
+              Open ZazaReel first, then drop into the quieter operator tools only when needed.
             </CardTitle>
             <CardDescription className="max-w-2xl text-base leading-8 text-slate-600">
-              V1 stays intentionally tight: one signal in, light interpretation, placeholder draft outputs, then review and scheduling visibility.
+              ZazaReel is the founder-facing video workflow for approved briefs, generation progress, and completed render review. The rest of the app stays available for queue management, planning, and system operations.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5 pt-1">
             <div className="flex flex-wrap items-center gap-3">
-              <Link href="/signals/new" className={buttonVariants({})}>
-                Intake a signal
+              <Link href="/factory-inputs" className={buttonVariants({})}>
+                Open ZazaReel
+              </Link>
+              <Link href="/plan" className={buttonVariants({ variant: "secondary" })}>
+                Open plan
               </Link>
               <Link href="/review" className={buttonVariants({ variant: "secondary" })}>
-                Open review queue
-              </Link>
-              <Link href="/ingestion" className={buttonVariants({ variant: "secondary" })}>
-                Run pipeline
+                Operator review
               </Link>
             </div>
+            <p className="text-sm leading-6 text-slate-600">
+              If you are here to review or generate video, start with ZazaReel. Everything else below supports the queue, planning, and internal workflow.
+            </p>
             <div className="flex flex-wrap items-center gap-2.5 text-sm text-slate-500">
-              <Link href="/playbook" className={buttonVariants({ variant: "ghost", size: "sm" })}>
-                Playbook
+              <Link href="/digest" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                Digest
+              </Link>
+              <Link href="/plan" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                Plan
               </Link>
               <Link href="/campaigns" className={buttonVariants({ variant: "ghost", size: "sm" })}>
                 Campaigns
               </Link>
-              <Link href="/plan" className={buttonVariants({ variant: "ghost", size: "sm" })}>
-                Weekly plan
+              <Link href="/signals/new" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                New signal
               </Link>
-              <Link href="/digest" className={buttonVariants({ variant: "ghost", size: "sm" })}>
-                Digest
-              </Link>
-              <Link href="/experiments" className={buttonVariants({ variant: "ghost", size: "sm" })}>
-                Experiments
+              <Link href="/ingestion" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                Run pipeline
               </Link>
               <Link href="/settings" className={buttonVariants({ variant: "ghost", size: "sm" })}>
-                Adjust tuning
+                Settings
               </Link>
             </div>
             <p className="text-xs text-slate-500">
@@ -171,8 +174,8 @@ export default async function DashboardPage() {
 
         <Card className="border-black/6 bg-white/72 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
           <CardHeader className="pb-2">
-            <CardTitle className="text-xl">Current Queue Shape</CardTitle>
-            <CardDescription className="text-sm leading-6 text-slate-500">Status distribution across the internal workflow.</CardDescription>
+            <CardTitle className="text-xl">Workflow Snapshot</CardTitle>
+            <CardDescription className="text-sm leading-6 text-slate-500">A light view of how the internal queue is distributed behind the founder flow.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2.5">
             {statusCounts.map((item) => (
@@ -203,8 +206,8 @@ export default async function DashboardPage() {
 
         <Card className="border-black/6 bg-white/70 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
           <CardHeader className="pb-2">
-            <CardTitle className="text-xl">Pipeline Watch</CardTitle>
-            <CardDescription className="text-sm leading-6 text-slate-500">What needs operator attention next and what is scheduled soon.</CardDescription>
+            <CardTitle className="text-xl">Background Workflow</CardTitle>
+            <CardDescription className="text-sm leading-6 text-slate-500">Quieter internal routes for queue handling, scheduling, and operator follow-through.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3.5">
             {[

@@ -40,41 +40,48 @@ export default async function FactoryInputsPage({
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center gap-3">
-            <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
-              Founder-facing flow
-            </Badge>
+            <Badge className="bg-slate-100 text-slate-700 ring-slate-200">Start here</Badge>
             <Badge className="bg-sky-50 text-sky-700 ring-sky-200">
               Snapshot {formatDateTime(state.generatedAt)}
             </Badge>
           </div>
           <CardTitle className="text-3xl">ZazaReel</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
-            Founder review and generation for approved video briefs, wired to the live factory flow. The opportunity queue stays below as a secondary picker.
+            Review the current approved brief, generate when it feels right, and decide what to keep. Background queue and diagnostics stay below when you need them.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3 pt-0">
           <Link href="/digest" className={buttonVariants({ variant: "secondary", size: "sm" })}>
-            Back to digest
+            Open digest
           </Link>
           <Link href="/review" className={buttonVariants({ variant: "secondary", size: "sm" })}>
-            Open raw review queue
+            Operator review
           </Link>
           <Link href="/execution" className={buttonVariants({ variant: "secondary", size: "sm" })}>
-            Open execution flow
+            Execution
           </Link>
         </CardContent>
       </Card>
 
       {selectedOpportunity?.selectedVideoBrief ? (
         <VideoFactoryReviewConnected initialOpportunity={selectedOpportunity} />
-      ) : null}
+      ) : (
+        <Card className="border-black/6 bg-white/86 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+          <CardContent className="py-5">
+            <p className="text-sm font-medium text-slate-900">No brief is selected yet.</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Choose the next approved brief from the queue below and ZazaReel will open it here.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-          Operator surfaces
+          Background tools
         </p>
         <p className="max-w-3xl text-sm leading-6 text-slate-600">
-          Queue management, diagnostics, and deeper factory controls stay available below without changing the founder-facing ZazaReel flow.
+          Queue management, diagnostics, and deeper factory controls stay available below without competing with the main ZazaReel review flow.
         </p>
       </div>
 
@@ -132,9 +139,9 @@ export default async function FactoryInputsPage({
               Mode {diagnostics.providerMode}
             </Badge>
           </div>
-          <CardTitle>Factory Health</CardTitle>
+          <CardTitle>Diagnostics</CardTitle>
           <CardDescription>
-            Narrow runtime diagnostics for provider configuration, Blob readiness, and ffmpeg composition assumptions.
+            Background checks for provider configuration, Blob readiness, and composition assumptions.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -172,9 +179,9 @@ export default async function FactoryInputsPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Operator Opportunity Queue</CardTitle>
+          <CardTitle>Brief Queue</CardTitle>
           <CardDescription>
-            Operator-facing queue controls for selecting briefs and checking production context. Founder review and generation stay in the ZazaReel flow above.
+            Operator-facing controls for selecting briefs and checking production context. Founder review and generation stay in ZazaReel above.
           </CardDescription>
         </CardHeader>
         <CardContent>

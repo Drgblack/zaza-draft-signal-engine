@@ -35,7 +35,7 @@ export function AppShell({
                 <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Internal Tool</p>
                 <h1 className="mt-2 text-xl font-semibold text-slate-950">{appName}</h1>
                 <p className="mt-2 max-w-[14rem] text-sm leading-6 text-slate-600">
-                  Signal intake, review, planning, and publishing memory in one calm operator workspace.
+                  ZazaReel first for founder video work, with quieter operator tools underneath.
                 </p>
               </div>
             </div>
