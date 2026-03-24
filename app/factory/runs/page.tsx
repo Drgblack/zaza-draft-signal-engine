@@ -418,6 +418,9 @@ export default async function FactoryRunsPage() {
                             <span className="font-mono">{item.factoryJobId}</span>
                             <span>Brief {item.videoBriefId ?? "Not set"}</span>
                             <span>{item.briefTitle ?? "No brief title"}</span>
+                            {item.finalScriptTrustScore !== null ? (
+                              <span>Final script trust {item.finalScriptTrustScore}/100</span>
+                            ) : null}
                           </div>
                         </div>
 
@@ -507,6 +510,14 @@ export default async function FactoryRunsPage() {
                             <div className="flex items-start justify-between gap-4">
                               <dt className="text-slate-500">Review outcome</dt>
                               <dd className="text-right font-medium text-slate-900">{reviewLabel(item)}</dd>
+                            </div>
+                            <div className="flex items-start justify-between gap-4">
+                              <dt className="text-slate-500">Final script trust</dt>
+                              <dd className="text-right font-medium text-slate-900">
+                                {item.finalScriptTrustScore !== null
+                                  ? `${item.finalScriptTrustScore}/100`
+                                  : "Not captured"}
+                              </dd>
                             </div>
                             <div className="flex items-start justify-between gap-4">
                               <dt className="text-slate-500">Reasons</dt>

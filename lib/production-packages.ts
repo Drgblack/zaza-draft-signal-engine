@@ -64,6 +64,8 @@ const exportVideoBriefSchema = z.object({
   visualDirection: z.string().trim().min(1),
   overlayLines: z.array(z.string().trim().min(1)).min(2).max(4),
   cta: z.string().trim().min(1),
+  contentType: z.string().trim().nullable().default(null),
+  finalScriptTrustScore: z.number().min(0).max(100).nullable().default(null),
   productionNotes: z.array(z.string().trim().min(1)).max(4).optional(),
 });
 
@@ -142,6 +144,7 @@ const exportCompiledProductionPlanSchema = z.object({
   scenePrompts: z.array(exportScenePromptSchema).min(1).max(4),
   captionSpec: exportCaptionSpecSchema,
   compositionSpec: exportCompositionSpecSchema,
+  finalScriptTrustAssessment: exportTrustAssessmentSchema.nullable().default(null),
   trustAssessment: exportTrustAssessmentSchema,
 });
 

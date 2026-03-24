@@ -31,8 +31,12 @@ export interface FactoryRunObservabilityItem {
   };
   defaultsProfileId: string | null;
   defaultsVersion: number | null;
+  abTestConfigId: string | null;
+  abTestDimension: string | null;
+  abTestVariant: "A" | "B" | null;
   trustStatus: string | null;
   trustAdjusted: boolean | null;
+  finalScriptTrustScore: number | null;
   retryCount: number;
   retryExhausted: boolean;
   qcSummary: {
@@ -238,11 +242,21 @@ function toObservabilityItemFromLedger(
     },
     defaultsProfileId: defaultsSnapshot?.profileId ?? defaultsSnapshot?.id ?? null,
     defaultsVersion: defaultsSnapshot?.version ?? null,
+    abTestConfigId: entry.abTest?.configId ?? generationState.renderJob?.abTest?.configId ?? null,
+    abTestDimension:
+      entry.abTest?.dimension ?? generationState.renderJob?.abTest?.dimension ?? null,
+    abTestVariant:
+      entry.abTest?.variant ?? generationState.renderJob?.abTest?.variant ?? null,
     trustStatus:
       generationState.renderJob?.compiledProductionPlan?.trustAssessment.status ??
       null,
     trustAdjusted:
       generationState.renderJob?.compiledProductionPlan?.trustAssessment.adjusted ??
+      null,
+    finalScriptTrustScore:
+      entry.finalScriptTrustScore ??
+      generationState.renderJob?.compiledProductionPlan?.finalScriptTrustAssessment?.score ??
+      opportunity.selectedVideoBrief?.finalScriptTrustScore ??
       null,
     retryCount: entry.retryState?.retryCount ?? 0,
     retryExhausted: entry.retryState?.exhausted ?? false,
@@ -314,11 +328,18 @@ function toObservabilityItemFromActiveLifecycle(
     },
     defaultsProfileId: defaultsSnapshot?.profileId ?? defaultsSnapshot?.id ?? null,
     defaultsVersion: defaultsSnapshot?.version ?? null,
+    abTestConfigId: generationState.renderJob?.abTest?.configId ?? null,
+    abTestDimension: generationState.renderJob?.abTest?.dimension ?? null,
+    abTestVariant: generationState.renderJob?.abTest?.variant ?? null,
     trustStatus:
       generationState.renderJob?.compiledProductionPlan?.trustAssessment.status ??
       null,
     trustAdjusted:
       generationState.renderJob?.compiledProductionPlan?.trustAssessment.adjusted ??
+      null,
+    finalScriptTrustScore:
+      generationState.renderJob?.compiledProductionPlan?.finalScriptTrustAssessment?.score ??
+      opportunity.selectedVideoBrief?.finalScriptTrustScore ??
       null,
     retryCount:
       generationState.latestRetryState?.retryCount ??

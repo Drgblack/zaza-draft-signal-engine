@@ -20,6 +20,7 @@ import { buildInfluencerGraphState } from "@/lib/influencer-graph";
 import {
   buildZazaConnectBridgeSummary,
   buildZazaConnectExportPayload,
+  recordZazaConnectExportFailure,
   getZazaConnectBridgeStorageDiagnostics,
   importZazaConnectContext,
   listImportedZazaConnectContexts,
@@ -226,6 +227,16 @@ async function buildCurrentExportPayload() {
     weeklyPostingPack,
     sequences,
     influencerGraph,
+    metrics: {
+      totalSignalsAvailable: signalResult.signals.length,
+      visibleSignalsConsidered: visibleSignals.length,
+      approvalReadySignals: approvalReadyCandidates.length,
+      filteredOutSignals: Math.max(0, visibleSignals.length - approvalReadyCandidates.length),
+      weeklyPostingPackItemCount: weeklyPostingPack.items.length,
+      fallbackCandidateCount: fallbackCandidates.length,
+      usedFallbackCandidates:
+        weeklyPostingPack.items.length === 0 && fallbackCandidates.length > 0,
+    },
     fallbackCandidates,
   });
 }
@@ -248,6 +259,7 @@ async function buildLatestBridgeStateSafe() {
 }
 
 export async function POST(request: Request) {
+  const attemptedAt = new Date().toISOString();
   const payload = await request.json().catch(() => null);
   const parsed = zazaConnectBridgeActionRequestSchema.safeParse(payload);
 
@@ -329,6 +341,10 @@ export async function POST(request: Request) {
     exportPayload = await buildCurrentExportPayload();
   } catch (error) {
     console.error("Zaza Connect bridge create_export failed during export build", error);
+    await recordZazaConnectExportFailure({
+      attemptedAt,
+      error: `build_failed: ${getErrorMessage(error)}`,
+    });
     const state = await buildLatestBridgeStateSafe();
 
     return NextResponse.json<ZazaConnectBridgeResponse>(
@@ -354,6 +370,10 @@ export async function POST(request: Request) {
       error,
       storage: getZazaConnectBridgeStorageDiagnostics(),
       exportId: exportPayload.exportId,
+    });
+    await recordZazaConnectExportFailure({
+      attemptedAt,
+      error: `persist_failed: ${getErrorMessage(error)}`,
     });
     const state = await buildLatestBridgeStateSafe();
 

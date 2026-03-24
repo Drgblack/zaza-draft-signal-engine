@@ -112,6 +112,7 @@ test("buildCostEstimate derives deterministic per-stage cost from compiled plan"
         adjusted: false,
         reasons: [],
       },
+      finalScriptTrustAssessment: null,
     },
     estimatedAt: "2026-03-22T10:00:00.000Z",
   });
@@ -238,6 +239,7 @@ test("buildJobCostRecord derives provider-aware actual costs from the completed 
         adjusted: false,
         reasons: [],
       },
+      finalScriptTrustAssessment: null,
     },
     providerResults: {
       narration: {

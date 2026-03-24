@@ -24,6 +24,7 @@ function buildOpportunityFixture(
       clusterId: null,
     },
     primaryPainPoint: "Teachers worry about tone in parent emails.",
+    painPointCategory: null,
     teacherLanguage: ["I always second-guess the send button."],
     recommendedAngle: "Calm reassurance",
     recommendedHookDirection: "empathetic",
@@ -33,7 +34,11 @@ function buildOpportunityFixture(
     commercialPotential: "high",
     trustRisk: "low",
     riskSummary: null,
+    confidence: null,
+    historicalCostAvg: null,
+    historicalApprovalRate: null,
     suggestedNextStep: "Generate a video.",
+    skipReason: null,
     hookOptions: null,
     hookRanking: null,
     performanceDrivers: null,
@@ -76,6 +81,8 @@ function buildOpportunityFixture(
       visualDirection: "Simple portrait setup.",
       overlayLines: ["Tone check", "Send with confidence"],
       cta: "Try Zaza Draft free.",
+      contentType: null,
+      finalScriptTrustScore: 88,
       productionNotes: ["No exaggerated claims", "No urgency language"],
     },
     generationState: {
@@ -444,6 +451,12 @@ function buildOpportunityFixture(
             adjusted: false,
             reasons: [],
           },
+          finalScriptTrustAssessment: {
+            score: 88,
+            status: "safe",
+            adjusted: false,
+            reasons: [],
+          },
         },
         productionDefaultsSnapshot: null,
         providerJobId: "provider-job-2",
@@ -549,6 +562,8 @@ test("buildProductionPackage exports accepted real artifacts and lineage", () =>
     "exported_production_package",
   );
   assert.equal(productionPackage.publishReadyPackage.isPublishReady, true);
+  assert.equal(productionPackage.brief.finalScriptTrustScore, 88);
+  assert.equal(productionPackage.compiledProductionPlan?.finalScriptTrustAssessment?.score, 88);
   assert.equal(
     productionPackage.publishReadyPackage.approvedOutputRetention?.retentionClass,
     "final_approved_output",

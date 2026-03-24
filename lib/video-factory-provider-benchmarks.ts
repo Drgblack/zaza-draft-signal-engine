@@ -64,6 +64,9 @@ export const providerRunBenchmarkGroupSchema = z.object({
   provider: z.string().trim().min(1),
   defaultsVersion: z.number().int().positive().nullable(),
   format: z.string().trim().min(1).nullable(),
+  abTestConfigId: z.string().trim().min(1).nullable().default(null),
+  abTestDimension: z.string().trim().min(1).nullable().default(null),
+  abTestVariant: z.enum(["A", "B"]).nullable().default(null),
   trustStatus: z.string().trim().min(1).nullable(),
   trustAdjusted: z.boolean().nullable(),
   runCount: z.number().int().nonnegative(),
@@ -179,6 +182,9 @@ type MinimalFactoryRunObservabilityItem = {
     renderProvider: string | null;
   };
   defaultsVersion: number | null;
+  abTestConfigId: string | null;
+  abTestDimension: string | null;
+  abTestVariant: "A" | "B" | null;
   trustStatus: string | null;
   trustAdjusted: boolean | null;
   retryCount: number;
@@ -231,6 +237,9 @@ type ProviderRunBenchmarkGroupAccumulator = {
   provider: string;
   defaultsVersion: number | null;
   format: string | null;
+  abTestConfigId: string | null;
+  abTestDimension: string | null;
+  abTestVariant: "A" | "B" | null;
   trustStatus: string | null;
   trustAdjusted: boolean | null;
   runCount: number;
@@ -319,6 +328,9 @@ function buildProviderRunGroupKey(input: {
   provider: string;
   defaultsVersion: number | null;
   format: string | null;
+  abTestConfigId: string | null;
+  abTestDimension: string | null;
+  abTestVariant: "A" | "B" | null;
   trustStatus: string | null;
   trustAdjusted: boolean | null;
 }) {
@@ -326,6 +338,9 @@ function buildProviderRunGroupKey(input: {
     input.provider,
     input.defaultsVersion ?? "none",
     input.format ?? "none",
+    input.abTestConfigId ?? "no-test",
+    input.abTestDimension ?? "no-dimension",
+    input.abTestVariant ?? "no-variant",
     input.trustStatus ?? "none",
     input.trustAdjusted === null
       ? "unknown"
@@ -398,6 +413,9 @@ function getProviderRunGroupAccumulator(
     provider: string;
     defaultsVersion: number | null;
     format: string | null;
+    abTestConfigId: string | null;
+    abTestDimension: string | null;
+    abTestVariant: "A" | "B" | null;
     trustStatus: string | null;
     trustAdjusted: boolean | null;
   },
@@ -413,6 +431,9 @@ function getProviderRunGroupAccumulator(
     provider: input.provider,
     defaultsVersion: input.defaultsVersion,
     format: input.format,
+    abTestConfigId: input.abTestConfigId,
+    abTestDimension: input.abTestDimension,
+    abTestVariant: input.abTestVariant,
     trustStatus: input.trustStatus,
     trustAdjusted: input.trustAdjusted,
     runCount: 0,
@@ -799,6 +820,9 @@ export function buildFactoryProviderRunBenchmarkReport(input: {
       provider,
       defaultsVersion: item.defaultsVersion,
       format: item.format,
+      abTestConfigId: item.abTestConfigId,
+      abTestDimension: item.abTestDimension,
+      abTestVariant: item.abTestVariant,
       trustStatus: item.trustStatus,
       trustAdjusted: item.trustAdjusted,
     });
@@ -854,6 +878,9 @@ export function buildFactoryProviderRunBenchmarkReport(input: {
         provider: accumulator.provider,
         defaultsVersion: accumulator.defaultsVersion,
         format: accumulator.format,
+        abTestConfigId: accumulator.abTestConfigId,
+        abTestDimension: accumulator.abTestDimension,
+        abTestVariant: accumulator.abTestVariant,
         trustStatus: accumulator.trustStatus,
         trustAdjusted: accumulator.trustAdjusted,
         runCount: accumulator.runCount,

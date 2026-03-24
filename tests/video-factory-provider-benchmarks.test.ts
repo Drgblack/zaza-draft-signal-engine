@@ -275,6 +275,9 @@ test("buildFactoryProviderRunBenchmarkReport rolls up provider metrics and A/B-r
           renderProvider: "runway",
         },
         defaultsVersion: 3,
+        abTestConfigId: "ab-provider-1",
+        abTestDimension: "provider_choice",
+        abTestVariant: "A",
         trustStatus: "safe",
         trustAdjusted: false,
         retryCount: 0,
@@ -299,6 +302,9 @@ test("buildFactoryProviderRunBenchmarkReport rolls up provider metrics and A/B-r
           renderProvider: "runway",
         },
         defaultsVersion: 3,
+        abTestConfigId: "ab-provider-1",
+        abTestDimension: "provider_choice",
+        abTestVariant: "A",
         trustStatus: "safe",
         trustAdjusted: false,
         retryCount: 2,
@@ -323,6 +329,9 @@ test("buildFactoryProviderRunBenchmarkReport rolls up provider metrics and A/B-r
           renderProvider: "kling",
         },
         defaultsVersion: 4,
+        abTestConfigId: "ab-provider-1",
+        abTestDimension: "provider_choice",
+        abTestVariant: "B",
         trustStatus: "adjusted",
         trustAdjusted: true,
         retryCount: 1,
@@ -347,6 +356,9 @@ test("buildFactoryProviderRunBenchmarkReport rolls up provider metrics and A/B-r
           renderProvider: "runway",
         },
         defaultsVersion: 4,
+        abTestConfigId: "ab-provider-1",
+        abTestDimension: "provider_choice",
+        abTestVariant: "B",
         trustStatus: "safe",
         trustAdjusted: false,
         retryCount: 1,
@@ -395,6 +407,8 @@ test("buildFactoryProviderRunBenchmarkReport rolls up provider metrics and A/B-r
 
   assert.equal(runwayV3TalkingHead?.runCount, 2);
   assert.equal(runwayV3TalkingHead?.terminalRunCount, 2);
+  assert.equal(runwayV3TalkingHead?.abTestConfigId, "ab-provider-1");
+  assert.equal(runwayV3TalkingHead?.abTestVariant, "A");
   assert.equal(runwayV3TalkingHead?.approvalRate, 0.5);
   assert.equal(runwayV3TalkingHead?.regenerationRate, 0.5);
   assert.equal(runwayV3TalkingHead?.averageRetries, 1);

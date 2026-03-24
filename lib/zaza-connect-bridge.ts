@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { get, head, put } from "@vercel/blob";
 import { z } from "zod";
 
@@ -10,6 +12,18 @@ import { getZazaConnectBridgeBlobAccess } from "@/lib/zaza-connect-bridge-config
 import type { SignalRecord } from "@/types/signal";
 
 const ZAZA_CONNECT_BRIDGE_STORE_BLOB_PATHNAME = "zaza-connect-bridge/store.json";
+const ZAZA_CONNECT_BRIDGE_MAX_EXPORT_HISTORY = 25;
+
+export const ZAZA_CONNECT_BRIDGE_SCHEMA_VERSION = "2026-03-24.1";
+
+function getZazaConnectBridgeProducerVersion() {
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA?.trim();
+  if (sha) {
+    return sha.slice(0, 12);
+  }
+
+  return "dev";
+}
 
 function normalizeText(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
@@ -221,10 +235,39 @@ const relationshipContextHintExportSchema = z.object({
   href: z.string().trim().nullable().default(null),
 });
 
+const bridgeExportMetricsSchema = z.object({
+  totalSignalsAvailable: z.number().int().nonnegative().default(0),
+  visibleSignalsConsidered: z.number().int().nonnegative().default(0),
+  approvalReadySignals: z.number().int().nonnegative().default(0),
+  filteredOutSignals: z.number().int().nonnegative().default(0),
+  weeklyPostingPackItemCount: z.number().int().nonnegative().default(0),
+  fallbackCandidateCount: z.number().int().nonnegative().default(0),
+  usedFallbackCandidates: z.boolean().default(false),
+  strongContentCandidateCount: z.number().int().nonnegative().default(0),
+  connectOpportunityCount: z.number().int().nonnegative().default(0),
+  missingProofPointsCount: z.number().int().nonnegative().default(0),
+  missingSourceSignalIdsCount: z.number().int().nonnegative().default(0),
+  missingTeacherLanguageCount: z.number().int().nonnegative().default(0),
+});
+
+const bridgeGenerationStatusSchema = z.object({
+  lastAttemptedAt: z.string().trim().nullable().default(null),
+  lastAttemptOutcome: z.enum(["success", "failed"]).nullable().default(null),
+  lastSuccessfulExportId: z.string().trim().nullable().default(null),
+  lastSuccessfulExportAt: z.string().trim().nullable().default(null),
+  lastFailedAt: z.string().trim().nullable().default(null),
+  lastFailedError: z.string().trim().nullable().default(null),
+  consecutiveFailureCount: z.number().int().nonnegative().default(0),
+});
+
 export const zazaConnectExportPayloadSchema = z.object({
+  schemaVersion: z.string().trim().min(1).default(ZAZA_CONNECT_BRIDGE_SCHEMA_VERSION),
+  producerVersion: z.string().trim().min(1).default(getZazaConnectBridgeProducerVersion()),
   exportId: z.string().trim().min(1),
   generatedAt: z.string().trim().min(1),
   weekStartDate: z.string().trim().nullable().default(null),
+  contentFingerprint: z.string().trim().min(8),
+  metrics: bridgeExportMetricsSchema,
   strongContentCandidates: z.array(strongContentCandidateSchema).default([]),
   outreachRelevantThemes: z.array(outreachRelevantThemeExportSchema).default([]),
   influencerRelevantPosts: z.array(influencerRelevantPostSchema).default([]),
@@ -236,6 +279,15 @@ export const zazaConnectExportPayloadSchema = z.object({
 const zazaConnectBridgeStoreSchema = z.object({
   imports: z.array(zazaConnectImportedContextSchema).default([]),
   exports: z.array(zazaConnectExportPayloadSchema).default([]),
+  generationStatus: bridgeGenerationStatusSchema.default({
+    lastAttemptedAt: null,
+    lastAttemptOutcome: null,
+    lastSuccessfulExportId: null,
+    lastSuccessfulExportAt: null,
+    lastFailedAt: null,
+    lastFailedError: null,
+    consecutiveFailureCount: 0,
+  }),
   updatedAt: z.string().trim().nullable().default(null),
 });
 
@@ -243,6 +295,8 @@ type ZazaConnectBridgeStore = z.infer<typeof zazaConnectBridgeStoreSchema>;
 
 export type ZazaConnectImportedContext = z.infer<typeof zazaConnectImportedContextSchema>;
 export type ZazaConnectExportPayload = z.infer<typeof zazaConnectExportPayloadSchema>;
+export type ZazaConnectBridgeExportMetrics = z.infer<typeof bridgeExportMetricsSchema>;
+export type ZazaConnectBridgeGenerationStatus = z.infer<typeof bridgeGenerationStatusSchema>;
 
 export interface ZazaConnectSignalHints {
   matchedThemes: string[];
@@ -275,15 +329,63 @@ export interface ZazaConnectBridgeStorageDiagnostics {
 let inMemoryBridgeStore: ZazaConnectBridgeStore = zazaConnectBridgeStoreSchema.parse({
   imports: [],
   exports: [],
+  generationStatus: {
+    lastAttemptedAt: null,
+    lastAttemptOutcome: null,
+    lastSuccessfulExportId: null,
+    lastSuccessfulExportAt: null,
+    lastFailedAt: null,
+    lastFailedError: null,
+    consecutiveFailureCount: 0,
+  },
   updatedAt: null,
 });
+
+let inMemoryGenerationStatus: ZazaConnectBridgeGenerationStatus =
+  bridgeGenerationStatusSchema.parse({});
 
 function buildEmptyBridgeStore(): ZazaConnectBridgeStore {
   return zazaConnectBridgeStoreSchema.parse({
     imports: [],
     exports: [],
+    generationStatus: {
+      lastAttemptedAt: null,
+      lastAttemptOutcome: null,
+      lastSuccessfulExportId: null,
+      lastSuccessfulExportAt: null,
+      lastFailedAt: null,
+      lastFailedError: null,
+      consecutiveFailureCount: 0,
+    },
     updatedAt: null,
   });
+}
+
+function buildExportFingerprint(input: {
+  weekStartDate: string | null;
+  metrics: ZazaConnectBridgeExportMetrics;
+  strongContentCandidates: z.infer<typeof strongContentCandidateSchema>[];
+  outreachRelevantThemes: z.infer<typeof outreachRelevantThemeExportSchema>[];
+  influencerRelevantPosts: z.infer<typeof influencerRelevantPostSchema>[];
+  campaignSupportSignals: z.infer<typeof campaignSupportSignalSchema>[];
+  distributionOpportunities: z.infer<typeof distributionOpportunitySchema>[];
+  relationshipContextHints: z.infer<typeof relationshipContextHintExportSchema>[];
+}) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        weekStartDate: input.weekStartDate,
+        metrics: input.metrics,
+        strongContentCandidates: input.strongContentCandidates,
+        outreachRelevantThemes: input.outreachRelevantThemes,
+        influencerRelevantPosts: input.influencerRelevantPosts,
+        campaignSupportSignals: input.campaignSupportSignals,
+        distributionOpportunities: input.distributionOpportunities,
+        relationshipContextHints: input.relationshipContextHints,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 16);
 }
 
 function isBlobBridgeStoreEnabled() {
@@ -446,6 +548,31 @@ export async function listZazaConnectExports() {
   );
 }
 
+export async function getZazaConnectBridgeGenerationStatus() {
+  const store = await readPersistedBridgeStore();
+  return bridgeGenerationStatusSchema.parse({
+    ...store.generationStatus,
+    ...inMemoryGenerationStatus,
+  });
+}
+
+export async function getZazaConnectBridgeRuntimeState() {
+  const store = await readPersistedBridgeStore();
+  const exports = [...store.exports].sort(
+    (left, right) =>
+      new Date(right.generatedAt).getTime() - new Date(left.generatedAt).getTime(),
+  );
+
+  return {
+    latestExport: exports[0] ?? null,
+    exports,
+    generationStatus: bridgeGenerationStatusSchema.parse({
+      ...store.generationStatus,
+      ...inMemoryGenerationStatus,
+    }),
+  };
+}
+
 export async function getLatestZazaConnectImport() {
   const contexts = await listImportedZazaConnectContexts();
   return contexts[0] ?? null;
@@ -481,21 +608,75 @@ export async function importZazaConnectContext(
 export async function saveZazaConnectExport(payload: ZazaConnectExportPayload) {
   const parsed = zazaConnectExportPayloadSchema.parse(payload);
   const store = await readPersistedBridgeStore();
-  const exports = [
-    ...store.exports.filter((entry) => entry.exportId !== parsed.exportId),
-    parsed,
-  ].sort(
+  const latestExistingExport = [...store.exports].sort(
     (left, right) =>
       new Date(right.generatedAt).getTime() - new Date(left.generatedAt).getTime(),
-  );
+  )[0];
+  const filteredExisting = store.exports.filter((entry) => entry.exportId !== parsed.exportId);
+  const shouldReplaceLatestByFingerprint =
+    latestExistingExport?.contentFingerprint === parsed.contentFingerprint;
+  const exports = [
+    ...filteredExisting.filter((entry) =>
+      shouldReplaceLatestByFingerprint ? entry.exportId !== latestExistingExport?.exportId : true,
+    ),
+    parsed,
+  ]
+    .sort(
+      (left, right) =>
+        new Date(right.generatedAt).getTime() - new Date(left.generatedAt).getTime(),
+    )
+    .slice(0, ZAZA_CONNECT_BRIDGE_MAX_EXPORT_HISTORY);
+
+  const generationStatus = bridgeGenerationStatusSchema.parse({
+    ...store.generationStatus,
+    lastAttemptedAt: parsed.generatedAt,
+    lastAttemptOutcome: "success",
+    lastSuccessfulExportId: parsed.exportId,
+    lastSuccessfulExportAt: parsed.generatedAt,
+    lastFailedError: null,
+    consecutiveFailureCount: 0,
+  });
 
   await writeBridgeStore({
     ...store,
     exports,
+    generationStatus,
     updatedAt: parsed.generatedAt,
   });
+  inMemoryGenerationStatus = generationStatus;
 
   return parsed;
+}
+
+export async function recordZazaConnectExportFailure(input: {
+  attemptedAt?: string;
+  error: string;
+}) {
+  const attemptedAt = input.attemptedAt ?? new Date().toISOString();
+  const previousStatus = await getZazaConnectBridgeGenerationStatus();
+  const nextStatus = bridgeGenerationStatusSchema.parse({
+    ...previousStatus,
+    lastAttemptedAt: attemptedAt,
+    lastAttemptOutcome: "failed",
+    lastFailedAt: attemptedAt,
+    lastFailedError: input.error,
+    consecutiveFailureCount: previousStatus.consecutiveFailureCount + 1,
+  });
+
+  inMemoryGenerationStatus = nextStatus;
+
+  try {
+    const store = await readPersistedBridgeStore();
+    await writeBridgeStore({
+      ...store,
+      generationStatus: nextStatus,
+      updatedAt: attemptedAt,
+    });
+  } catch {
+    // Keep the failure in memory even if persistence is unavailable.
+  }
+
+  return nextStatus;
 }
 
 export function buildZazaConnectSignalHints(input: {
@@ -592,6 +773,14 @@ export function buildZazaConnectExportPayload(input: {
     rows: InfluencerGraphRow[];
     summary: InfluencerGraphSummary;
   };
+  metrics: Omit<
+    ZazaConnectBridgeExportMetrics,
+    | "strongContentCandidateCount"
+    | "connectOpportunityCount"
+    | "missingProofPointsCount"
+    | "missingSourceSignalIdsCount"
+    | "missingTeacherLanguageCount"
+  >;
   fallbackCandidates?: BridgeFallbackCandidateInput[];
   now?: Date;
 }) {
@@ -774,10 +963,34 @@ export function buildZazaConnectExportPayload(input: {
       }),
     );
 
-  return zazaConnectExportPayloadSchema.parse({
-    exportId: `connect-export:${now.toISOString()}`,
-    generatedAt: now.toISOString(),
+  const metrics = bridgeExportMetricsSchema.parse({
+    ...input.metrics,
+    strongContentCandidateCount: strongContentCandidates.length,
+    connectOpportunityCount: strongContentCandidates.length,
+    missingProofPointsCount: strongContentCandidates.filter((candidate) => candidate.proofPoints.length === 0).length,
+    missingSourceSignalIdsCount: strongContentCandidates.filter((candidate) => candidate.sourceSignalIds.length === 0).length,
+    missingTeacherLanguageCount: strongContentCandidates.filter((candidate) => candidate.teacherLanguage.length === 0).length,
+  });
+  const contentFingerprint = buildExportFingerprint({
     weekStartDate: input.weeklyPostingPack.weekStartDate,
+    metrics,
+    strongContentCandidates,
+    outreachRelevantThemes,
+    influencerRelevantPosts,
+    campaignSupportSignals,
+    distributionOpportunities,
+    relationshipContextHints,
+  });
+  const generatedAt = now.toISOString();
+
+  return zazaConnectExportPayloadSchema.parse({
+    schemaVersion: ZAZA_CONNECT_BRIDGE_SCHEMA_VERSION,
+    producerVersion: getZazaConnectBridgeProducerVersion(),
+    exportId: `connect-export:${generatedAt}:${contentFingerprint.slice(0, 8)}`,
+    generatedAt,
+    weekStartDate: input.weeklyPostingPack.weekStartDate,
+    contentFingerprint,
+    metrics,
     strongContentCandidates,
     outreachRelevantThemes,
     influencerRelevantPosts,

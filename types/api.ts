@@ -1344,7 +1344,15 @@ export interface ZazaConnectBridgeResponse {
 export interface ZazaConnectBridgeOpportunitiesResponse
   extends Pick<
     BridgeOpportunitiesResponseBody,
-    "success" | "exportId" | "generatedAt" | "message" | "error"
+    | "success"
+    | "schemaVersion"
+    | "producerVersion"
+    | "exportId"
+    | "generatedAt"
+    | "contentFingerprint"
+    | "metrics"
+    | "message"
+    | "error"
   > {
   opportunities: Array<{
     opportunityId: string;

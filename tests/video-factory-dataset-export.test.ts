@@ -19,6 +19,7 @@ function buildOpportunityFixture(): ContentOpportunity {
       clusterId: null,
     },
     primaryPainPoint: "Teachers worry about tone in parent emails.",
+    painPointCategory: null,
     teacherLanguage: ["I always second-guess the send button."],
     recommendedAngle: "Calm reassurance",
     recommendedHookDirection: "empathetic",
@@ -28,7 +29,11 @@ function buildOpportunityFixture(): ContentOpportunity {
     commercialPotential: "high",
     trustRisk: "low",
     riskSummary: null,
+    confidence: null,
+    historicalCostAvg: null,
+    historicalApprovalRate: null,
     suggestedNextStep: "Generate a video.",
+    skipReason: null,
     hookOptions: null,
     hookRanking: null,
     performanceDrivers: null,
@@ -71,6 +76,8 @@ function buildOpportunityFixture(): ContentOpportunity {
       visualDirection: "Simple portrait setup.",
       overlayLines: ["Tone check", "Send with confidence"],
       cta: "Try Zaza Draft free.",
+      contentType: null,
+      finalScriptTrustScore: 88,
       productionNotes: ["No exaggerated claims", "No urgency language"],
     },
     generationState: {
@@ -229,6 +236,8 @@ function buildOpportunityFixture(): ContentOpportunity {
           decisionStructuredReasons: ["poor_visuals"],
           decisionNotes: "Accepted after manual review.",
           terminalOutcome: "accepted",
+          finalScriptTrustScore: 88,
+          finalScriptTrustStatus: "safe",
           lastUpdatedAt: "2026-03-23T10:04:20.000Z",
           failureStage: null,
           failureMessage: null,
@@ -619,6 +628,12 @@ function buildOpportunityFixture(): ContentOpportunity {
             adjusted: false,
             reasons: [],
           },
+          finalScriptTrustAssessment: {
+            score: 88,
+            status: "safe",
+            adjusted: false,
+            reasons: [],
+          },
         },
         productionDefaultsSnapshot: null,
         providerJobId: "provider-job-2",
@@ -751,8 +766,10 @@ test("buildFactoryDatasetExport assembles a structured factory learning dataset"
   assert.equal(dataset.acceptedRecordCount, 1);
   assert.equal(record?.opportunity.opportunityId, "opportunity-1");
   assert.equal(record?.selection.selectedAngleId, "angle-1");
+  assert.equal(record?.selection.selectedVideoBrief?.finalScriptTrustScore, 88);
   assert.equal(record?.productionPackage?.compiledProductionPlan?.id, "compiled-plan-1");
   assert.equal(record?.productionPackage?.artifacts.composedVideo?.storage?.url, "https://blob.example/video.mp4");
+  assert.equal(record?.generation.runLedger[0]?.finalScriptTrustScore, 88);
   assert.equal(record?.publishOutcomes[0]?.publishedUrl, "https://linkedin.example/post/1");
   assert.equal(record?.languageMemory[0]?.phrase, "Narration text for testing.");
   assert.equal(record?.benchmarkMetadata.latestProviderSet?.captionProvider, "assemblyai");

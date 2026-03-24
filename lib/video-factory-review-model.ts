@@ -44,6 +44,7 @@ export interface VideoBriefSummary {
   softClose: string;
   trustGuardrails: string[];
   audience: string;
+  finalScriptTrustScore: number | null;
 }
 
 export interface CostEstimate {
@@ -418,6 +419,7 @@ export function buildVideoFactoryReviewBrief(
     softClose: brief.cta,
     trustGuardrails: brief.productionNotes ?? [],
     audience: opportunity.memoryContext.audienceCue ?? opportunity.primaryPainPoint,
+    finalScriptTrustScore: brief.finalScriptTrustScore ?? null,
   };
 }
 

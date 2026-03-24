@@ -5,7 +5,13 @@ const config = [
   ...nextVitals,
   ...nextTypescript,
   {
-    ignores: [".next/**", ".test-dist/**", "node_modules/**", "next-env.d.ts"],
+    ignores: [
+      ".next/**",
+      ".test-dist/**",
+      "node_modules/**",
+      "next-env.d.ts",
+      "tsconfig.tsbuildinfo",
+    ],
   },
 ];
 

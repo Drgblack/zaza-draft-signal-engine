@@ -120,6 +120,7 @@ function buildCompiledPlanFixture(): SelectionPlan {
       adjusted: false,
       reasons: [],
     },
+    finalScriptTrustAssessment: null,
   };
 }
 

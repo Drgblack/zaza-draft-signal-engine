@@ -108,6 +108,7 @@ const baseCompiledPlan: CompiledProductionPlan = {
     adjusted: false,
     reasons: [],
   },
+  finalScriptTrustAssessment: null,
 };
 
 const baseProviderResults: {

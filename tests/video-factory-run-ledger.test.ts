@@ -81,6 +81,8 @@ test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artif
     estimatedCost: baseCostEstimate,
     qualityCheck: baseQualityCheck,
     retryState: baseRetryState,
+    finalScriptTrustScore: 88,
+    finalScriptTrustStatus: "safe",
     attemptLineage: {
       attemptId: "render-job-1:attempt-lineage",
       factoryJobId: baseLifecycle.factoryJobId,
@@ -174,6 +176,8 @@ test("buildFactoryRunLedgerEntry records providers, transitions, cost, and artif
   assert.equal(entry.estimatedCost?.estimatedTotalUsd, 0.9234);
   assert.equal(entry.qualityCheck?.passed, true);
   assert.equal(entry.retryState?.retryCount, 1);
+  assert.equal(entry.finalScriptTrustScore, 88);
+  assert.equal(entry.finalScriptTrustStatus, "safe");
   assert.deepEqual(entry.artifactIds, ["narration-1", "scene-1", "caption-1", "video-1", "thumbnail-1"]);
   assert.equal(entry.lifecycleTransitions.length, 9);
 });

@@ -26,6 +26,7 @@ import {
 } from "@/lib/strategic-intelligence-types";
 import { determineViewerEffect, suggestCTA } from "@/lib/viewer-effect";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
+import { resolveActiveABTestResult } from "@/lib/factory-ab-tests";
 import { buildMessageAngles } from "@/lib/message-angles";
 import {
   filterSignalsForActiveReviewQueue,
@@ -172,7 +173,10 @@ import {
   type VideoFactoryAttemptLineage,
 } from "@/lib/video-factory-lineage";
 import { summarizeVideoFactoryProviderFailure } from "@/lib/video-factory-provider-errors";
-import { compileVideoBriefForProduction } from "@/lib/prompt-compiler";
+import {
+  compileVideoBriefForProduction,
+  type CompiledProductionPlan,
+} from "@/lib/prompt-compiler";
 import {
   applyVideoFactorySelectionDecision,
   buildVideoFactorySelectionDecision,
@@ -284,6 +288,7 @@ export interface ContentOpportunity {
   priority: ContentOpportunityPriority;
   source: ContentOpportunitySourceRef;
   primaryPainPoint: string;
+  painPointCategory: string | null;
   teacherLanguage: string[];
   recommendedAngle: string;
   recommendedHookDirection: string;
@@ -293,7 +298,11 @@ export interface ContentOpportunity {
   commercialPotential: "high" | "medium" | "low";
   trustRisk: "low" | "medium" | "high";
   riskSummary: string | null;
+  confidence: number | null;
+  historicalCostAvg: number | null;
+  historicalApprovalRate: number | null;
   suggestedNextStep: string;
+  skipReason: string | null;
   hookOptions: string[] | null;
   hookRanking: ContentOpportunityHookRankingItem[] | null;
   performanceDrivers: ContentOpportunityPerformanceDrivers | null;
@@ -662,7 +671,7 @@ export const contentOpportunityGenerationStateSchema = z.object({
   performanceSignals: z.array(performanceSignalSchema).default([]),
 });
 
-const contentOpportunitySchema = z.object({
+export const contentOpportunitySchema = z.object({
   opportunityId: z.string().trim().min(1),
   signalId: z.string().trim().min(1),
   title: z.string().trim().min(1),
@@ -671,6 +680,7 @@ const contentOpportunitySchema = z.object({
   priority: z.enum(CONTENT_OPPORTUNITY_PRIORITIES),
   source: contentOpportunitySourceRefSchema,
   primaryPainPoint: z.string().trim().min(1),
+  painPointCategory: z.string().trim().nullable().default(null),
   teacherLanguage: z.array(z.string().trim().min(1)).max(4),
   recommendedAngle: z.string().trim().min(1),
   recommendedHookDirection: z.string().trim().min(1),
@@ -680,7 +690,11 @@ const contentOpportunitySchema = z.object({
   commercialPotential: z.enum(["high", "medium", "low"]),
   trustRisk: z.enum(["low", "medium", "high"]),
   riskSummary: z.string().trim().nullable().default(null),
+  confidence: z.number().min(0).max(1).nullable().default(null),
+  historicalCostAvg: z.number().nonnegative().nullable().default(null),
+  historicalApprovalRate: z.number().min(0).max(1).nullable().default(null),
   suggestedNextStep: z.string().trim().min(1),
+  skipReason: z.string().trim().nullable().default(null),
   hookOptions: z.array(z.string().trim().min(1)).nullable().default(null),
   hookRanking: z.array(contentOpportunityHookRankingItemSchema).nullable().default(null),
   performanceDrivers: contentOpportunityPerformanceDriversSchema.nullable().default(null),
@@ -991,6 +1005,46 @@ function normalizeFounderSelectionStatus(input: {
   return "pending" as const;
 }
 
+function mergePersistedVideoBriefMetadata(
+  nextBrief: VideoBrief | null,
+  existingBrief: VideoBrief | null | undefined,
+): VideoBrief | null {
+  if (!nextBrief) {
+    return null;
+  }
+
+  if (!existingBrief || existingBrief.id !== nextBrief.id) {
+    return nextBrief;
+  }
+
+  return videoBriefSchema.parse({
+    ...nextBrief,
+    contentType: existingBrief.contentType ?? nextBrief.contentType ?? null,
+    finalScriptTrustScore:
+      existingBrief.finalScriptTrustScore ?? nextBrief.finalScriptTrustScore ?? null,
+  });
+}
+
+function applyCompiledPlanToVideoBrief(
+  brief: VideoBrief | null,
+  compiledProductionPlan: Pick<
+    CompiledProductionPlan,
+    "finalScriptTrustAssessment"
+  > | null | undefined,
+): VideoBrief | null {
+  if (!brief) {
+    return null;
+  }
+
+  return videoBriefSchema.parse({
+    ...brief,
+    finalScriptTrustScore:
+      compiledProductionPlan?.finalScriptTrustAssessment?.score ??
+      brief.finalScriptTrustScore ??
+      null,
+  });
+}
+
 function normalizeFounderSelection(
   opportunity: ContentOpportunity,
 ): Pick<
@@ -1049,6 +1103,7 @@ function normalizeFounderSelection(
     }
 
     const selectedHookSet = applySelectedHookSelection(hookSet, hook.id);
+    const rebuiltBrief = buildVideoBrief(opportunity, angle, selectedHookSet);
 
     return {
       founderSelectionStatus: normalizeFounderSelectionStatus({
@@ -1058,7 +1113,10 @@ function normalizeFounderSelection(
       }),
       selectedAngleId: angle.id,
       selectedHookId: hook.id,
-      selectedVideoBrief: buildVideoBrief(opportunity, angle, selectedHookSet),
+      selectedVideoBrief: mergePersistedVideoBriefMetadata(
+        rebuiltBrief,
+        opportunity.selectedVideoBrief,
+      ),
     };
   } catch {
     return {
@@ -1817,6 +1875,17 @@ async function runContentOpportunityVideoGeneration(input: {
           regenerationNotes: normalizedRegenerationNotes,
           costEstimate: queuedCostEstimate,
           budgetGuard: queuedBudgetGuard,
+          abTest: resolveActiveABTestResult({
+            opportunityId: latestOpportunity.opportunityId,
+            brief: latestBrief,
+            observedProvider: provider,
+            observedDefaultsVersion:
+              queuedCompiledProductionPlan.defaultsSnapshot.version ?? null,
+            observedPromptOverrideEnabled: null,
+            observedCaptionStylePreset:
+              queuedCompiledProductionPlan.captionSpec.stylePreset ?? null,
+            assignedAt: timestamp,
+          }),
         }),
         submittedAt: timestamp,
       });
@@ -1837,6 +1906,10 @@ async function runContentOpportunityVideoGeneration(input: {
       return {
         ...opportunity,
         growthIntelligence: latestGrowthIntelligence,
+        selectedVideoBrief: applyCompiledPlanToVideoBrief(
+          opportunity.selectedVideoBrief,
+          queuedCompiledProductionPlan,
+        ),
         generationState: contentOpportunityGenerationStateSchema.parse({
           ...latestGenerationState,
           videoBriefApprovedAt: latestApprovedAt,
@@ -1962,6 +2035,10 @@ async function runContentOpportunityVideoGeneration(input: {
 
           return {
             ...opportunity,
+            selectedVideoBrief: applyCompiledPlanToVideoBrief(
+              opportunity.selectedVideoBrief,
+              compiledProductionPlan,
+            ),
             generationState: contentOpportunityGenerationStateSchema.parse({
               ...persistedGenerationState,
               latestCostEstimate: costEstimate,
@@ -2346,6 +2423,11 @@ async function runContentOpportunityVideoGeneration(input: {
           attemptOpportunity.growthIntelligence?.executionPriority ?? null,
         growthRiskLevel: attemptOpportunity.growthIntelligence?.riskLevel ?? null,
         growthReasoning: attemptOpportunity.growthIntelligence?.reasoning ?? null,
+      finalScriptTrustScore:
+          compiledProductionPlan.finalScriptTrustAssessment?.score ?? null,
+        finalScriptTrustStatus:
+          compiledProductionPlan.finalScriptTrustAssessment?.status ?? null,
+        abTest: failedRenderJob.abTest ?? activeQueuedRenderJob.abTest ?? null,
       });
 
       const failureState = await updateOpportunity(input.opportunityId, (opportunity) => {
@@ -2355,6 +2437,10 @@ async function runContentOpportunityVideoGeneration(input: {
 
         return {
           ...opportunity,
+          selectedVideoBrief: applyCompiledPlanToVideoBrief(
+            opportunity.selectedVideoBrief,
+            failedRenderJob.compiledProductionPlan,
+          ),
           generationState: contentOpportunityGenerationStateSchema.parse({
             ...persistedGenerationState,
             videoBriefApprovedAt: attemptApprovedAt,
@@ -2481,6 +2567,11 @@ async function runContentOpportunityVideoGeneration(input: {
         attemptOpportunity.growthIntelligence?.executionPriority ?? null,
       growthRiskLevel: attemptOpportunity.growthIntelligence?.riskLevel ?? null,
       growthReasoning: attemptOpportunity.growthIntelligence?.reasoning ?? null,
+      finalScriptTrustScore:
+        compiledProductionPlan.finalScriptTrustAssessment?.score ?? null,
+      finalScriptTrustStatus:
+        compiledProductionPlan.finalScriptTrustAssessment?.status ?? null,
+      abTest: renderJob.abTest ?? activeQueuedRenderJob.abTest ?? null,
     });
     const generationSignalMetadata = buildPerformanceSignalMetadata({
       opportunity: attemptOpportunity,
@@ -2526,6 +2617,10 @@ async function runContentOpportunityVideoGeneration(input: {
 
       return {
         ...opportunity,
+        selectedVideoBrief: applyCompiledPlanToVideoBrief(
+          opportunity.selectedVideoBrief,
+          renderJob.compiledProductionPlan,
+        ),
         generationState: contentOpportunityGenerationStateSchema.parse({
           ...persistedGenerationState,
           videoBriefApprovedAt: attemptApprovedAt,
@@ -2710,6 +2805,13 @@ async function runContentOpportunityVideoGeneration(input: {
         attemptOpportunity.growthIntelligence?.executionPriority ?? null,
       growthRiskLevel: attemptOpportunity.growthIntelligence?.riskLevel ?? null,
       growthReasoning: attemptOpportunity.growthIntelligence?.reasoning ?? null,
+      finalScriptTrustScore:
+        activeQueuedRenderJob.compiledProductionPlan?.finalScriptTrustAssessment?.score ??
+        null,
+      finalScriptTrustStatus:
+        activeQueuedRenderJob.compiledProductionPlan?.finalScriptTrustAssessment?.status ??
+        null,
+      abTest: activeQueuedRenderJob.abTest ?? null,
     });
 
     await updateOpportunity(input.opportunityId, (opportunity) => {
@@ -2728,6 +2830,10 @@ async function runContentOpportunityVideoGeneration(input: {
 
       return {
         ...opportunity,
+        selectedVideoBrief: applyCompiledPlanToVideoBrief(
+          opportunity.selectedVideoBrief,
+          failedRenderJob.compiledProductionPlan,
+        ),
         generationState: contentOpportunityGenerationStateSchema.parse({
           ...persistedGenerationState,
           videoBriefApprovedAt: attemptApprovedAt,
@@ -2821,10 +2927,15 @@ function normalizePersistedOpportunity(opportunity: ContentOpportunity): Content
     },
   );
 
-  return {
+  return contentOpportunitySchema.parse({
     ...founderNormalizedOpportunity,
+    painPointCategory: founderNormalizedOpportunity.painPointCategory ?? null,
+    confidence: founderNormalizedOpportunity.confidence ?? null,
+    historicalCostAvg: founderNormalizedOpportunity.historicalCostAvg ?? null,
+    historicalApprovalRate: founderNormalizedOpportunity.historicalApprovalRate ?? null,
+    skipReason: founderNormalizedOpportunity.skipReason ?? null,
     generationState: normalizeGenerationState(founderNormalizedOpportunity),
-  };
+  });
 }
 
 function mergePersistedFields(
@@ -2846,6 +2957,16 @@ function mergePersistedFields(
     selectedHookId: existingOpportunity.selectedHookId ?? null,
     selectedVideoBrief: existingOpportunity.selectedVideoBrief ?? null,
     generationState: existingOpportunity.generationState ?? null,
+    painPointCategory:
+      nextOpportunity.painPointCategory ?? existingOpportunity.painPointCategory ?? null,
+    confidence: nextOpportunity.confidence ?? existingOpportunity.confidence ?? null,
+    historicalCostAvg:
+      nextOpportunity.historicalCostAvg ?? existingOpportunity.historicalCostAvg ?? null,
+    historicalApprovalRate:
+      nextOpportunity.historicalApprovalRate ??
+      existingOpportunity.historicalApprovalRate ??
+      null,
+    skipReason: nextOpportunity.skipReason ?? existingOpportunity.skipReason ?? null,
     hookOptions: existingOpportunity.hookOptions ?? nextOpportunity.hookOptions ?? null,
     hookRanking: existingOpportunity.hookRanking ?? nextOpportunity.hookRanking ?? null,
     performanceDrivers:
@@ -3087,6 +3208,7 @@ function buildOpportunityFromCandidate(
       normalizeText(candidate.signal.signalSubtype) ??
       normalizeText(candidate.signal.sourceTitle) ??
       "Teacher communication pressure",
+    painPointCategory: null,
     teacherLanguage: toTeacherLanguage(candidate),
     recommendedAngle:
       normalizeText(candidate.signal.contentAngle) ??
@@ -3103,7 +3225,11 @@ function buildOpportunityFromCandidate(
     commercialPotential: toCommercialPotential(candidate),
     trustRisk: candidate.commercialRisk.highestSeverity ?? "low",
     riskSummary: candidate.commercialRisk.topRisk?.reason ?? null,
+    confidence: null,
+    historicalCostAvg: null,
+    historicalApprovalRate: null,
     suggestedNextStep: buildSuggestedNextStep(candidate),
+    skipReason: null,
     hookOptions: null,
     hookRanking: null,
     performanceDrivers: null,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { abTestResultSchema } from "@/lib/factory-ab-tests";
 import { compiledProductionPlanSchema } from "@/lib/prompt-compiler";
 import { productionDefaultsSchema } from "@/lib/production-defaults";
 import {
@@ -57,6 +58,7 @@ export const renderJobSchema = z.object({
   budgetGuard: videoFactoryBudgetGuardSchema.nullable().default(null),
   qualityCheck: qualityCheckResultSchema.nullable().default(null),
   retryState: videoFactoryRetryStateSchema.nullable().default(null),
+  abTest: abTestResultSchema.nullable().optional(),
   status: z.enum(RENDER_JOB_STATUSES),
   submittedAt: z.string().trim().nullable().default(null),
   completedAt: z.string().trim().nullable().default(null),
@@ -90,6 +92,7 @@ export function createRenderJob(input: {
   budgetGuard?: z.infer<typeof videoFactoryBudgetGuardSchema> | null;
   qualityCheck?: z.infer<typeof qualityCheckResultSchema> | null;
   retryState?: z.infer<typeof videoFactoryRetryStateSchema> | null;
+  abTest?: z.infer<typeof abTestResultSchema> | null;
 }): RenderJob {
   return renderJobSchema.parse({
     id: renderJobId(
@@ -113,6 +116,7 @@ export function createRenderJob(input: {
     budgetGuard: input.budgetGuard ?? null,
     qualityCheck: input.qualityCheck ?? null,
     retryState: input.retryState ?? null,
+    abTest: input.abTest ?? null,
     status: "queued",
     submittedAt: null,
     completedAt: null,

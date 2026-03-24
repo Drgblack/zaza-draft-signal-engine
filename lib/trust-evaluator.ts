@@ -1,11 +1,19 @@
 import { z } from "zod";
 
+import {
+  extractAuthenticPhrases,
+  selectAuthenticPhrasesForBrief,
+} from "@/lib/authentic-language";
 import type { ContentOpportunity } from "@/lib/content-opportunities";
 import type { HookSet, HookVariant } from "@/lib/hook-engine";
 import { inspectHookTrust } from "@/lib/hook-engine";
 import type { MessageAngle } from "@/lib/message-angles";
 import { inspectMessageAngleTrust } from "@/lib/message-angles";
-import { evaluatePhaseBTrust } from "@/lib/phase-b-trust";
+import {
+  buildPhaseBAnchorTokens,
+  countPhaseBAnchorOverlap,
+  evaluatePhaseBTrust,
+} from "@/lib/phase-b-trust";
 import type { VideoBrief } from "@/lib/video-briefs";
 import { inspectVideoBriefTrust } from "@/lib/video-briefs";
 
@@ -81,6 +89,100 @@ function buildOpportunityTrustText(opportunity: ContentOpportunity): string {
     opportunity.memoryContext.caution ?? "",
     ...opportunity.supportingSignals,
   ].join(" ");
+}
+
+function selectRequiredAuthenticPhrasesForFinalScript(
+  opportunity: ContentOpportunity,
+  brief: VideoBrief,
+): string[] {
+  const teacherLanguagePhrases = extractAuthenticPhrases(opportunity)
+    .filter((phrase) => phrase.sourceType === "teacher-language")
+    .map((phrase) => phrase.text);
+
+  if (teacherLanguagePhrases.length > 0) {
+    return teacherLanguagePhrases;
+  }
+
+  return selectAuthenticPhrasesForBrief(opportunity, brief, 3).map(
+    (phrase) => phrase.text,
+  );
+}
+
+function finalScriptPreservesApprovedLanguage(
+  narrationScript: string,
+  requiredPhrases: string[],
+): boolean {
+  const normalizedScript = normalizeText(narrationScript).toLowerCase();
+
+  return requiredPhrases.some((phrase) =>
+    normalizedScript.includes(normalizeText(phrase).toLowerCase()),
+  );
+}
+
+export function evaluateFinalAssembledScriptTrust(input: {
+  opportunity: ContentOpportunity;
+  brief: VideoBrief;
+  narrationScript: string;
+}): TrustAssessment {
+  const narrationScript = normalizeText(input.narrationScript);
+  const trustCheck = evaluatePhaseBTrust(narrationScript, {
+    allowProductMention: true,
+  });
+  let penalty = trustCheck.penalty;
+  const reasons = [...trustCheck.reasons];
+  let adjusted = false;
+  const requiredPhrases = selectRequiredAuthenticPhrasesForFinalScript(
+    input.opportunity,
+    input.brief,
+  );
+  const anchorOverlap = countPhaseBAnchorOverlap(
+    narrationScript,
+    buildPhaseBAnchorTokens([
+      input.brief.hook,
+      input.brief.goal,
+      input.brief.cta,
+      ...input.brief.overlayLines,
+    ]),
+  );
+
+  if (!narrationScript) {
+    penalty += 24;
+    reasons.push("final-script-missing");
+    adjusted = true;
+  }
+
+  if (
+    requiredPhrases.length > 0 &&
+    !finalScriptPreservesApprovedLanguage(narrationScript, requiredPhrases)
+  ) {
+    penalty += 10;
+    reasons.push("final-script-language-not-preserved");
+    adjusted = true;
+  }
+
+  if (anchorOverlap < 4) {
+    penalty += 8;
+    reasons.push("final-script-anchor-thin");
+    adjusted = true;
+  }
+
+  if (input.opportunity.trustRisk === "medium") {
+    penalty += 6;
+    reasons.push("final-script-medium-trust-risk");
+    adjusted = true;
+  }
+
+  if (input.opportunity.trustRisk === "high") {
+    penalty += 14;
+    reasons.push("final-script-high-trust-risk");
+    adjusted = true;
+  }
+
+  return evaluateTrust({
+    penalty,
+    reasons,
+    adjusted,
+  });
 }
 
 export function evaluateOpportunityTrust(

@@ -182,6 +182,8 @@ test("buildVideoFactoryEvalSnapshot extracts structural metadata from runtime-sh
       growthRiskLevel: "low",
       growthReasoning: "High priority with content-ready input.",
       terminalOutcome: "review_pending",
+      finalScriptTrustScore: null,
+      finalScriptTrustStatus: null,
       lastUpdatedAt: "2026-03-23T10:00:40.000Z",
       failureStage: null,
       failureMessage: null,

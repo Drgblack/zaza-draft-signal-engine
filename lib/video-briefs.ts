@@ -49,6 +49,8 @@ export const videoBriefSchema = z.object({
   visualDirection: z.string().trim().min(1),
   overlayLines: z.array(z.string().trim().min(1)).min(2).max(4),
   cta: z.string().trim().min(1),
+  contentType: z.string().trim().nullable().default(null),
+  finalScriptTrustScore: z.number().min(0).max(100).nullable().default(null),
   productionNotes: z.array(z.string().trim().min(1)).max(4).optional(),
 });
 
@@ -537,6 +539,8 @@ export function validateVideoBrief(
     structure: safeStructure,
     overlayLines: safeOverlayLines,
     cta: safeCta,
+    contentType: brief.contentType ?? null,
+    finalScriptTrustScore: brief.finalScriptTrustScore ?? null,
     productionNotes: safeProductionNotes?.length ? safeProductionNotes : undefined,
   });
   const textToValidate = [
@@ -605,6 +609,8 @@ function rawBriefForTrustCheck(
     visualDirection: buildVisualDirection(opportunity, angle, format),
     overlayLines,
     cta,
+    contentType: null,
+    finalScriptTrustScore: null,
     productionNotes: buildProductionNotes(opportunity, format),
   });
 }

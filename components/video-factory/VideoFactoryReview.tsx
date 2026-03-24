@@ -285,9 +285,16 @@ function PreGenerationState({
             ))}
           </ol>
           <div className="mt-4">
-            <Badge className="text-xs">
-              {brief.audience}
-            </Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="text-xs">
+                {brief.audience}
+              </Badge>
+              {brief.finalScriptTrustScore !== null ? (
+                <Badge className="text-xs bg-slate-100 text-slate-700 ring-slate-200">
+                  Final script trust {brief.finalScriptTrustScore}/100
+                </Badge>
+              ) : null}
+            </div>
           </div>
         </CardContent>
         </Card>
@@ -738,7 +745,12 @@ function ReviewState({
           >
             <Card>
               <CardContent className="pt-6">
-                <SectionLabel>Trust check</SectionLabel>
+              <SectionLabel>Trust check</SectionLabel>
+              {brief.finalScriptTrustScore !== null ? (
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Final assembled script trust score: {brief.finalScriptTrustScore}/100
+                </p>
+              ) : null}
               <div className="space-y-1">
                 {brief.trustGuardrails.map((guardrail, i) => (
                   <label
@@ -1022,6 +1034,7 @@ export const DEMO_PROPS: VideoFactoryReviewProps = {
       "Must sound like a teacher, not a brand",
     ],
     audience: "Primary and secondary school teachers",
+    finalScriptTrustScore: 91,
   },
   job: {
     jobId: "job-789",

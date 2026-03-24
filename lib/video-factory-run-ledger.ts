@@ -22,6 +22,10 @@ import {
 } from "./video-factory-retry";
 import { z as zod } from "zod";
 import {
+  abTestResultSchema,
+  type ABTestResult,
+} from "./factory-ab-tests";
+import {
   factoryReviewReasonListSchema,
   type FactoryReviewReasonCode,
 } from "./video-factory-review-reasons";
@@ -79,6 +83,12 @@ export const factoryRunLedgerEntrySchema = z.object({
   growthExecutionPriority: z.number().nullable().default(null),
   growthRiskLevel: zod.enum(["low", "medium", "high"]).nullable().default(null),
   growthReasoning: z.string().trim().nullable().default(null),
+  finalScriptTrustScore: z.number().min(0).max(100).nullable().default(null),
+  finalScriptTrustStatus: zod
+    .enum(["safe", "caution", "blocked"])
+    .nullable()
+    .default(null),
+  abTest: abTestResultSchema.nullable().optional(),
   terminalOutcome: z.enum(FACTORY_RUN_TERMINAL_OUTCOMES),
   lastUpdatedAt: z.string().trim().min(1),
   failureStage: z.enum(VIDEO_FACTORY_STATUSES).nullable().default(null),
@@ -182,6 +192,9 @@ export function buildFactoryRunLedgerEntry(input: {
   growthExecutionPriority?: number | null;
   growthRiskLevel?: "low" | "medium" | "high" | null;
   growthReasoning?: string | null;
+  finalScriptTrustScore?: number | null;
+  finalScriptTrustStatus?: "safe" | "caution" | "blocked" | null;
+  abTest?: ABTestResult | null;
 }): FactoryRunLedgerEntry {
   return factoryRunLedgerEntrySchema.parse({
     ledgerEntryId: ledgerEntryId(input.lifecycle.factoryJobId, input.attemptNumber),
@@ -217,6 +230,9 @@ export function buildFactoryRunLedgerEntry(input: {
     growthExecutionPriority: input.growthExecutionPriority ?? null,
     growthRiskLevel: input.growthRiskLevel ?? null,
     growthReasoning: input.growthReasoning ?? null,
+    finalScriptTrustScore: input.finalScriptTrustScore ?? null,
+    finalScriptTrustStatus: input.finalScriptTrustStatus ?? null,
+    abTest: input.abTest ?? null,
     terminalOutcome:
       input.lifecycle.status === "accepted" ||
       input.lifecycle.status === "rejected" ||

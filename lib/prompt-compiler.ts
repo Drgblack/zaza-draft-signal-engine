@@ -33,6 +33,7 @@ import {
 } from "@/lib/scene-prompts";
 import {
   evaluateOpportunityTrust,
+  evaluateFinalAssembledScriptTrust,
   evaluateTrust,
   trustAssessmentSchema,
   type TrustAssessment,
@@ -51,6 +52,7 @@ export const compiledProductionPlanSchema = z.object({
   scenePrompts: z.array(scenePromptSchema).min(1).max(4),
   captionSpec: captionSpecSchema,
   compositionSpec: compositionSpecSchema,
+  finalScriptTrustAssessment: trustAssessmentSchema.nullable().default(null),
   trustAssessment: trustAssessmentSchema,
 });
 
@@ -231,6 +233,11 @@ export function compileVideoBriefForProduction(input: {
     initialCompositionSpec,
     initialTrustAssessment,
   );
+  const finalScriptTrustAssessment = evaluateFinalAssembledScriptTrust({
+    opportunity: input.opportunity,
+    brief,
+    narrationScript: narrationSpec.script,
+  });
   const downgradedTrustAssessment = downgradedComposition.downgraded
     ? buildCompiledTrustAssessment({
         opportunity: input.opportunity,
@@ -267,6 +274,7 @@ export function compileVideoBriefForProduction(input: {
     scenePrompts,
     captionSpec,
     compositionSpec: downgradedComposition.compositionSpec,
+    finalScriptTrustAssessment,
     trustAssessment,
   });
 }

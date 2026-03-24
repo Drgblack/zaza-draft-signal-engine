@@ -27,6 +27,7 @@ function buildOpportunityFixture(input?: {
       clusterId: null,
     },
     primaryPainPoint: "Tone uncertainty before sending parent emails.",
+    painPointCategory: null,
     teacherLanguage: ["I keep rereading the message before I send it."],
     recommendedAngle: "Calm reassurance",
     recommendedHookDirection: "empathetic",
@@ -36,7 +37,11 @@ function buildOpportunityFixture(input?: {
     commercialPotential: "high",
     trustRisk: "low",
     riskSummary: null,
+    confidence: null,
+    historicalCostAvg: null,
+    historicalApprovalRate: null,
     suggestedNextStep: "Send to factory.",
+    skipReason: null,
     hookOptions: null,
     hookRanking: null,
     performanceDrivers: null,
@@ -75,6 +80,8 @@ function buildOpportunityFixture(input?: {
       visualDirection: "Simple portrait shot.",
       overlayLines: [],
       cta: "Try Zaza Draft",
+      contentType: null,
+      finalScriptTrustScore: 88,
       productionNotes: [],
     },
     generationState: {
@@ -236,6 +243,8 @@ function buildOpportunityFixture(input?: {
               growthRiskLevel: "low",
               growthReasoning: "High priority and content-ready.",
               terminalOutcome: "accepted",
+              finalScriptTrustScore: 88,
+              finalScriptTrustStatus: "safe",
               lastUpdatedAt: "2026-03-23T10:00:50.000Z",
               failureStage: null,
               failureMessage: null,
@@ -430,6 +439,12 @@ function buildOpportunityFixture(input?: {
             adjusted: false,
             reasons: [],
           },
+          finalScriptTrustAssessment: {
+            score: 88,
+            status: "safe",
+            adjusted: false,
+            reasons: [],
+          },
         },
         productionDefaultsSnapshot: null,
         providerJobId: "provider-job-1",
@@ -483,6 +498,7 @@ test("buildFactoryRunsObservability flattens ledger-backed runs with defaults ve
   assert.equal(result.items[0]?.factoryJobId, "factory-job-1");
   assert.equal(result.items[0]?.defaultsProfileId, "prod-default:teacher-real-core");
   assert.equal(result.items[0]?.defaultsVersion, 3);
+  assert.equal(result.items[0]?.finalScriptTrustScore, 88);
   assert.equal(result.items[0]?.artifactSummary.hasComposedVideo, true);
   assert.equal(result.items[0]?.reviewOutcome.status, "accepted");
 });

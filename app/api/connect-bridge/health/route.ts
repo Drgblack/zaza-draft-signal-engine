@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { buildConnectBridgeHealthSnapshot } from "@/lib/connect-bridge-health";
 import {
-  getLatestZazaConnectExport,
+  getZazaConnectBridgeRuntimeState,
   getZazaConnectBridgeStorageDiagnostics,
 } from "@/lib/zaza-connect-bridge";
 
@@ -11,10 +11,12 @@ export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const latestExport = await getLatestZazaConnectExport();
+    const runtimeState = await getZazaConnectBridgeRuntimeState();
     const snapshot = buildConnectBridgeHealthSnapshot({
-      latestExport,
+      latestExport: runtimeState.latestExport,
+      exportHistory: runtimeState.exports,
       storage: getZazaConnectBridgeStorageDiagnostics(),
+      generationStatus: runtimeState.generationStatus,
     });
 
     return NextResponse.json(snapshot, {
@@ -26,9 +28,24 @@ export async function GET() {
         ok: false,
         checkedAt: new Date().toISOString(),
         storage: getZazaConnectBridgeStorageDiagnostics(),
+        freshness: {
+          expectedCadenceHours: 6,
+          staleThresholdHours: 12,
+        },
         automation: {
           cronPath: "/api/cron/connect-bridge-export",
           cronSecretConfigured: Boolean(process.env.CRON_SECRET?.trim()),
+        },
+        generation: {
+          lastAttemptedAt: null,
+          lastAttemptOutcome: null,
+          lastSuccessfulExportId: null,
+          lastSuccessfulExportAt: null,
+          lastFailedAt: null,
+          lastFailedError: error instanceof Error
+            ? error.message
+            : "Unable to load Zaza Connect bridge health.",
+          consecutiveFailureCount: 0,
         },
         latestExport: {
           available: false,
@@ -38,6 +55,27 @@ export async function GET() {
           stale: false,
           strongCandidateCount: 0,
           connectOpportunityCount: 0,
+          schemaVersion: null,
+          producerVersion: null,
+          metrics: {
+            totalSignalsAvailable: 0,
+            visibleSignalsConsidered: 0,
+            approvalReadySignals: 0,
+            filteredOutSignals: 0,
+            weeklyPostingPackItemCount: 0,
+            fallbackCandidateCount: 0,
+            usedFallbackCandidates: false,
+            strongContentCandidateCount: 0,
+            connectOpportunityCount: 0,
+            missingProofPointsCount: 0,
+            missingSourceSignalIdsCount: 0,
+            missingTeacherLanguageCount: 0,
+          },
+        },
+        history: {
+          recentExports: [],
+          lastNonEmptyExportAt: null,
+          lastNonEmptyExportId: null,
         },
         warnings: [
           error instanceof Error

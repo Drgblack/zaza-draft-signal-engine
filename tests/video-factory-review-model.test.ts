@@ -22,6 +22,7 @@ function buildOpportunityFixture(): ContentOpportunity {
       clusterId: null,
     },
     primaryPainPoint: "Teachers worry about tone in parent emails.",
+    painPointCategory: null,
     teacherLanguage: ["I always second-guess the send button."],
     recommendedAngle: "Calm reassurance",
     recommendedHookDirection: "empathetic",
@@ -31,7 +32,11 @@ function buildOpportunityFixture(): ContentOpportunity {
     commercialPotential: "high",
     trustRisk: "low",
     riskSummary: null,
+    confidence: null,
+    historicalCostAvg: null,
+    historicalApprovalRate: null,
     suggestedNextStep: "Generate a video.",
+    skipReason: null,
     hookOptions: null,
     hookRanking: null,
     performanceDrivers: null,
@@ -74,6 +79,8 @@ function buildOpportunityFixture(): ContentOpportunity {
       visualDirection: "Simple portrait setup.",
       overlayLines: ["Tone check", "Send with confidence"],
       cta: "Try Zaza Draft free.",
+      contentType: null,
+      finalScriptTrustScore: 88,
       productionNotes: ["No exaggerated claims", "No urgency language"],
     },
     generationState: {
@@ -215,6 +222,8 @@ function buildOpportunityFixture(): ContentOpportunity {
           growthRiskLevel: "low",
           growthReasoning: "Impact potential 78/100; risk low; execution path video_factory",
           terminalOutcome: "review_pending",
+          finalScriptTrustScore: 88,
+          finalScriptTrustStatus: "safe",
           regenerationReasonCodes: ["tone_mismatch"],
           regenerationNotes: "Tone landed slightly too polished.",
           decisionStructuredReasons: [],
@@ -420,6 +429,7 @@ test("buildVideoFactoryReviewBrief maps the selected brief", () => {
 
   assert.equal(brief?.briefId, "brief-1");
   assert.equal(brief?.primaryHook, "Every teacher knows the feeling of rereading the email five times.");
+  assert.equal(brief?.finalScriptTrustScore, 88);
   assert.deepEqual(brief?.trustGuardrails, ["No exaggerated claims", "No urgency language"]);
 });
 
@@ -479,6 +489,8 @@ test("buildVideoFactoryReviewJob keeps the current reviewable attempt when later
     decisionStructuredReasons: [],
     decisionNotes: null,
     terminalOutcome: "failed",
+    finalScriptTrustScore: null,
+    finalScriptTrustStatus: null,
     lastUpdatedAt: "2026-03-23T10:05:30.000Z",
     failureStage: "generating_visuals",
     failureMessage: "Latest attempt failed.",

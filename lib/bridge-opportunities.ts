@@ -3,6 +3,8 @@ import { z } from "zod";
 import { buildContentIntelligenceFromSignal } from "./strategic-intelligence-types";
 import type { ZazaConnectExportPayload } from "./zaza-connect-bridge";
 
+const BRIDGE_SCHEMA_VERSION = "2026-03-24.1";
+
 export const bridgeOpportunitySchema = z.object({
   candidateId: z.string().trim().min(1),
   signalId: z.string().trim().min(1),
@@ -52,8 +54,40 @@ export type ConnectOpportunity = z.infer<typeof connectOpportunitySchema>;
 
 export const bridgeOpportunitiesResponseSchema = z.object({
   success: z.boolean(),
+  schemaVersion: z.string().trim().min(1).default(BRIDGE_SCHEMA_VERSION),
+  producerVersion: z.string().trim().min(1).default("dev"),
   exportId: z.string().trim().nullable().default(null),
   generatedAt: z.string().trim().nullable().default(null),
+  contentFingerprint: z.string().trim().nullable().default(null),
+  metrics: z
+    .object({
+      totalSignalsAvailable: z.number().int().nonnegative().default(0),
+      visibleSignalsConsidered: z.number().int().nonnegative().default(0),
+      approvalReadySignals: z.number().int().nonnegative().default(0),
+      filteredOutSignals: z.number().int().nonnegative().default(0),
+      weeklyPostingPackItemCount: z.number().int().nonnegative().default(0),
+      fallbackCandidateCount: z.number().int().nonnegative().default(0),
+      usedFallbackCandidates: z.boolean().default(false),
+      strongContentCandidateCount: z.number().int().nonnegative().default(0),
+      connectOpportunityCount: z.number().int().nonnegative().default(0),
+      missingProofPointsCount: z.number().int().nonnegative().default(0),
+      missingSourceSignalIdsCount: z.number().int().nonnegative().default(0),
+      missingTeacherLanguageCount: z.number().int().nonnegative().default(0),
+    })
+    .default({
+      totalSignalsAvailable: 0,
+      visibleSignalsConsidered: 0,
+      approvalReadySignals: 0,
+      filteredOutSignals: 0,
+      weeklyPostingPackItemCount: 0,
+      fallbackCandidateCount: 0,
+      usedFallbackCandidates: false,
+      strongContentCandidateCount: 0,
+      connectOpportunityCount: 0,
+      missingProofPointsCount: 0,
+      missingSourceSignalIdsCount: 0,
+      missingTeacherLanguageCount: 0,
+    }),
   opportunities: z.array(connectOpportunitySchema).default([]),
   strongContentCandidates: z.array(bridgeOpportunitySchema).default([]),
   message: z.string().trim().min(1),
@@ -97,8 +131,16 @@ export function buildBridgeOpportunitiesResponse(
 
   return bridgeOpportunitiesResponseSchema.parse({
     success: true,
+    schemaVersion: latestExport?.schemaVersion ?? BRIDGE_SCHEMA_VERSION,
+    producerVersion: latestExport?.producerVersion ?? "dev",
     exportId: latestExport?.exportId ?? null,
     generatedAt: latestExport?.generatedAt ?? null,
+    contentFingerprint: latestExport?.contentFingerprint ?? null,
+    metrics:
+      latestExport?.metrics ?? {
+        strongContentCandidateCount: strongContentCandidates.length,
+        connectOpportunityCount: opportunities.length,
+      },
     opportunities,
     strongContentCandidates,
     message: latestExport
