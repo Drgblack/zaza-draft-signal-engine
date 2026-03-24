@@ -15,6 +15,14 @@ import { formatDateTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
+const EMPTY_INFLUENCER_GRAPH_SUMMARY = {
+  influencerCount: 0,
+  followUpNeededCount: 0,
+  newRepliesPendingCount: 0,
+  relationshipOpportunityCount: 0,
+  collaboratorCount: 0,
+} as const;
+
 const DEFAULT_IMPORT_TEMPLATE = {
   contextId: "zaza-connect-import-example",
   sourceApp: "zaza_connect",
@@ -66,16 +74,24 @@ const DEFAULT_IMPORT_TEMPLATE = {
 };
 
 export default async function ConnectBridgePage() {
-  const [importedContexts, latestExport, influencerGraph] = await Promise.all([
+  const [importedContextsResult, latestExportResult, influencerGraphResult] = await Promise.allSettled([
     listImportedZazaConnectContexts(),
     getLatestZazaConnectExport(),
     buildInfluencerGraphState(),
   ]);
+  const importedContexts =
+    importedContextsResult.status === "fulfilled" ? importedContextsResult.value : [];
+  const latestExport =
+    latestExportResult.status === "fulfilled" ? latestExportResult.value : null;
+  const influencerGraphSummary =
+    influencerGraphResult.status === "fulfilled"
+      ? influencerGraphResult.value.summary
+      : EMPTY_INFLUENCER_GRAPH_SUMMARY;
 
   const summary = buildZazaConnectBridgeSummary({
     latestExport,
     importedContexts,
-    influencerGraphSummary: influencerGraph.summary,
+    influencerGraphSummary,
   });
 
   await appendAuditEventsSafe([

@@ -228,10 +228,18 @@ export default async function WeeklyPlanPage() {
     revenueSignals,
     campaignLifecycle,
   });
-  const [importedConnectContexts, latestConnectExport] = await Promise.all([
+  const [importedConnectContextsResult, latestConnectExportResult] = await Promise.allSettled([
     listImportedZazaConnectContexts(),
     getLatestZazaConnectExport(),
   ]);
+  const importedConnectContexts =
+    importedConnectContextsResult.status === "fulfilled"
+      ? importedConnectContextsResult.value
+      : [];
+  const latestConnectExport =
+    latestConnectExportResult.status === "fulfilled"
+      ? latestConnectExportResult.value
+      : null;
   const connectBridgeSummary = buildZazaConnectBridgeSummary({
     latestExport: latestConnectExport,
     importedContexts: importedConnectContexts,

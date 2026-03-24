@@ -412,6 +412,14 @@ function isBlobBridgeStoreEnabled() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 }
 
+function logBlobBridgeStoreFallback(operation: "read" | "write", error: unknown) {
+  const diagnostics = getZazaConnectBridgeStorageDiagnostics();
+  const message = error instanceof Error ? error.message : "unknown error";
+  console.warn(
+    `zaza-connect-bridge: blob ${operation} failed, falling back to in-memory state (pathname=${diagnostics.blobPathname}, access=${diagnostics.blobAccess}). ${message}`,
+  );
+}
+
 export function getZazaConnectBridgeStorageDiagnostics(): ZazaConnectBridgeStorageDiagnostics {
   return {
     backend: isBlobBridgeStoreEnabled() ? "blob" : "memory",
@@ -493,22 +501,20 @@ async function readPersistedBridgeStore() {
     }
 
     const raw = await new Response(blob.stream).text();
-    return zazaConnectBridgeStoreSchema.parse(JSON.parse(raw));
+    const parsed = zazaConnectBridgeStoreSchema.parse(JSON.parse(raw));
+    inMemoryBridgeStore = parsed;
+    return parsed;
   } catch (error) {
-    const diagnostics = getZazaConnectBridgeStorageDiagnostics();
-    throw new Error(
-      `Unable to read Zaza Connect bridge store from Vercel Blob (pathname=${diagnostics.blobPathname}, access=${diagnostics.blobAccess}): ${
-        error instanceof Error ? error.message : "unknown error"
-      }`,
-    );
+    logBlobBridgeStoreFallback("read", error);
+    return inMemoryBridgeStore;
   }
 }
 
 async function writeBridgeStore(store: ZazaConnectBridgeStore) {
   const parsed = zazaConnectBridgeStoreSchema.parse(store);
+  inMemoryBridgeStore = parsed;
 
   if (!isBlobBridgeStoreEnabled()) {
-    inMemoryBridgeStore = parsed;
     return;
   }
 
@@ -530,12 +536,7 @@ async function writeBridgeStore(store: ZazaConnectBridgeStore) {
       throw new Error("Blob write completed but the bridge store could not be verified.");
     }
   } catch (error) {
-    const diagnostics = getZazaConnectBridgeStorageDiagnostics();
-    throw new Error(
-      `Unable to write Zaza Connect bridge store to Vercel Blob (pathname=${diagnostics.blobPathname}, access=${diagnostics.blobAccess}): ${
-        error instanceof Error ? error.message : "unknown error"
-      }`,
-    );
+    logBlobBridgeStoreFallback("write", error);
   }
 }
 

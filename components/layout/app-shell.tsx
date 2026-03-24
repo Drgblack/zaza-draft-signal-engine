@@ -18,7 +18,7 @@ export function AppShell({
   return (
     <div className="min-h-screen">
       <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col lg:flex-row">
-        <aside className="border-b border-black/6 bg-[color:var(--panel-strong)] px-5 py-5 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:border-b-0 lg:border-r lg:px-6 lg:py-7">
+        <aside className="border-b border-black/6 bg-[color:var(--panel-strong)] px-5 py-5 backdrop-blur lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-72 lg:flex-col lg:border-b-0 lg:border-r lg:px-6 lg:py-7">
           <div className="flex items-center justify-between lg:items-start">
             <div className="space-y-2">
               <div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-black/6 bg-white shadow-sm">
@@ -42,7 +42,7 @@ export function AppShell({
             <PanelLeftClose className="h-5 w-5 text-slate-300 lg:hidden" />
           </div>
 
-          <nav className="mt-7 space-y-5">
+          <nav className="mt-7 space-y-5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-2">
             {NAV_GROUPS.map((group) => (
               <div key={group.label}>
                 <p className="px-3 text-[11px] font-semibold tracking-[0.16em] text-slate-500">
