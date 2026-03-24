@@ -1,0 +1,80 @@
+{
+  "success": true,
+  "schemaVersion": "2026-03-24.1",
+  "producerVersion": "test-sha",
+  "exportId": "connect-export:test",
+  "generatedAt": "2026-03-23T09:00:00.000Z",
+  "contentFingerprint": "abc12345def67890",
+  "metrics": {
+    "totalSignalsAvailable": 10,
+    "visibleSignalsConsidered": 8,
+    "approvalReadySignals": 4,
+    "filteredOutSignals": 4,
+    "weeklyPostingPackItemCount": 3,
+    "fallbackCandidateCount": 0,
+    "usedFallbackCandidates": false,
+    "strongContentCandidateCount": 1,
+    "connectOpportunityCount": 1,
+    "missingProofPointsCount": 0,
+    "missingSourceSignalIdsCount": 0,
+    "missingTeacherLanguageCount": 1
+  },
+  "opportunities": [
+    {
+      "opportunityId": "candidate-1",
+      "title": "Teacher trust pattern",
+      "primaryPainPoint": "Teachers need a lower-friction trust-building angle.",
+      "teacherLanguage": [],
+      "audienceSegment": null,
+      "funnelStage": "Consideration",
+      "commercialPotential": "high",
+      "trustRisk": "low",
+      "recommendedAngle": "Lead with the teacher-trust proof point.",
+      "recommendedHookDirection": "Open with the trust gap and the concrete classroom payoff.",
+      "recommendedFormat": "text",
+      "recommendedPlatforms": [
+        "linkedin"
+      ],
+      "whyNow": "This week’s pack ranked it highly.",
+      "proofPoints": [
+        "High-trust teacher-first candidate."
+      ],
+      "trustNotes": [],
+      "sourceSignalIds": [
+        "signal-1"
+      ]
+    }
+  ],
+  "strongContentCandidates": [
+    {
+      "candidateId": "candidate-1",
+      "signalId": "signal-1",
+      "sourceTitle": "Teacher trust pattern",
+      "platform": "LinkedIn",
+      "expectedOutcomeTier": "high",
+      "reason": "High-trust teacher-first candidate.",
+      "href": "/signals/signal-1",
+      "primaryPainPoint": "Teachers need a lower-friction trust-building angle.",
+      "teacherLanguage": [],
+      "audienceSegment": null,
+      "funnelStage": "Consideration",
+      "commercialPotential": "high",
+      "trustRisk": "low",
+      "recommendedAngle": "Lead with the teacher-trust proof point.",
+      "recommendedHookDirection": "Open with the trust gap and the concrete classroom payoff.",
+      "recommendedFormat": "text",
+      "recommendedPlatforms": [
+        "linkedin"
+      ],
+      "whyNow": "This week’s pack ranked it highly.",
+      "proofPoints": [
+        "High-trust teacher-first candidate."
+      ],
+      "trustNotes": [],
+      "sourceSignalIds": [
+        "signal-1"
+      ]
+    }
+  ],
+  "message": "Latest Zaza Connect opportunities loaded."
+}

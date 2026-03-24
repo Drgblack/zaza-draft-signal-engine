@@ -273,6 +273,8 @@ export async function POST(request: Request) {
         importedContext: null,
         importedContexts: state.importedContexts,
         summary: state.summary,
+        generationDisposition: null,
+        replacedExportId: null,
         message: "Zaza Connect bridge action failed.",
         error: parsed.error.issues[0]?.message ?? "Invalid bridge action request.",
       } satisfies ZazaConnectBridgeResponse,
@@ -297,6 +299,8 @@ export async function POST(request: Request) {
           importedContext: null,
           importedContexts: state.importedContexts,
           summary: state.summary,
+          generationDisposition: null,
+          replacedExportId: null,
           message: "Zaza Connect context could not be imported.",
           error:
             error instanceof Error
@@ -331,6 +335,8 @@ export async function POST(request: Request) {
       importedContext: saved,
       importedContexts: state.importedContexts,
       summary: state.summary,
+      generationDisposition: null,
+      replacedExportId: null,
       message: "Zaza Connect context imported.",
     });
   }
@@ -354,6 +360,8 @@ export async function POST(request: Request) {
         importedContext: null,
         importedContexts: state.importedContexts,
         summary: state.summary,
+        generationDisposition: null,
+        replacedExportId: null,
         message: "Zaza Connect export could not be created.",
         error: `create_export:build_failed: ${getErrorMessage(error)}`,
       },
@@ -361,10 +369,10 @@ export async function POST(request: Request) {
     );
   }
 
-  let savedExport;
+  let savedExportResult: Awaited<ReturnType<typeof saveZazaConnectExport>> | null = null;
 
   try {
-    savedExport = await saveZazaConnectExport(exportPayload);
+    savedExportResult = await saveZazaConnectExport(exportPayload);
   } catch (error) {
     console.error("Zaza Connect bridge create_export failed during export persistence", {
       error,
@@ -384,6 +392,8 @@ export async function POST(request: Request) {
         importedContext: null,
         importedContexts: state.importedContexts,
         summary: state.summary,
+        generationDisposition: null,
+        replacedExportId: null,
         message: "Zaza Connect export could not be created.",
         error: `create_export:persist_failed: ${getErrorMessage(error)}`,
       },
@@ -393,16 +403,18 @@ export async function POST(request: Request) {
 
   await appendAuditEventsSafe([
     {
-      signalId: `connect-bridge:${savedExport.generatedAt.slice(0, 10)}`,
+      signalId: `connect-bridge:${savedExportResult?.savedExport.generatedAt.slice(0, 10) ?? exportPayload.generatedAt.slice(0, 10)}`,
       eventType: "ZAZA_CONNECT_EXPORT_CREATED",
       actor: "operator",
       summary: "Created a Zaza Connect bridge export.",
       metadata: {
-        exportId: savedExport.exportId,
-        strongCandidates: savedExport.strongContentCandidates.length,
-        influencerRelevantPosts: savedExport.influencerRelevantPosts.length,
-        campaignSupportSignals: savedExport.campaignSupportSignals.length,
-        distributionOpportunities: savedExport.distributionOpportunities.length,
+        exportId: savedExportResult?.savedExport.exportId ?? exportPayload.exportId,
+        strongCandidates: savedExportResult?.savedExport.strongContentCandidates.length ?? exportPayload.strongContentCandidates.length,
+        influencerRelevantPosts: savedExportResult?.savedExport.influencerRelevantPosts.length ?? exportPayload.influencerRelevantPosts.length,
+        campaignSupportSignals: savedExportResult?.savedExport.campaignSupportSignals.length ?? exportPayload.campaignSupportSignals.length,
+        distributionOpportunities: savedExportResult?.savedExport.distributionOpportunities.length ?? exportPayload.distributionOpportunities.length,
+        generationDisposition: savedExportResult?.disposition ?? null,
+        replacedExportId: savedExportResult?.replacedExportId ?? null,
       },
     },
   ]);
@@ -415,6 +427,13 @@ export async function POST(request: Request) {
     importedContext: null,
     importedContexts: state.importedContexts,
     summary: state.summary,
-    message: "Zaza Connect export created.",
+    generationDisposition: savedExportResult?.disposition ?? null,
+    replacedExportId: savedExportResult?.replacedExportId ?? null,
+    message:
+      savedExportResult?.disposition === "created_new"
+        ? "Zaza Connect export created."
+        : savedExportResult?.disposition === "reused_latest"
+          ? "Zaza Connect export refreshed with unchanged content."
+          : "Zaza Connect export created and replaced the previous latest snapshot.",
   });
 }

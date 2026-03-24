@@ -15,6 +15,8 @@ import type { ProductionDefaultsResponse } from "@/types/api";
 type FormState = {
   voiceId: string;
   styleAnchorPrompt: string;
+  referenceImageUrl: string;
+  modelFamily: string;
   motionStyle: string;
   negativeConstraintsText: string;
   aspectRatio: ProductionDefaults["aspectRatio"];
@@ -30,6 +32,8 @@ function toFormState(productionDefaults: ProductionDefaults): FormState {
   return {
     voiceId: productionDefaults.voiceId,
     styleAnchorPrompt: productionDefaults.styleAnchorPrompt,
+    referenceImageUrl: productionDefaults.referenceImageUrl ?? "",
+    modelFamily: productionDefaults.modelFamily ?? "",
     motionStyle: productionDefaults.motionStyle,
     negativeConstraintsText: productionDefaults.negativeConstraints.join("\n"),
     aspectRatio: productionDefaults.aspectRatio,
@@ -146,6 +150,8 @@ export default function ProductionDefaultsPage() {
         body: JSON.stringify({
           voiceId: formState.voiceId,
           styleAnchorPrompt: formState.styleAnchorPrompt,
+          referenceImageUrl: formState.referenceImageUrl.trim() || null,
+          modelFamily: formState.modelFamily.trim() || null,
           motionStyle: formState.motionStyle,
           negativeConstraints,
           aspectRatio: formState.aspectRatio,
@@ -271,6 +277,28 @@ export default function ProductionDefaultsPage() {
                     <option value="720p">720p</option>
                     <option value="1080p">1080p</option>
                   </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="modelFamily">Model family</Label>
+                  <Input
+                    id="modelFamily"
+                    value={formState.modelFamily}
+                    onChange={(event) =>
+                      updateField("modelFamily", event.target.value)
+                    }
+                    placeholder="e.g. teacher-real-v1"
+                  />
+                </div>
+                <div className="grid gap-2 md:col-span-2">
+                  <Label htmlFor="referenceImageUrl">Reference image URL</Label>
+                  <Input
+                    id="referenceImageUrl"
+                    value={formState.referenceImageUrl}
+                    onChange={(event) =>
+                      updateField("referenceImageUrl", event.target.value)
+                    }
+                    placeholder="https://..."
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="transitionStyle">Transition style</Label>

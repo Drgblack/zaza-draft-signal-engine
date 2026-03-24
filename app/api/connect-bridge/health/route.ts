@@ -41,6 +41,8 @@ export async function GET() {
           lastAttemptOutcome: null,
           lastSuccessfulExportId: null,
           lastSuccessfulExportAt: null,
+          lastDisposition: null,
+          lastReplacedExportId: null,
           lastFailedAt: null,
           lastFailedError: error instanceof Error
             ? error.message
@@ -76,7 +78,18 @@ export async function GET() {
           recentExports: [],
           lastNonEmptyExportAt: null,
           lastNonEmptyExportId: null,
+          diffFromPrevious: null,
         },
+        alerts: [
+          {
+            code: "bridge_health_unavailable",
+            severity: "critical",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Unable to load Zaza Connect bridge health.",
+          },
+        ],
         warnings: [
           error instanceof Error
             ? error.message

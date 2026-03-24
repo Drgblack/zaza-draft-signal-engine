@@ -4,9 +4,17 @@ import {
 } from "@/lib/rendered-assets";
 import type { RenderProvider } from "@/lib/render-jobs";
 import { compileVideoBriefForProduction } from "@/lib/prompt-compiler";
-import { assemblyAiCaptionProvider } from "@/lib/providers/caption-provider";
+import {
+  getCaptionProvider,
+  resolveCaptionProviderId,
+  type GeneratedCaptionTrack,
+} from "@/lib/providers/caption-provider";
 import { ffmpegCompositionProvider } from "@/lib/providers/composition-provider";
-import { elevenLabsNarrationProvider } from "@/lib/providers/narration-provider";
+import {
+  getNarrationProvider,
+  resolveNarrationProviderId,
+  type GeneratedNarration,
+} from "@/lib/providers/narration-provider";
 import {
   getVisualProvider,
   type GeneratedSceneAsset,
@@ -38,9 +46,9 @@ export interface CompiledGenerationOrchestration {
   };
   renderedAssetInput: Omit<Parameters<typeof createMockRenderedAsset>[0], "renderJobId">;
   providerResults: {
-    narration: Awaited<ReturnType<typeof elevenLabsNarrationProvider.generateNarration>>;
+    narration: GeneratedNarration;
     sceneAssets: GeneratedSceneAsset[];
-    captionTrack: Awaited<ReturnType<typeof assemblyAiCaptionProvider.generateCaptionTrack>>;
+    captionTrack: GeneratedCaptionTrack;
     composedVideo: Awaited<ReturnType<typeof ffmpegCompositionProvider.composeVideo>>;
   };
   stageRetryStates: {
@@ -270,19 +278,26 @@ export async function orchestrateCompiledVideoGeneration(input: {
   const captionsRetryPolicy = retryPolicyForStage(selectionDecision, "captions");
   const compositionRetryPolicy = retryPolicyForStage(selectionDecision, "composition");
   await input.onCompiledPlan?.(selectedCompiledProductionPlan, selectionDecision);
-  const narrationProviderId =
+  const narrationProviderId = resolveNarrationProviderId(
     selectedCompiledProductionPlan.defaultsSnapshot.providerFallbacks.narration[0] ??
-    "elevenlabs";
+      null,
+  );
+  const narrationProvider = getNarrationProvider(narrationProviderId);
   const visualProvider = getVisualProvider(
     selectedCompiledProductionPlan.defaultsSnapshot.providerFallbacks.visuals[0] ?? null,
   );
+  const captionProviderId = resolveCaptionProviderId(
+    selectedCompiledProductionPlan.defaultsSnapshot.providerFallbacks.captions[0] ??
+      null,
+  );
+  const captionProvider = getCaptionProvider(captionProviderId);
   const { value: narration, retryState: narrationRetryState } = await runStage({
     stage: "generating_narration",
     provider: narrationProviderId,
     maxRetries: narrationRetryPolicy?.maxRetries,
     baseDelayMs: narrationRetryPolicy?.baseDelayMs,
     step: async () =>
-      elevenLabsNarrationProvider.generateNarration({
+      narrationProvider.generateNarration({
         narrationSpec: selectedCompiledProductionPlan.narrationSpec,
         voiceId: selectedCompiledProductionPlan.defaultsSnapshot.voiceId,
         voiceSettings: selectedCompiledProductionPlan.defaultsSnapshot.voiceSettings,
@@ -307,11 +322,11 @@ export async function orchestrateCompiledVideoGeneration(input: {
   });
   const { value: captionTrack, retryState: captionsRetryState } = await runStage({
     stage: "generating_captions",
-    provider: assemblyAiCaptionProvider.provider,
+    provider: captionProviderId,
     maxRetries: captionsRetryPolicy?.maxRetries,
     baseDelayMs: captionsRetryPolicy?.baseDelayMs,
     step: async () =>
-      assemblyAiCaptionProvider.generateCaptionTrack({
+      captionProvider.generateCaptionTrack({
         captionSpec: selectedCompiledProductionPlan.captionSpec,
         narration,
         createdAt: input.createdAt,
@@ -333,11 +348,13 @@ export async function orchestrateCompiledVideoGeneration(input: {
   });
   await updateStage("generated");
 
-  const resolvedRenderProvider: RenderProvider = sceneAssets.some(
-    (asset) => asset.provider === "runway-gen4" && !asset.assetUrl.startsWith("mock://"),
+  const resolvedRenderProvider: RenderProvider = sceneAssets.every((asset) =>
+    asset.assetUrl.startsWith("mock://"),
   )
-    ? "runway"
-    : "mock";
+    ? "mock"
+    : sceneAssets.some((asset) => asset.provider === "runway-gen4")
+      ? "runway"
+      : "custom";
 
   return {
     compiledProductionPlan: selectedCompiledProductionPlan,

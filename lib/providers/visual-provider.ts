@@ -22,7 +22,7 @@ import {
 
 const MOCK_CREATED_AT = "2026-03-22T00:00:00.000Z";
 
-export const VISUAL_PROVIDER_IDS = ["runway-gen4", "kling-2"] as const;
+export const VISUAL_PROVIDER_IDS = ["runway-gen4", "kling-2", "veo-3"] as const;
 export type VisualProviderId = (typeof VISUAL_PROVIDER_IDS)[number];
 
 export const generatedSceneAssetSchema = z.object({
@@ -278,9 +278,16 @@ export const kling2VisualProvider = buildMockVisualProvider({
   costPerSecond: 0.008,
 });
 
+export const veo3VisualProvider = buildMockVisualProvider({
+  id: "veo-3",
+  displayName: "Google Veo 3",
+  costPerSecond: 0.012,
+});
+
 export const visualProviderRegistry: Record<VisualProviderId, VisualProvider> = {
   "runway-gen4": runwayGen4VisualProvider,
   "kling-2": kling2VisualProvider,
+  "veo-3": veo3VisualProvider,
 };
 
 export function listVisualProviders(): VisualProvider[] {

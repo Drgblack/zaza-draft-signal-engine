@@ -548,6 +548,8 @@ export type FactoryInputPublishOutcomeRequest = z.infer<
 export const productionDefaultsUpdateRequestSchema = z.object({
   voiceId: z.string().trim().min(1),
   styleAnchorPrompt: z.string().trim().min(1),
+  referenceImageUrl: z.string().trim().url().nullable().optional(),
+  modelFamily: z.string().trim().min(1).nullable().optional(),
   motionStyle: z.string().trim().min(1),
   negativeConstraints: z.array(z.string().trim().min(1)).min(1),
   aspectRatio: z.enum(["9:16", "1:1", "16:9"]),
@@ -1337,6 +1339,8 @@ export interface ZazaConnectBridgeResponse {
   importedContext: ZazaConnectImportedContext | null;
   importedContexts: ZazaConnectImportedContext[];
   summary: ZazaConnectBridgeSummary | null;
+  generationDisposition?: "created_new" | "replaced_latest" | "reused_latest" | null;
+  replacedExportId?: string | null;
   message: string;
   error?: string;
 }

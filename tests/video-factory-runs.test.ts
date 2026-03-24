@@ -370,6 +370,8 @@ function buildOpportunityFixture(input?: {
             voiceId: "teacher-real-core-v3",
             voiceSettings: {},
             styleAnchorPrompt: "Teacher-real anchor prompt.",
+            referenceImageUrl: null,
+            modelFamily: null,
             motionStyle: "Quiet cuts.",
             negativeConstraints: ["No hype"],
             aspectRatio: "9:16",

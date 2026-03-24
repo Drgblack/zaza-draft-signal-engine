@@ -7,6 +7,8 @@ import {
   assemblyAiMaxPolls,
   assemblyAiPollIntervalMs,
   fetchWithProviderTimeout,
+  openAiBaseUrl,
+  openAiWhisperModelId,
   parseProviderJsonResponse,
   providerConfigError,
   providerHttpError,
@@ -19,9 +21,12 @@ import {
 
 const MOCK_CREATED_AT = "2026-03-22T00:00:00.000Z";
 
+export const CAPTION_PROVIDER_IDS = ["assemblyai", "whisper"] as const;
+export type CaptionProviderId = (typeof CAPTION_PROVIDER_IDS)[number];
+
 export const generatedCaptionTrackSchema = z.object({
   id: z.string().trim().min(1),
-  provider: z.literal("assemblyai"),
+  provider: z.enum(CAPTION_PROVIDER_IDS),
   sourceNarrationId: z.string().trim().min(1),
   transcriptText: z.string().trim().min(1),
   captionUrl: z.string().trim().nullable().optional(),
@@ -33,7 +38,7 @@ export const generatedCaptionTrackSchema = z.object({
 export type GeneratedCaptionTrack = z.infer<typeof generatedCaptionTrackSchema>;
 
 export interface CaptionProviderAdapter {
-  readonly provider: "assemblyai";
+  readonly provider: CaptionProviderId;
   generateCaptionTrack(input: {
     captionSpec: CaptionSpec;
     narration: GeneratedNarration;
@@ -41,27 +46,66 @@ export interface CaptionProviderAdapter {
   }): Promise<GeneratedCaptionTrack>;
 }
 
-function generatedCaptionTrackId(sourceNarrationId: string): string {
-  return `${sourceNarrationId}:generated-caption-track:assemblyai`;
+function generatedCaptionTrackId(
+  sourceNarrationId: string,
+  providerId: CaptionProviderId,
+): string {
+  return `${sourceNarrationId}:generated-caption-track:${providerId}`;
 }
 
 async function generateMockCaptionTrack(input: {
+  provider: CaptionProviderId;
   captionSpec: CaptionSpec;
   narration: GeneratedNarration;
   createdAt?: string;
 }): Promise<GeneratedCaptionTrack> {
-  const resultId = generatedCaptionTrackId(input.narration.id);
+  const resultId = generatedCaptionTrackId(input.narration.id, input.provider);
 
   return generatedCaptionTrackSchema.parse({
     id: resultId,
-    provider: "assemblyai",
+    provider: input.provider,
     sourceNarrationId: input.narration.id,
     transcriptText: input.captionSpec.sourceText,
-    captionUrl: `mock://assemblyai/captions/${resultId}.vtt`,
+    captionUrl: `mock://${input.provider}/captions/${resultId}.vtt`,
     providerJobId: null,
     captionVtt: null,
     createdAt: input.createdAt ?? MOCK_CREATED_AT,
   });
+}
+
+async function narrationAudioBytes(
+  narration: GeneratedNarration,
+  stage: string,
+): Promise<Uint8Array> {
+  if (narration.audioBase64) {
+    return new Uint8Array(Buffer.from(narration.audioBase64, "base64"));
+  }
+
+  if (/^https?:\/\//i.test(narration.audioUrl)) {
+    const response = await fetchWithProviderTimeout({
+      provider: "Caption input",
+      stage,
+      url: narration.audioUrl,
+      timeoutMs: providerRequestTimeoutMs("OPENAI"),
+    });
+
+    if (!response.ok) {
+      throw providerHttpError({
+        provider: "Caption input",
+        stage,
+        status: response.status,
+        message: await response.text(),
+      });
+    }
+
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  throw providerConfigError(
+    "Caption input",
+    "Narration audio must be available as audioBase64 or a reachable HTTP URL.",
+    stage,
+  );
 }
 
 type AssemblyAiUploadResponse = {
@@ -75,6 +119,10 @@ type AssemblyAiTranscriptResponse = {
   error?: string | null;
 };
 
+type OpenAiWhisperTranscriptResponse = {
+  text?: string | null;
+};
+
 export const assemblyAiCaptionProvider: CaptionProviderAdapter = {
   provider: "assemblyai",
   async generateCaptionTrack(input) {
@@ -85,7 +133,10 @@ export const assemblyAiCaptionProvider: CaptionProviderAdapter = {
         requiredEnvNames: ["ASSEMBLYAI_API_KEY"],
       })
     ) {
-      return generateMockCaptionTrack(input);
+      return generateMockCaptionTrack({
+        provider: "assemblyai",
+        ...input,
+      });
     }
 
     const apiKey = process.env.ASSEMBLYAI_API_KEY?.trim();
@@ -256,7 +307,7 @@ export const assemblyAiCaptionProvider: CaptionProviderAdapter = {
       });
     }
 
-    const resultId = generatedCaptionTrackId(input.narration.id);
+    const resultId = generatedCaptionTrackId(input.narration.id, "assemblyai");
     const captionVtt = await vttResponse.text();
 
     return generatedCaptionTrackSchema.parse({
@@ -271,3 +322,118 @@ export const assemblyAiCaptionProvider: CaptionProviderAdapter = {
     });
   },
 };
+
+export const whisperCaptionProvider: CaptionProviderAdapter = {
+  provider: "whisper",
+  async generateCaptionTrack(input) {
+    if (
+      !shouldUseRealProvider({
+        provider: "OpenAI Whisper",
+        stage: "captions",
+        requiredEnvNames: ["OPENAI_API_KEY"],
+      })
+    ) {
+      return generateMockCaptionTrack({
+        provider: "whisper",
+        ...input,
+      });
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    if (!apiKey) {
+      throw providerConfigError("OpenAI Whisper", "OPENAI_API_KEY is missing.", "captions");
+    }
+
+    const audioBytes = await narrationAudioBytes(input.narration, "captions");
+    const formData = new FormData();
+    const audioMimeType = input.narration.audioMimeType?.trim() || "audio/mpeg";
+    const fileExtension =
+      audioMimeType === "audio/wav"
+        ? "wav"
+        : audioMimeType === "audio/ogg"
+          ? "ogg"
+          : "mp3";
+    formData.append(
+      "file",
+      new Blob([Buffer.from(audioBytes)], { type: audioMimeType }),
+      `narration.${fileExtension}`,
+    );
+    formData.append("model", openAiWhisperModelId());
+    formData.append("response_format", "json");
+    formData.append("language", "en");
+
+    const response = await fetchWithProviderTimeout({
+      provider: "OpenAI Whisper",
+      stage: "captions",
+      url: `${openAiBaseUrl()}/v1/audio/transcriptions`,
+      timeoutMs: providerRequestTimeoutMs("OPENAI"),
+      init: {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: formData,
+      },
+    });
+
+    if (!response.ok) {
+      throw providerHttpError({
+        provider: "OpenAI Whisper",
+        stage: "captions",
+        status: response.status,
+        message: await response.text(),
+      });
+    }
+
+    const transcript = await parseProviderJsonResponse<OpenAiWhisperTranscriptResponse>({
+      provider: "OpenAI Whisper",
+      stage: "captions",
+      response,
+    });
+    const resultId = generatedCaptionTrackId(input.narration.id, "whisper");
+
+    return generatedCaptionTrackSchema.parse({
+      id: resultId,
+      provider: "whisper",
+      sourceNarrationId: input.narration.id,
+      transcriptText: transcript?.text?.trim() || input.captionSpec.sourceText,
+      captionUrl: null,
+      providerJobId: null,
+      captionVtt: null,
+      createdAt: input.createdAt ?? new Date().toISOString(),
+    });
+  },
+};
+
+export const captionProviderRegistry: Record<CaptionProviderId, CaptionProviderAdapter> = {
+  assemblyai: assemblyAiCaptionProvider,
+  whisper: whisperCaptionProvider,
+};
+
+export function listCaptionProviders(): CaptionProviderAdapter[] {
+  return CAPTION_PROVIDER_IDS.map((providerId) => captionProviderRegistry[providerId]);
+}
+
+export function resolveCaptionProviderId(
+  providerId?: string | null,
+): CaptionProviderId {
+  if (!providerId || providerId === "local-default") {
+    return "assemblyai";
+  }
+
+  if (providerId in captionProviderRegistry) {
+    return providerId as CaptionProviderId;
+  }
+
+  throw providerConfigError(
+    "Caption provider",
+    `Unknown caption provider "${providerId}".`,
+    "captions",
+  );
+}
+
+export function getCaptionProvider(
+  providerId?: string | null,
+): CaptionProviderAdapter {
+  return captionProviderRegistry[resolveCaptionProviderId(providerId)];
+}

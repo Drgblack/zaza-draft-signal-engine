@@ -43,6 +43,8 @@ import { listPlaybookCards } from "@/lib/playbook-cards";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { listPostingOutcomes } from "@/lib/outcomes";
+import { resolveCaptionProviderId } from "@/lib/providers/caption-provider";
+import { resolveNarrationProviderId } from "@/lib/providers/narration-provider";
 import {
   buildProductionPackage,
   type ProductionPackage,
@@ -1632,9 +1634,9 @@ async function runContentOpportunityVideoGeneration(input: {
     string
   > = {
     preparing: "prompt-compiler",
-    generating_narration: "elevenlabs",
+    generating_narration: resolveNarrationProviderId(null),
     generating_visuals: provider === "runway" ? "runway-gen4" : provider,
-    generating_captions: "assemblyai",
+    generating_captions: resolveCaptionProviderId(null),
     composing: "ffmpeg",
   };
   const logExecutionEvent = (inputLog: {
@@ -2004,11 +2006,14 @@ async function runContentOpportunityVideoGeneration(input: {
       persistedCompiledProductionPlan: resumeCompiledProductionPlan,
       resumeLifecycleStatus,
       onCompiledPlan: async (compiledProductionPlan, selectionDecision) => {
-        executionStageProviders.generating_narration =
-          compiledProductionPlan.defaultsSnapshot.providerFallbacks.narration[0] ??
-          "elevenlabs";
+        executionStageProviders.generating_narration = resolveNarrationProviderId(
+          compiledProductionPlan.defaultsSnapshot.providerFallbacks.narration[0] ?? null,
+        );
         executionStageProviders.generating_visuals =
           selectionDecision.selectedVisualProvider;
+        executionStageProviders.generating_captions = resolveCaptionProviderId(
+          compiledProductionPlan.defaultsSnapshot.providerFallbacks.captions[0] ?? null,
+        );
         costEstimate = buildCostEstimate({
           compiledProductionPlan,
           estimatedAt: timestamp,
@@ -2761,17 +2766,13 @@ async function runContentOpportunityVideoGeneration(input: {
     }
     const providerFailure = summarizeVideoFactoryProviderFailure(error, {
       provider:
-        currentStage === "generating_narration"
-          ? "ElevenLabs"
-          : currentStage === "generating_visuals"
-            ? provider === "runway"
-              ? "Runway"
-              : "Visual provider"
-            : currentStage === "generating_captions"
-              ? "AssemblyAI"
-              : currentStage === "composing"
-                ? "ffmpeg"
-                : "factory",
+        currentStage === "preparing" ||
+        currentStage === "generating_narration" ||
+        currentStage === "generating_visuals" ||
+        currentStage === "generating_captions" ||
+        currentStage === "composing"
+          ? executionStageProviders[currentStage]
+          : "factory",
       stage: currentStage,
     });
     const failureTimestamp = new Date().toISOString();

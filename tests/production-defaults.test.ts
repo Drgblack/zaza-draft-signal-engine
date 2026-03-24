@@ -100,6 +100,8 @@ test("getActiveProductionDefaults backfills legacy persisted records", { concurr
     assert.equal(activeDefaults.changedAt, "2026-03-22T00:00:00.000Z");
     assert.equal(activeDefaults.changedSource, "legacy-import");
     assert.equal(activeDefaults.changeNote, null);
+    assert.equal(activeDefaults.referenceImageUrl, null);
+    assert.equal(activeDefaults.modelFamily, null);
   });
 });
 
@@ -111,6 +113,8 @@ test("updateActiveProductionDefaults appends a new active version while preservi
     const updatedDefaults = await productionDefaultsModule.updateActiveProductionDefaults({
       voiceId: "teacher-real-core-v2",
       styleAnchorPrompt: `${currentDefaults.styleAnchorPrompt} Keep the pacing closer to a spoken draft.`,
+      referenceImageUrl: "https://example.com/reference.jpg",
+      modelFamily: "teacher-real-v2",
       motionStyle: currentDefaults.motionStyle,
       negativeConstraints: currentDefaults.negativeConstraints,
       aspectRatio: currentDefaults.aspectRatio,
@@ -128,6 +132,8 @@ test("updateActiveProductionDefaults appends a new active version while preservi
       updatedDefaults.changeNote,
       "Adjusted voice and anchor for Phase D benchmark.",
     );
+    assert.equal(updatedDefaults.referenceImageUrl, "https://example.com/reference.jpg");
+    assert.equal(updatedDefaults.modelFamily, "teacher-real-v2");
 
     const versions = productionDefaultsModule.listProductionDefaultVersions(
       currentDefaults.profileId,
@@ -166,6 +172,8 @@ test("compareCurrentProductionDefaultsVersion reports changed fields against the
     await productionDefaultsModule.updateActiveProductionDefaults({
       voiceId: "teacher-real-core-v2",
       styleAnchorPrompt: currentDefaults.styleAnchorPrompt,
+      referenceImageUrl: currentDefaults.referenceImageUrl,
+      modelFamily: currentDefaults.modelFamily,
       motionStyle: `${currentDefaults.motionStyle} Hold longer on readable pauses.`,
       negativeConstraints: currentDefaults.negativeConstraints,
       aspectRatio: currentDefaults.aspectRatio,
@@ -188,5 +196,37 @@ test("compareCurrentProductionDefaultsVersion reports changed fields against the
       comparison.changedFields.sort(),
       ["motionStyle", "resolution", "voiceId"],
     );
+  });
+});
+
+test("production defaults snapshots preserve referenceImageUrl and modelFamily through serialize and parse", { concurrency: false }, async () => {
+  await withTempProductionDefaultsModule(async ({ loadModule }) => {
+    const productionDefaultsModule = await loadModule();
+    const currentDefaults = productionDefaultsModule.getActiveProductionDefaults();
+
+    const updatedDefaults = await productionDefaultsModule.updateActiveProductionDefaults({
+      voiceId: currentDefaults.voiceId,
+      styleAnchorPrompt: currentDefaults.styleAnchorPrompt,
+      referenceImageUrl: "https://example.com/founder-reference.png",
+      modelFamily: "teacher-real-benchmark",
+      motionStyle: currentDefaults.motionStyle,
+      negativeConstraints: currentDefaults.negativeConstraints,
+      aspectRatio: currentDefaults.aspectRatio,
+      resolution: currentDefaults.resolution,
+      captionStyle: currentDefaults.captionStyle,
+      compositionDefaults: currentDefaults.compositionDefaults,
+      changedSource: "operator:test",
+      changeNote: "Added reference image and model family metadata.",
+    });
+
+    const reparsed = productionDefaultsModule.productionDefaultsSchema.parse(
+      JSON.parse(JSON.stringify(updatedDefaults)),
+    );
+
+    assert.equal(
+      reparsed.referenceImageUrl,
+      "https://example.com/founder-reference.png",
+    );
+    assert.equal(reparsed.modelFamily, "teacher-real-benchmark");
   });
 });

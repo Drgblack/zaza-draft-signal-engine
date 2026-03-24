@@ -27,6 +27,8 @@ const productionDefaultsCoreSchema = z.object({
     speakerBoost: z.boolean().optional(),
   }),
   styleAnchorPrompt: z.string().trim().min(1),
+  referenceImageUrl: z.string().trim().url().nullable().default(null),
+  modelFamily: z.string().trim().nullable().default(null),
   motionStyle: z.string().trim().min(1),
   negativeConstraints: z.array(z.string().trim().min(1)).min(1),
   aspectRatio: z.enum(["9:16", "1:1", "16:9"]),
@@ -88,6 +90,16 @@ export const productionDefaultsSchema = z.preprocess(
       version,
       changedAt,
       changedSource,
+      referenceImageUrl:
+        typeof profile.referenceImageUrl === "string" &&
+        profile.referenceImageUrl.trim().length > 0
+          ? profile.referenceImageUrl.trim()
+          : null,
+      modelFamily:
+        typeof profile.modelFamily === "string" &&
+        profile.modelFamily.trim().length > 0
+          ? profile.modelFamily.trim()
+          : null,
       changeNote:
         typeof profile.changeNote === "string" ? profile.changeNote : null,
     };
@@ -139,6 +151,8 @@ const DEFAULT_PRODUCTION_DEFAULTS = productionDefaultsSchema.parse({
   },
   styleAnchorPrompt:
     "Calm, teacher-real delivery. Plainspoken, grounded, and useful before polished. Keep the message close to real classroom pressure.",
+  referenceImageUrl: null,
+  modelFamily: null,
   motionStyle: "Quiet cuts, restrained movement, and readable pacing.",
   negativeConstraints: [
     "No polished ad energy",
@@ -175,6 +189,8 @@ const VERSION_COMPARE_KEYS = [
   "voiceId",
   "voiceSettings",
   "styleAnchorPrompt",
+  "referenceImageUrl",
+  "modelFamily",
   "motionStyle",
   "negativeConstraints",
   "aspectRatio",
@@ -348,6 +364,8 @@ export function productionDefaultsSnapshotEquals(
 export async function updateActiveProductionDefaults(input: {
   voiceId: string;
   styleAnchorPrompt: string;
+  referenceImageUrl?: string | null;
+  modelFamily?: string | null;
   motionStyle: string;
   negativeConstraints: string[];
   aspectRatio: ProductionDefaults["aspectRatio"];
@@ -368,6 +386,14 @@ export async function updateActiveProductionDefaults(input: {
     version: current.version + 1,
     voiceId: input.voiceId,
     styleAnchorPrompt: input.styleAnchorPrompt,
+    referenceImageUrl:
+      input.referenceImageUrl === undefined
+        ? current.referenceImageUrl ?? null
+        : input.referenceImageUrl?.trim() || null,
+    modelFamily:
+      input.modelFamily === undefined
+        ? current.modelFamily ?? null
+        : input.modelFamily?.trim() || null,
     motionStyle: input.motionStyle,
     negativeConstraints: input.negativeConstraints,
     aspectRatio: input.aspectRatio,

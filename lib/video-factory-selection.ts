@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import type { CompiledProductionPlan } from "./prompt-compiler";
+import { resolveCaptionProviderId } from "./providers/caption-provider";
+import { resolveNarrationProviderId } from "./providers/narration-provider";
 import {
   buildFactoryProviderBenchmarkCollection,
   type ProviderBenchmarkSummary,
@@ -140,9 +142,13 @@ function selectedProviderIds(
   selectedVisualProvider: string,
 ) {
   return {
-    narration: compiledProductionPlan.defaultsSnapshot.providerFallbacks.narration[0] ?? "elevenlabs",
+    narration: resolveNarrationProviderId(
+      compiledProductionPlan.defaultsSnapshot.providerFallbacks.narration[0] ?? null,
+    ),
     visuals: selectedVisualProvider,
-    captions: "assemblyai",
+    captions: resolveCaptionProviderId(
+      compiledProductionPlan.defaultsSnapshot.providerFallbacks.captions[0] ?? null,
+    ),
     composition: "ffmpeg",
   } as const;
 }

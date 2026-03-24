@@ -349,6 +349,22 @@ export function elevenLabsModelId() {
   return envValue("ELEVENLABS_MODEL_ID") ?? "eleven_multilingual_v2";
 }
 
+export function openAiBaseUrl() {
+  return envValue("OPENAI_BASE_URL") ?? "https://api.openai.com";
+}
+
+export function openAiTtsModelId() {
+  return envValue("OPENAI_TTS_MODEL_ID") ?? "tts-1-hd";
+}
+
+export function openAiTtsVoice() {
+  return envValue("OPENAI_TTS_VOICE") ?? "onyx";
+}
+
+export function openAiWhisperModelId() {
+  return envValue("OPENAI_WHISPER_MODEL_ID") ?? "whisper-1";
+}
+
 export function ffmpegBinaryPath() {
   return envValue("FFMPEG_PATH") ?? "ffmpeg";
 }

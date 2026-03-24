@@ -33,6 +33,8 @@ function buildCompiledPlanFixture(): SelectionPlan {
         speakerBoost: true,
       },
       styleAnchorPrompt: "Teacher-real anchor.",
+      referenceImageUrl: null,
+      modelFamily: null,
       motionStyle: "Quiet cuts.",
       negativeConstraints: ["No hype"],
       aspectRatio: "9:16",

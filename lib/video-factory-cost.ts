@@ -14,12 +14,15 @@ const DEFAULT_VIDEO_FACTORY_MAX_REGENERATIONS_PER_BRIEF = 3;
 const VISUAL_PROVIDER_COSTS_USD_PER_SECOND: Record<string, number> = {
   "runway-gen4": 0.01,
   "kling-2": 0.008,
+  "veo-3": 0.012,
 };
 const NARRATION_PROVIDER_COSTS_USD_PER_SECOND: Record<string, number> = {
   elevenlabs: NARRATION_COST_PER_SECOND_USD,
+  "openai-tts": 0.0003,
 };
 const CAPTION_PROVIDER_COSTS_USD_PER_SECOND: Record<string, number> = {
   assemblyai: CAPTION_COST_PER_SECOND_USD,
+  whisper: 0.00008,
 };
 const COMPOSITION_PROVIDER_COSTS_USD_PER_SECOND: Record<string, number> = {
   ffmpeg: COMPOSITION_COST_PER_SECOND_USD,

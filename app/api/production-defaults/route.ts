@@ -73,6 +73,10 @@ export async function PATCH(request: Request) {
           changeNote: productionDefaults.changeNote,
           changedVoiceId:
             previous.voiceId !== productionDefaults.voiceId,
+          changedReferenceImageUrl:
+            previous.referenceImageUrl !== productionDefaults.referenceImageUrl,
+          changedModelFamily:
+            previous.modelFamily !== productionDefaults.modelFamily,
           changedAspectRatio:
             previous.aspectRatio !== productionDefaults.aspectRatio,
           changedResolution:

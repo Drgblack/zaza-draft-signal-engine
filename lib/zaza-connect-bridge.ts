@@ -15,6 +15,10 @@ const ZAZA_CONNECT_BRIDGE_STORE_BLOB_PATHNAME = "zaza-connect-bridge/store.json"
 const ZAZA_CONNECT_BRIDGE_MAX_EXPORT_HISTORY = 25;
 
 export const ZAZA_CONNECT_BRIDGE_SCHEMA_VERSION = "2026-03-24.1";
+export type ZazaConnectBridgeGenerationDisposition =
+  | "created_new"
+  | "replaced_latest"
+  | "reused_latest";
 
 function getZazaConnectBridgeProducerVersion() {
   const sha = process.env.VERCEL_GIT_COMMIT_SHA?.trim();
@@ -255,6 +259,11 @@ const bridgeGenerationStatusSchema = z.object({
   lastAttemptOutcome: z.enum(["success", "failed"]).nullable().default(null),
   lastSuccessfulExportId: z.string().trim().nullable().default(null),
   lastSuccessfulExportAt: z.string().trim().nullable().default(null),
+  lastDisposition: z
+    .enum(["created_new", "replaced_latest", "reused_latest"])
+    .nullable()
+    .default(null),
+  lastReplacedExportId: z.string().trim().nullable().default(null),
   lastFailedAt: z.string().trim().nullable().default(null),
   lastFailedError: z.string().trim().nullable().default(null),
   consecutiveFailureCount: z.number().int().nonnegative().default(0),
@@ -284,6 +293,8 @@ const zazaConnectBridgeStoreSchema = z.object({
     lastAttemptOutcome: null,
     lastSuccessfulExportId: null,
     lastSuccessfulExportAt: null,
+    lastDisposition: null,
+    lastReplacedExportId: null,
     lastFailedAt: null,
     lastFailedError: null,
     consecutiveFailureCount: 0,
@@ -297,6 +308,11 @@ export type ZazaConnectImportedContext = z.infer<typeof zazaConnectImportedConte
 export type ZazaConnectExportPayload = z.infer<typeof zazaConnectExportPayloadSchema>;
 export type ZazaConnectBridgeExportMetrics = z.infer<typeof bridgeExportMetricsSchema>;
 export type ZazaConnectBridgeGenerationStatus = z.infer<typeof bridgeGenerationStatusSchema>;
+export interface ZazaConnectExportSaveResult {
+  savedExport: ZazaConnectExportPayload;
+  disposition: ZazaConnectBridgeGenerationDisposition;
+  replacedExportId: string | null;
+}
 
 export interface ZazaConnectSignalHints {
   matchedThemes: string[];
@@ -334,6 +350,8 @@ let inMemoryBridgeStore: ZazaConnectBridgeStore = zazaConnectBridgeStoreSchema.p
     lastAttemptOutcome: null,
     lastSuccessfulExportId: null,
     lastSuccessfulExportAt: null,
+    lastDisposition: null,
+    lastReplacedExportId: null,
     lastFailedAt: null,
     lastFailedError: null,
     consecutiveFailureCount: 0,
@@ -353,6 +371,8 @@ function buildEmptyBridgeStore(): ZazaConnectBridgeStore {
       lastAttemptOutcome: null,
       lastSuccessfulExportId: null,
       lastSuccessfulExportAt: null,
+      lastDisposition: null,
+      lastReplacedExportId: null,
       lastFailedAt: null,
       lastFailedError: null,
       consecutiveFailureCount: 0,
@@ -615,6 +635,13 @@ export async function saveZazaConnectExport(payload: ZazaConnectExportPayload) {
   const filteredExisting = store.exports.filter((entry) => entry.exportId !== parsed.exportId);
   const shouldReplaceLatestByFingerprint =
     latestExistingExport?.contentFingerprint === parsed.contentFingerprint;
+  const disposition: ZazaConnectBridgeGenerationDisposition = !latestExistingExport
+    ? "created_new"
+    : shouldReplaceLatestByFingerprint
+      ? "reused_latest"
+      : "replaced_latest";
+  const replacedExportId =
+    disposition === "replaced_latest" ? latestExistingExport?.exportId ?? null : null;
   const exports = [
     ...filteredExisting.filter((entry) =>
       shouldReplaceLatestByFingerprint ? entry.exportId !== latestExistingExport?.exportId : true,
@@ -633,6 +660,8 @@ export async function saveZazaConnectExport(payload: ZazaConnectExportPayload) {
     lastAttemptOutcome: "success",
     lastSuccessfulExportId: parsed.exportId,
     lastSuccessfulExportAt: parsed.generatedAt,
+    lastDisposition: disposition,
+    lastReplacedExportId: replacedExportId,
     lastFailedError: null,
     consecutiveFailureCount: 0,
   });
@@ -645,7 +674,11 @@ export async function saveZazaConnectExport(payload: ZazaConnectExportPayload) {
   });
   inMemoryGenerationStatus = generationStatus;
 
-  return parsed;
+  return {
+    savedExport: parsed,
+    disposition,
+    replacedExportId,
+  } satisfies ZazaConnectExportSaveResult;
 }
 
 export async function recordZazaConnectExportFailure(input: {

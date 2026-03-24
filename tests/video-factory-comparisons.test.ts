@@ -30,6 +30,8 @@ const baselineRenderJob = {
       speakerBoost: true,
     },
     styleAnchorPrompt: "Teacher-real anchor prompt.",
+    referenceImageUrl: null,
+    modelFamily: null,
     motionStyle: "Quiet cuts.",
     negativeConstraints: ["No hype"],
     aspectRatio: "9:16" as const,

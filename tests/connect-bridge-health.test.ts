@@ -20,6 +20,8 @@ test("buildConnectBridgeHealthSnapshot reports missing export and storage prereq
       lastAttemptOutcome: null,
       lastSuccessfulExportId: null,
       lastSuccessfulExportAt: null,
+      lastDisposition: null,
+      lastReplacedExportId: null,
       lastFailedAt: null,
       lastFailedError: null,
       consecutiveFailureCount: 0,
@@ -31,6 +33,9 @@ test("buildConnectBridgeHealthSnapshot reports missing export and storage prereq
   assert.equal(snapshot.latestExport.available, false);
   assert.equal(snapshot.freshness.expectedCadenceHours, 6);
   assert.equal(snapshot.freshness.staleThresholdHours, 12);
+  assert.equal(snapshot.generation.lastDisposition, null);
+  assert.equal(snapshot.history.diffFromPrevious, null);
+  assert.ok(snapshot.alerts.some((alert) => alert.code === "bridge_export_missing"));
   assert.match(snapshot.warnings.join(" "), /No persisted bridge export/i);
   assert.match(snapshot.warnings.join(" "), /BLOB_READ_WRITE_TOKEN/i);
   assert.match(snapshot.warnings.join(" "), /CRON_SECRET/i);
@@ -157,6 +162,8 @@ test("buildConnectBridgeHealthSnapshot reports fresh populated exports as health
       lastAttemptOutcome: "success",
       lastSuccessfulExportId: "connect-export:test",
       lastSuccessfulExportAt: "2026-03-23T10:30:00.000Z",
+      lastDisposition: "reused_latest",
+      lastReplacedExportId: null,
       lastFailedAt: null,
       lastFailedError: null,
       consecutiveFailureCount: 0,
@@ -171,6 +178,9 @@ test("buildConnectBridgeHealthSnapshot reports fresh populated exports as health
   assert.equal(snapshot.latestExport.schemaVersion, "2026-03-24.1");
   assert.equal(snapshot.latestExport.metrics.totalSignalsAvailable, 10);
   assert.equal(snapshot.generation.lastAttemptOutcome, "success");
+  assert.equal(snapshot.generation.lastDisposition, "reused_latest");
   assert.equal(snapshot.history.recentExports.length, 1);
+  assert.equal(snapshot.history.diffFromPrevious, null);
+  assert.deepEqual(snapshot.alerts, []);
   assert.deepEqual(snapshot.warnings, []);
 });
