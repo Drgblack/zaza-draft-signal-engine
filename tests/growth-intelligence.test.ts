@@ -10,6 +10,7 @@ const neutralLearningAdjustment = {
   sampleSize: 0,
   formatSuccessRate: null,
   hookTypeSuccessRate: null,
+  ctaTypeSuccessRate: null,
   executionPathSuccessRate: null,
   averageRetries: null,
   costPerSuccess: null,

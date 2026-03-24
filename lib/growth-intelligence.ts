@@ -6,6 +6,7 @@ import {
 } from "@/lib/strategic-intelligence-types";
 import {
   getGrowthLearningAdjustmentSync,
+  inferCtaType,
   type GrowthLearningAdjustment,
   inferHookType,
 } from "@/lib/learning-loop";
@@ -462,6 +463,7 @@ export function buildGrowthIntelligence(input: GrowthIntelligenceInput): GrowthI
   const learningAdjustment = getGrowthLearningAdjustmentSync({
     format: contentIntelligence.recommendedFormat,
     hookType: primaryHookType(contentIntelligence),
+    ctaType: inferCtaType(contentIntelligence.suggestedCta),
     executionPath: provisionalExecutionPath ?? null,
   });
   const appliedLearningAdjustment =

@@ -26,11 +26,18 @@ export const BATCH_RENDER_JOB_STATUSES = [
 ] as const;
 
 export const AUTO_APPROVE_CONFIG_STATUSES = ["draft", "active", "archived"] as const;
+export const BATCH_PRIORITY_STRATEGIES = [
+  "high_score",
+  "mixed",
+  "exploration",
+] as const;
 
 export const CONTENT_MIX_DIMENSIONS = [
   "contentType",
   "format",
+  "painPoint",
   "audience",
+  "hookType",
   "effect",
   "cta",
   "platform",
@@ -49,7 +56,9 @@ const countRecordSchema = z.record(
 export const contentMixTargetsSchema = z.object({
   contentType: distributionRecordSchema.default({}),
   format: distributionRecordSchema.default({}),
+  painPoint: distributionRecordSchema.default({}),
   audience: distributionRecordSchema.default({}),
+  hookType: distributionRecordSchema.default({}),
   effect: distributionRecordSchema.default({}),
   cta: distributionRecordSchema.default({}),
   platform: distributionRecordSchema.default({}),
@@ -59,13 +68,17 @@ export const contentMixObservedSummarySchema = z.object({
   totalOpportunities: z.number().int().nonnegative(),
   contentTypeCounts: countRecordSchema.default({}),
   formatCounts: countRecordSchema.default({}),
+  painPointCounts: countRecordSchema.default({}),
   audienceCounts: countRecordSchema.default({}),
+  hookTypeCounts: countRecordSchema.default({}),
   effectCounts: countRecordSchema.default({}),
   ctaCounts: countRecordSchema.default({}),
   platformCounts: countRecordSchema.default({}),
   contentTypeShares: distributionRecordSchema.default({}),
   formatShares: distributionRecordSchema.default({}),
+  painPointShares: distributionRecordSchema.default({}),
   audienceShares: distributionRecordSchema.default({}),
+  hookTypeShares: distributionRecordSchema.default({}),
   effectShares: distributionRecordSchema.default({}),
   ctaShares: distributionRecordSchema.default({}),
   platformShares: distributionRecordSchema.default({}),
@@ -106,6 +119,16 @@ export const autoApproveConfigSchema = z.object({
   changeNote: z.string().trim().nullable().default(null),
 });
 
+export const batchAutoApproveConfigSnapshotSchema = z.object({
+  configId: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  status: z.enum(AUTO_APPROVE_CONFIG_STATUSES),
+  enabled: z.boolean(),
+  confidenceThreshold: z.number().int().min(0).max(100),
+  maxPerDay: z.number().int().positive().max(25),
+  mandatoryReviewEveryN: z.number().int().positive().max(25),
+});
+
 export const batchRenderSummarySchema = z.object({
   total: z.number().int().nonnegative(),
   withApprovedBrief: z.number().int().nonnegative(),
@@ -118,6 +141,19 @@ export const batchRenderSummarySchema = z.object({
   pendingReview: z.number().int().nonnegative(),
   totalEstimatedCostUsd: z.number().min(0),
   totalActualCostUsd: z.number().min(0),
+});
+
+export const batchRenderResultsSummarySchema = z.object({
+  selected: z.number().int().nonnegative(),
+  attempted: z.number().int().nonnegative(),
+  queued: z.number().int().nonnegative(),
+  autoApproved: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  completed: z.number().int().nonnegative(),
+  completedWithFailures: z.number().int().nonnegative(),
+  lastRunAt: z.string().trim().nullable().default(null),
+  notes: z.array(z.string().trim().min(1)).default([]),
 });
 
 export const batchExecutionPolicySchema = z.object({
@@ -157,6 +193,11 @@ const DEFAULT_BATCH_EXECUTION_POLICY = batchExecutionPolicySchema.parse({});
 export const batchRenderJobSchema = z.object({
   batchId: z.string().trim().min(1),
   opportunityIds: z.array(z.string().trim().min(1)).min(1).max(10),
+  selectedOpportunityIds: z.array(z.string().trim().min(1)).default([]),
+  targetCount: z.number().int().positive().max(25).default(1),
+  priorityStrategy: z.enum(BATCH_PRIORITY_STRATEGIES).default("high_score"),
+  maxCost: z.number().min(0).nullable().default(null),
+  autoApproveConfig: batchAutoApproveConfigSnapshotSchema.nullable().default(null),
   briefIds: z.array(z.string().trim().min(1)).default([]),
   jobIds: z.array(z.string().trim().min(1)).default([]),
   status: z.enum(BATCH_RENDER_JOB_STATUSES),
@@ -165,6 +206,18 @@ export const batchRenderJobSchema = z.object({
   completedAt: z.string().trim().nullable().default(null),
   totalEstimatedCostUsd: z.number().min(0),
   summary: batchRenderSummarySchema,
+  resultsSummary: batchRenderResultsSummarySchema.default({
+    selected: 0,
+    attempted: 0,
+    queued: 0,
+    autoApproved: 0,
+    skipped: 0,
+    failed: 0,
+    completed: 0,
+    completedWithFailures: 0,
+    lastRunAt: null,
+    notes: [],
+  }),
   executionPolicy: batchExecutionPolicySchema.default(DEFAULT_BATCH_EXECUTION_POLICY),
 });
 
@@ -180,12 +233,19 @@ export type ContentMixObservedSummary = z.infer<typeof contentMixObservedSummary
 export type ContentMixGapIndicator = z.infer<typeof contentMixGapIndicatorSchema>;
 export type ContentMixTarget = z.infer<typeof contentMixTargetSchema>;
 export type AutoApproveConfig = z.infer<typeof autoApproveConfigSchema>;
+export type BatchAutoApproveConfigSnapshot = z.infer<
+  typeof batchAutoApproveConfigSnapshotSchema
+>;
 export type BatchExecutionPolicy = z.infer<typeof batchExecutionPolicySchema>;
 export type BatchRenderJob = z.infer<typeof batchRenderJobSchema>;
+export type BatchRenderResultsSummary = z.infer<
+  typeof batchRenderResultsSummarySchema
+>;
 export type BatchApprovalAssessment = z.infer<typeof batchApprovalAssessmentSchema>;
 export type AutoApproveOpportunityAssessment = z.infer<
   typeof autoApproveOpportunityAssessmentSchema
 >;
+export type BatchPriorityStrategy = (typeof BATCH_PRIORITY_STRATEGIES)[number];
 
 type FactoryBatchControlStore = z.infer<typeof factoryBatchControlStoreSchema>;
 type MixDimension = (typeof CONTENT_MIX_DIMENSIONS)[number];
@@ -259,7 +319,7 @@ function normalizeText(value: string | null | undefined): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function deriveAudienceBucket(opportunity: ContentOpportunity): string {
+export function deriveAudienceBucket(opportunity: ContentOpportunity): string {
   const source = normalizeText(
     [
       opportunity.selectedVideoBrief?.goal,
@@ -288,6 +348,102 @@ function deriveAudienceBucket(opportunity: ContentOpportunity): string {
   return "teachers-general";
 }
 
+export function derivePainPointBucket(opportunity: ContentOpportunity): string {
+  return (
+    normalizeText(opportunity.painPointCategory) ??
+    normalizeText(opportunity.primaryPainPoint)?.toLowerCase().replace(/[^a-z0-9]+/g, "-") ??
+    "general-teacher-pressure"
+  );
+}
+
+export function deriveHookType(opportunity: ContentOpportunity): string {
+  const source = normalizeText(
+    [
+      opportunity.selectedVideoBrief?.hook,
+      opportunity.recommendedHookDirection,
+      opportunity.intendedViewerEffect,
+      opportunity.recommendedAngle,
+      opportunity.whyNow,
+    ].join(" "),
+  )?.toLowerCase();
+
+  if (!source) {
+    return "insight";
+  }
+
+  if (
+    source.includes("risk") ||
+    source.includes("before you") ||
+    source.includes("wrong") ||
+    source.includes("cost") ||
+    source.includes("danger") ||
+    source.includes("mistake")
+  ) {
+    return "risk";
+  }
+
+  if (
+    source.includes("relief") ||
+    source.includes("calm") ||
+    source.includes("reassur") ||
+    source.includes("steady") ||
+    source.includes("soften")
+  ) {
+    return "relief";
+  }
+
+  if (
+    source.includes("story") ||
+    source.includes("real moment") ||
+    source.includes("what happened") ||
+    source.includes("scene")
+  ) {
+    return "story";
+  }
+
+  return "insight";
+}
+
+export function deriveCtaType(opportunity: ContentOpportunity): string {
+  const source = normalizeText(
+    buildContentIntelligenceFromSignal(opportunity).suggestedCta ??
+      opportunity.selectedVideoBrief?.cta ??
+      opportunity.suggestedCTA,
+  )?.toLowerCase();
+
+  if (!source) {
+    return "awareness";
+  }
+
+  if (
+    source.includes("try") ||
+    source.includes("sign up") ||
+    source.includes("start") ||
+    source.includes("trial")
+  ) {
+    return "product";
+  }
+
+  if (
+    source.includes("share") ||
+    source.includes("comment") ||
+    source.includes("reply") ||
+    source.includes("save")
+  ) {
+    return "engagement";
+  }
+
+  if (
+    source.includes("visit") ||
+    source.includes("learn more") ||
+    source.includes("read")
+  ) {
+    return "visit";
+  }
+
+  return "awareness";
+}
+
 function incrementCount(map: Map<string, number>, key: string | null | undefined) {
   const normalized = normalizeText(key);
   if (!normalized) {
@@ -313,7 +469,7 @@ function sharesFromCounts(counts: Map<string, number>, total: number) {
   );
 }
 
-function valuesForDimension(
+export function getContentMixValuesForDimension(
   opportunity: ContentOpportunity,
   dimension: MixDimension,
 ): string[] {
@@ -330,16 +486,18 @@ function valuesForDimension(
           opportunity.recommendedFormat ||
           "unknown",
       ];
+    case "painPoint":
+      return [derivePainPointBucket(opportunity)];
     case "audience":
       return [deriveAudienceBucket(opportunity)];
+    case "hookType":
+      return [deriveHookType(opportunity)];
     case "effect":
       return [
         normalizeText(contentIntelligence.intendedViewerEffect) ?? "unknown",
       ];
     case "cta":
-      return [
-        normalizeText(contentIntelligence.suggestedCta) ?? "unknown",
-      ];
+      return [deriveCtaType(opportunity)];
     case "platform":
       return opportunity.recommendedPlatforms.length > 0
         ? opportunity.recommendedPlatforms
@@ -358,8 +516,12 @@ function sharesForDimension(
       return observedMix.contentTypeShares;
     case "format":
       return observedMix.formatShares;
+    case "painPoint":
+      return observedMix.painPointShares;
     case "audience":
       return observedMix.audienceShares;
+    case "hookType":
+      return observedMix.hookTypeShares;
     case "effect":
       return observedMix.effectShares;
     case "cta":
@@ -382,7 +544,9 @@ export function buildObservedContentMixSummary(input: {
   const counts: Record<MixDimension, Map<string, number>> = {
     contentType: new Map<string, number>(),
     format: new Map<string, number>(),
+    painPoint: new Map<string, number>(),
     audience: new Map<string, number>(),
+    hookType: new Map<string, number>(),
     effect: new Map<string, number>(),
     cta: new Map<string, number>(),
     platform: new Map<string, number>(),
@@ -390,7 +554,7 @@ export function buildObservedContentMixSummary(input: {
 
   for (const opportunity of input.opportunities) {
     for (const dimension of CONTENT_MIX_DIMENSIONS) {
-      for (const value of valuesForDimension(opportunity, dimension)) {
+      for (const value of getContentMixValuesForDimension(opportunity, dimension)) {
         incrementCount(counts[dimension], value);
       }
     }
@@ -402,13 +566,17 @@ export function buildObservedContentMixSummary(input: {
     totalOpportunities,
     contentTypeCounts: countsToRecord(counts.contentType),
     formatCounts: countsToRecord(counts.format),
+    painPointCounts: countsToRecord(counts.painPoint),
     audienceCounts: countsToRecord(counts.audience),
+    hookTypeCounts: countsToRecord(counts.hookType),
     effectCounts: countsToRecord(counts.effect),
     ctaCounts: countsToRecord(counts.cta),
     platformCounts: countsToRecord(counts.platform),
     contentTypeShares: sharesFromCounts(counts.contentType, totalOpportunities),
     formatShares: sharesFromCounts(counts.format, totalOpportunities),
+    painPointShares: sharesFromCounts(counts.painPoint, totalOpportunities),
     audienceShares: sharesFromCounts(counts.audience, totalOpportunities),
+    hookTypeShares: sharesFromCounts(counts.hookType, totalOpportunities),
     effectShares: sharesFromCounts(counts.effect, totalOpportunities),
     ctaShares: sharesFromCounts(counts.cta, totalOpportunities),
     platformShares: sharesFromCounts(counts.platform, totalOpportunities),
@@ -497,6 +665,85 @@ export function buildContentMixTarget(input: {
   });
 }
 
+export function buildBatchAutoApproveConfigSnapshot(
+  config: AutoApproveConfig | null | undefined,
+): BatchAutoApproveConfigSnapshot | null {
+  if (!config) {
+    return null;
+  }
+
+  return batchAutoApproveConfigSnapshotSchema.parse({
+    configId: config.configId,
+    name: config.name,
+    status: config.status,
+    enabled: config.enabled,
+    confidenceThreshold: config.confidenceThreshold,
+    maxPerDay: config.maxPerDay,
+    mandatoryReviewEveryN: config.mandatoryReviewEveryN,
+  });
+}
+
+export function buildBatchRenderResultsSummary(
+  input: Partial<BatchRenderResultsSummary> = {},
+): BatchRenderResultsSummary {
+  return batchRenderResultsSummarySchema.parse({
+    selected: 0,
+    attempted: 0,
+    queued: 0,
+    autoApproved: 0,
+    skipped: 0,
+    failed: 0,
+    completed: 0,
+    completedWithFailures: 0,
+    lastRunAt: null,
+    notes: [],
+    ...input,
+  });
+}
+
+export function deriveBatchRenderJobStatus(input: {
+  currentStatus?: BatchRenderJob["status"];
+  summary: BatchRenderJob["summary"];
+  resultsSummary?: BatchRenderResultsSummary | null;
+}): BatchRenderJob["status"] {
+  const resultsSummary = input.resultsSummary ?? null;
+
+  if (input.summary.total === 0) {
+    return input.currentStatus ?? "draft";
+  }
+
+  if (resultsSummary && resultsSummary.attempted === 0) {
+    return input.currentStatus ?? "draft";
+  }
+
+  if (
+    input.summary.completed + input.summary.failed >= input.summary.total &&
+    input.summary.withRenderJob >= input.summary.total
+  ) {
+    return input.summary.failed > 0 || (resultsSummary?.failed ?? 0) > 0
+      ? "completed_with_failures"
+      : "completed";
+  }
+
+  if (input.summary.withRenderJob > 0) {
+    if (input.summary.pendingReview > 0 || input.summary.completed > 0) {
+      return "running";
+    }
+
+    return "queued";
+  }
+
+  if ((resultsSummary?.queued ?? 0) > 0) {
+    return "queued";
+  }
+
+  if ((resultsSummary?.failed ?? 0) > 0) {
+    return "completed_with_failures";
+  }
+
+  return input.currentStatus ?? "draft";
+}
+
 export function buildBatchRenderJob(input: {
   batchId: string;
   opportunities: ContentOpportunity[];
@@ -504,11 +751,21 @@ export function buildBatchRenderJob(input: {
   createdAt?: string;
   updatedAt?: string;
   completedAt?: string | null;
+  targetCount?: number;
+  selectedOpportunityIds?: string[];
+  priorityStrategy?: BatchPriorityStrategy;
+  maxCost?: number | null;
+  autoApproveConfig?: AutoApproveConfig | BatchAutoApproveConfigSnapshot | null;
+  resultsSummary?: Partial<BatchRenderResultsSummary>;
   executionPolicy?: Partial<BatchExecutionPolicy>;
 }): BatchRenderJob {
   const createdAt = input.createdAt ?? new Date().toISOString();
   const updatedAt = input.updatedAt ?? createdAt;
   const opportunityIds = input.opportunities.map((opportunity) => opportunity.opportunityId);
+  const selectedOpportunityIds =
+    input.selectedOpportunityIds && input.selectedOpportunityIds.length > 0
+      ? input.selectedOpportunityIds
+      : opportunityIds;
   const briefIds = input.opportunities
     .map((opportunity) => opportunity.selectedVideoBrief?.id ?? null)
     .filter((briefId): briefId is string => Boolean(briefId));
@@ -582,13 +839,33 @@ export function buildBatchRenderJob(input: {
       },
     ),
   );
+  const resultsSummary = buildBatchRenderResultsSummary({
+    selected: selectedOpportunityIds.length,
+    ...(input.resultsSummary ?? {}),
+  });
+  const autoApproveConfig =
+    input.autoApproveConfig && "changeNote" in input.autoApproveConfig
+      ? buildBatchAutoApproveConfigSnapshot(input.autoApproveConfig)
+      : batchAutoApproveConfigSnapshotSchema.nullable().parse(
+          input.autoApproveConfig ?? null,
+        );
+  const nextStatus = deriveBatchRenderJobStatus({
+    currentStatus: input.status,
+    summary,
+    resultsSummary,
+  });
 
   return batchRenderJobSchema.parse({
     batchId: input.batchId,
     opportunityIds,
+    selectedOpportunityIds,
+    targetCount: input.targetCount ?? selectedOpportunityIds.length,
+    priorityStrategy: input.priorityStrategy ?? "high_score",
+    maxCost: input.maxCost ?? null,
+    autoApproveConfig,
     briefIds,
     jobIds,
-    status: input.status ?? "draft",
+    status: nextStatus,
     createdAt,
     updatedAt,
     completedAt: input.completedAt ?? null,
@@ -598,6 +875,7 @@ export function buildBatchRenderJob(input: {
       totalEstimatedCostUsd: roundMetric(summary.totalEstimatedCostUsd),
       totalActualCostUsd: roundMetric(summary.totalActualCostUsd),
     },
+    resultsSummary,
     executionPolicy: batchExecutionPolicySchema.parse({
       ...DEFAULT_BATCH_EXECUTION_POLICY,
       ...(input.executionPolicy ?? {}),

@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildABLearningInsightsFromRecords,
   buildAutonomyLearningAdjustmentFromRecords,
+  buildBatchSelectionLearningBiasFromRecords,
+  buildContentLearningAdjustmentFromRecords,
   buildGrowthLearningAdjustmentFromRecords,
   buildLearningAggregates,
   buildLearningInputSignature,
+  buildLearningSnapshotFromRecords,
   buildRepairAutopilotAdjustmentFromRecords,
+  inferCtaType,
   inferHookType,
   type LearningRecord,
 } from "../lib/learning-loop";
@@ -38,11 +43,18 @@ function buildLearningRecordFixture(
     platform: overrides.platform ?? "linkedin",
     format: overrides.format ?? "short_video",
     hookType: overrides.hookType ?? "risk_warning",
+    ctaType: overrides.ctaType ?? "product",
+    provider: overrides.provider ?? "runway",
     executionPath: overrides.executionPath ?? "video_factory",
     impressions: overrides.impressions ?? null,
     clicks: overrides.clicks ?? null,
     signups: overrides.signups ?? null,
     engagementScore: overrides.engagementScore ?? null,
+    engagementProxy: overrides.engagementProxy ?? null,
+    ctr: overrides.ctr ?? null,
+    completionRate: overrides.completionRate ?? null,
+    approvalRate: overrides.approvalRate ?? null,
+    costEfficiency: overrides.costEfficiency ?? null,
   };
 }
 
@@ -86,6 +98,7 @@ test("buildLearningAggregates summarizes success rate, retries, and cost per suc
   assert.equal(aggregates.successRateByFormat[0]?.key, "short_video");
   assert.equal(aggregates.successRateByHookType[0]?.key, "risk_warning");
   assert.equal(aggregates.successRateByExecutionPath[0]?.key, "video_factory");
+  assert.equal(aggregates.patternEffectiveness.format[0]?.key, "short_video");
 });
 
 test("buildAutonomyLearningAdjustmentFromRecords increases risk when similar runs underperform", () => {
@@ -221,10 +234,12 @@ test("buildGrowthLearningAdjustmentFromRecords boosts strong formats and penalis
   const adjustment = buildGrowthLearningAdjustmentFromRecords(records, {
     format: "short_video",
     hookType: "risk_warning",
+    ctaType: "product",
     executionPath: "video_factory",
   });
 
   assert.equal(adjustment.formatSuccessRate, 0.75);
+  assert.equal(adjustment.ctaTypeSuccessRate, 0.75);
   assert.equal(adjustment.priorityDelta > 0, true);
   assert.equal(adjustment.averageRetries !== null && adjustment.averageRetries >= 1, true);
 });
@@ -232,4 +247,245 @@ test("buildGrowthLearningAdjustmentFromRecords boosts strong formats and penalis
 test("inferHookType classifies common hook shapes", () => {
   assert.equal(inferHookType("Before you send this..."), "pause_before_send");
   assert.equal(inferHookType("This could escalate quickly."), "risk_warning");
+});
+
+test("inferCtaType classifies common CTA families", () => {
+  assert.equal(inferCtaType("Try Zaza Draft"), "product");
+  assert.equal(inferCtaType("Share this with a colleague"), "engagement");
+  assert.equal(inferCtaType("Learn more"), "visit");
+});
+
+test("buildLearningSnapshotFromRecords summarizes winners, losers, and trends", () => {
+  const records = [
+    buildLearningRecordFixture({
+      learningRecordId: "snap-1",
+      format: "short_video",
+      hookType: "risk_warning",
+      ctaType: "product",
+      provider: "runway",
+      outcome: "success",
+      approvalRate: 1,
+      completionRate: 1,
+      costEfficiency: 2.4,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "snap-2",
+      sourceId: "snap-2",
+      format: "short_video",
+      hookType: "risk_warning",
+      ctaType: "product",
+      provider: "runway",
+      outcome: "success",
+      approvalRate: 1,
+      completionRate: 1,
+      costEfficiency: 2.1,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "snap-3",
+      sourceId: "snap-3",
+      format: "short_video",
+      hookType: "risk_warning",
+      ctaType: "product",
+      provider: "runway",
+      outcome: "success",
+      approvalRate: 1,
+      completionRate: 1,
+      costEfficiency: 2,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "snap-4",
+      sourceId: "snap-4",
+      format: "carousel",
+      hookType: "relief_reassurance",
+      ctaType: "engagement",
+      provider: "kling",
+      outcome: "rejected",
+      approvalRate: 0,
+      completionRate: 0,
+      costEfficiency: 0.1,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "snap-5",
+      sourceId: "snap-5",
+      format: "carousel",
+      hookType: "relief_reassurance",
+      ctaType: "engagement",
+      provider: "kling",
+      outcome: "rejected",
+      approvalRate: 0,
+      completionRate: 0,
+      costEfficiency: 0.1,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "snap-6",
+      sourceId: "snap-6",
+      format: "carousel",
+      hookType: "relief_reassurance",
+      ctaType: "engagement",
+      provider: "kling",
+      outcome: "rejected",
+      approvalRate: 0,
+      completionRate: 0,
+      costEfficiency: 0.1,
+    }),
+  ];
+
+  const previousSnapshot = buildLearningSnapshotFromRecords(records.slice(0, 4), {
+    generatedAt: "2026-03-22T09:00:00.000Z",
+  });
+  const snapshot = buildLearningSnapshotFromRecords(records, {
+    generatedAt: "2026-03-23T09:00:00.000Z",
+    previousSnapshot,
+  });
+
+  assert.equal(snapshot.patternEffectiveness.format[0]?.key, "short_video");
+  assert.equal(snapshot.underperformingPatterns[0]?.key, "carousel");
+  assert.equal(snapshot.patternEffectiveness.format[0]?.trendDelta !== null, true);
+});
+
+test("learning pattern adjustments promote winners and demote weak patterns", () => {
+  const winnerRecords = [
+    buildLearningRecordFixture({
+      learningRecordId: "adj-1",
+      sourceId: "adj-1",
+      format: "short_video",
+      hookType: "risk_warning",
+      ctaType: "product",
+      outcome: "success",
+      approvalRate: 1,
+      completionRate: 1,
+      costEfficiency: 2,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "adj-2",
+      sourceId: "adj-2",
+      format: "short_video",
+      hookType: "risk_warning",
+      ctaType: "product",
+      outcome: "success",
+      approvalRate: 1,
+      completionRate: 1,
+      costEfficiency: 2.2,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "adj-3",
+      sourceId: "adj-3",
+      format: "short_video",
+      hookType: "risk_warning",
+      ctaType: "product",
+      outcome: "success",
+      approvalRate: 1,
+      completionRate: 1,
+      costEfficiency: 2.1,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "adj-4",
+      sourceId: "adj-4",
+      format: "carousel",
+      hookType: "relief_reassurance",
+      ctaType: "engagement",
+      outcome: "rejected",
+      approvalRate: 0,
+      completionRate: 0,
+      costEfficiency: 0.1,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "adj-5",
+      sourceId: "adj-5",
+      format: "carousel",
+      hookType: "relief_reassurance",
+      ctaType: "engagement",
+      outcome: "rejected",
+      approvalRate: 0,
+      completionRate: 0,
+      costEfficiency: 0.1,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "adj-6",
+      sourceId: "adj-6",
+      format: "carousel",
+      hookType: "relief_reassurance",
+      ctaType: "engagement",
+      outcome: "rejected",
+      approvalRate: 0,
+      completionRate: 0,
+      costEfficiency: 0.1,
+    }),
+  ];
+
+  const contentAdjustment = buildContentLearningAdjustmentFromRecords(
+    winnerRecords,
+    {
+      format: "short_video",
+      hookType: "risk_warning",
+      ctaType: "product",
+    },
+  );
+  const batchBias = buildBatchSelectionLearningBiasFromRecords(winnerRecords, {
+    format: "carousel",
+    hookType: "relief_reassurance",
+    ctaType: "engagement",
+  });
+
+  assert.equal(contentAdjustment.scoreDelta > 0, true);
+  assert.equal(batchBias.scoreDelta < 0, true);
+});
+
+test("buildABLearningInsightsFromRecords promotes decisive winners", () => {
+  const records = [
+    buildLearningRecordFixture({
+      learningRecordId: "ab-a1",
+      sourceId: "ab-a1",
+      abTestConfigId: "ab-provider-1",
+      abTestDimension: "provider_choice",
+      abTestVariant: "A",
+      provider: "runway",
+      outcome: "success",
+      approvalRate: 1,
+      completionRate: 1,
+      costEfficiency: 1.8,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "ab-a2",
+      sourceId: "ab-a2",
+      abTestConfigId: "ab-provider-1",
+      abTestDimension: "provider_choice",
+      abTestVariant: "A",
+      provider: "runway",
+      outcome: "success",
+      approvalRate: 1,
+      completionRate: 1,
+      costEfficiency: 1.6,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "ab-b1",
+      sourceId: "ab-b1",
+      abTestConfigId: "ab-provider-1",
+      abTestDimension: "provider_choice",
+      abTestVariant: "B",
+      provider: "kling",
+      outcome: "rejected",
+      approvalRate: 0,
+      completionRate: 0,
+      costEfficiency: 0.2,
+    }),
+    buildLearningRecordFixture({
+      learningRecordId: "ab-b2",
+      sourceId: "ab-b2",
+      abTestConfigId: "ab-provider-1",
+      abTestDimension: "provider_choice",
+      abTestVariant: "B",
+      provider: "kling",
+      outcome: "rejected",
+      approvalRate: 0,
+      completionRate: 0,
+      costEfficiency: 0.2,
+    }),
+  ];
+
+  const insights = buildABLearningInsightsFromRecords(records);
+
+  assert.equal(insights[0]?.configId, "ab-provider-1");
+  assert.equal(insights[0]?.winnerVariant, "A");
+  assert.equal(insights[0]?.recommendation, "promote_winner");
 });

@@ -12,6 +12,7 @@ import {
   videoFactoryQueueJobSchema,
   type VideoFactoryQueueEngine,
   type VideoFactoryQueueJob,
+  type VideoFactoryQueueJobContextSnapshot,
   type VideoFactoryRunQueueStateSummary,
 } from "@/lib/video-factory-queue-engine";
 import { inngest } from "@/lib/inngest/client";
@@ -39,6 +40,7 @@ type VideoFactoryRunContext = {
   queueJobId: string;
   batchId?: string | null;
   queuePriority?: "normal" | "high";
+  contextSnapshot?: VideoFactoryQueueJobContextSnapshot | null;
 };
 
 export interface VideoFactoryRunSchedulerOptions {
@@ -90,6 +92,36 @@ async function defaultResolveRunContext(
     queuePriority: queuePriorityForGrowthIntelligence(
       opportunity.growthIntelligence ?? null,
     ),
+    contextSnapshot: {
+      growthIntelligence: opportunity.growthIntelligence
+        ? {
+            executionPriority:
+              opportunity.growthIntelligence.executionPriority ?? null,
+            strategicValue:
+              opportunity.growthIntelligence.strategicValue ?? null,
+            riskLevel: opportunity.growthIntelligence.riskLevel ?? null,
+            learningValue: opportunity.growthIntelligence.learningValue ?? null,
+            executionPath:
+              opportunity.growthIntelligence.executionPath ?? null,
+            expectedOutcome:
+              opportunity.growthIntelligence.expectedOutcome ?? null,
+          }
+        : null,
+      productionDefaults: renderJob?.productionDefaultsSnapshot ?? null,
+      platformOutputs: Array.from(
+        new Set(
+          opportunity.recommendedPlatforms.length > 0
+            ? opportunity.recommendedPlatforms
+            : ["linkedin"],
+        ),
+      ).map((platform) => ({
+        platform,
+        recommendedFormat: opportunity.recommendedFormat ?? null,
+        contentType: opportunity.selectedVideoBrief?.contentType ?? null,
+        goal: opportunity.selectedVideoBrief?.goal ?? null,
+        callToAction: opportunity.selectedVideoBrief?.cta ?? null,
+      })),
+    },
     queueJobId: buildVideoFactoryQueueJobId({
       opportunityId: normalizedOpportunityId,
       factoryJobId,
@@ -153,10 +185,11 @@ export function createVideoFactoryRunCoordinator(
             factoryJobId: context.factoryJobId,
             renderJobId: context.renderJobId,
             engine: queueEngine,
-            status: "queued",
-            priority: context.queuePriority ?? "normal",
-            throttleGroup: "video-factory",
+          status: "queued",
+          priority: context.queuePriority ?? "normal",
+          throttleGroup: "video-factory",
           concurrencyLimit: maxConcurrentRuns,
+          contextSnapshot: context.contextSnapshot ?? null,
           eventName: null,
           externalDispatchUrl: null,
           externalDispatchedAt: null,

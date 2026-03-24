@@ -16,6 +16,7 @@ function buildRunContext(opportunityId: string) {
     factoryJobId,
     renderJobId,
     queueJobId: `video-factory-queue:${factoryJobId}`,
+    contextSnapshot: null,
   };
 }
 
@@ -166,6 +167,65 @@ test("video factory runner still supports explicit local-file execution as a com
     assert.equal(scheduled, true);
     assert.deepEqual(started, ["opportunity-1"]);
     assert.equal(parsed.jobs[0]?.status, "completed");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("video factory runner persists queue context snapshots for dispatched jobs", async () => {
+  const { queuePath, cleanup } = await createQueuePath();
+  const coordinator = createVideoFactoryRunCoordinator(
+    async () => {
+      throw new Error("Inngest dispatch should not invoke the local executor.");
+    },
+    {
+      queuePath,
+      queueEngine: "inngest",
+      resolveRunContext: async (opportunityId) => ({
+        ...buildRunContext(opportunityId),
+        contextSnapshot: {
+          growthIntelligence: {
+            executionPriority: 84,
+            strategicValue: 76,
+            riskLevel: "low",
+            learningValue: 55,
+            executionPath: "video_factory",
+            expectedOutcome: "Teacher trials",
+          },
+          productionDefaults: null,
+          platformOutputs: [
+            {
+              platform: "linkedin",
+              recommendedFormat: "short_video",
+              contentType: "validation",
+              goal: "Drive trials",
+              callToAction: "Try Zaza Draft",
+            },
+          ],
+        },
+      }),
+      dispatchEvent: async () => {},
+    },
+  );
+
+  try {
+    await coordinator.schedule({ opportunityId: "opportunity-ctx" });
+
+    const raw = await readFile(queuePath, "utf8");
+    const parsed = JSON.parse(raw) as {
+      jobs: Array<{
+        contextSnapshot?: {
+          growthIntelligence?: { executionPriority?: number | null } | null;
+          platformOutputs?: Array<{ platform: string }>;
+        } | null;
+      }>;
+    };
+
+    assert.equal(
+      parsed.jobs[0]?.contextSnapshot?.growthIntelligence?.executionPriority,
+      84,
+    );
+    assert.equal(parsed.jobs[0]?.contextSnapshot?.platformOutputs?.[0]?.platform, "linkedin");
   } finally {
     await cleanup();
   }

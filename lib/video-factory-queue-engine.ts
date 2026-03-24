@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { z } from "zod";
 
+import { productionDefaultsSchema } from "@/lib/production-defaults";
+
 const DEFAULT_VIDEO_FACTORY_RUN_QUEUE_PATH = path.join(
   process.cwd(),
   "data",
@@ -41,6 +43,35 @@ export const factoryRenderRequestedEventDataSchema = z.object({
   concurrencyLimit: z.number().int().positive().default(3),
 });
 
+export const videoFactoryQueueJobContextSnapshotSchema = z.object({
+  growthIntelligence: z
+    .object({
+      executionPriority: z.number().nullable().default(null),
+      strategicValue: z.number().nullable().default(null),
+      riskLevel: z.enum(["low", "medium", "high"]).nullable().default(null),
+      learningValue: z.number().nullable().default(null),
+      executionPath: z
+        .enum(["video_factory", "campaigns", "connect", "hold", "review"])
+        .nullable()
+        .default(null),
+      expectedOutcome: z.string().trim().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  productionDefaults: productionDefaultsSchema.nullable().default(null),
+  platformOutputs: z
+    .array(
+      z.object({
+        platform: z.string().trim().min(1),
+        recommendedFormat: z.string().trim().nullable().default(null),
+        contentType: z.string().trim().nullable().default(null),
+        goal: z.string().trim().nullable().default(null),
+        callToAction: z.string().trim().nullable().default(null),
+      }),
+    )
+    .default([]),
+});
+
 export const videoFactoryQueueJobSchema = z.object({
   queueJobId: z.string().trim().min(1),
   opportunityId: z.string().trim().min(1),
@@ -52,6 +83,7 @@ export const videoFactoryQueueJobSchema = z.object({
   priority: z.enum(["normal", "high"]).default("normal"),
   throttleGroup: z.string().trim().min(1).default("video-factory"),
   concurrencyLimit: z.number().int().positive().default(3),
+  contextSnapshot: videoFactoryQueueJobContextSnapshotSchema.nullable().default(null),
   eventName: z.string().trim().nullable().default(null),
   externalDispatchUrl: z.string().trim().nullable().default(null),
   externalDispatchedAt: z.string().trim().nullable().default(null),
@@ -71,6 +103,9 @@ export type FactoryRenderRequestedEventData = z.infer<
 >;
 export type VideoFactoryQueueJob = z.infer<typeof videoFactoryQueueJobSchema>;
 export type VideoFactoryQueueEngine = (typeof VIDEO_FACTORY_QUEUE_ENGINES)[number];
+export type VideoFactoryQueueJobContextSnapshot = z.infer<
+  typeof videoFactoryQueueJobContextSnapshotSchema
+>;
 
 type VideoFactoryRunQueueStore = z.infer<typeof videoFactoryRunQueueStoreSchema>;
 

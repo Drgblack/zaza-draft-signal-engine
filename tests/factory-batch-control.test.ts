@@ -479,6 +479,8 @@ test("buildContentMixTarget computes observed mix and soft-block gaps from curre
   assert.equal(target.observedMix.totalOpportunities, 3);
   assert.equal(target.observedMix.contentTypeCounts.pain, 3);
   assert.equal(target.observedMix.formatCounts.short_video, 3);
+  assert.equal(target.observedMix.painPointCounts["teacher-communication"], 3);
+  assert.equal(target.observedMix.hookTypeCounts.risk, 3);
   const storyGap = target.gaps.find(
     (gap) => gap.dimension === "contentType" && gap.key === "story",
   );

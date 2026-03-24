@@ -167,6 +167,8 @@ import {
 import {
   buildLearningInputSignature,
   buildLearningRecordId,
+  getContentLearningAdjustmentSync,
+  inferCtaType,
   inferHookType,
   upsertLearningRecord,
 } from "@/lib/learning-loop";
@@ -495,6 +497,10 @@ function roundOpportunityMetric(value: number) {
   return Math.round(value * 10000) / 10000;
 }
 
+function clampDriverScore(value: number) {
+  return Math.max(1, Math.min(5, Math.round(value * 100) / 100));
+}
+
 function derivePainPointCategory(
   opportunity: Pick<
     ContentOpportunity,
@@ -768,6 +774,7 @@ function buildContentOpportunityLearningSignature(input: {
       opportunity: input.opportunity,
       isRegenerate: input.actionType === "auto_regenerate_video_factory",
     }),
+    ctaType: metadata.ctaType ?? "unknown",
     format: input.format ?? "unknown",
     hookType: metadata.hookType ?? "unknown",
     path: metadata.executionPath ?? "unknown",
@@ -787,6 +794,11 @@ function buildContentOpportunityLearningMetadata(input: {
         input.opportunity.selectedVideoBrief?.hook ??
         input.opportunity.hookRanking?.[0]?.hook ??
         input.opportunity.hookOptions?.[0] ??
+        null,
+    ),
+    ctaType: inferCtaType(
+      input.opportunity.selectedVideoBrief?.cta ??
+        input.opportunity.suggestedCTA ??
         null,
     ),
     executionPath: input.opportunity.growthIntelligence?.executionPath ?? null,
@@ -1435,6 +1447,51 @@ export function buildAutoApprovedOpportunity(
   } catch {
     return null;
   }
+}
+
+export async function autoApproveContentOpportunity(input: {
+  opportunityId: string;
+  approvedAt?: string;
+  approvedBy?: string | null;
+}) {
+  const timestamp = input.approvedAt ?? new Date().toISOString();
+  const approvedBy = normalizeText(input.approvedBy) ?? "batch-auto-approve";
+  const store = await readPersistedStore();
+  const current = store.opportunities.find(
+    (item) => item.opportunityId === input.opportunityId,
+  );
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const autoApproved = buildAutoApprovedOpportunity(
+    normalizePersistedOpportunity(current),
+    timestamp,
+  );
+  if (!autoApproved) {
+    throw new Error("Content opportunity could not be auto-approved.");
+  }
+
+  const state = await updateOpportunity(input.opportunityId, () => ({
+    ...autoApproved,
+    updatedAt: timestamp,
+    generationState: autoApproved.generationState,
+  }));
+  await appendAuditEventsSafe([
+    {
+      signalId: current.signalId,
+      eventType: "CONTENT_OPPORTUNITY_APPROVED" as const,
+      actor: "system",
+      summary: `Auto-approved content opportunity "${current.title}" for production.`,
+      metadata: {
+        autoApproved: true,
+        approvedBy,
+        videoBriefId: autoApproved.selectedVideoBrief?.id ?? null,
+      },
+    },
+  ]);
+
+  return state;
 }
 
 function normalizeGenerationState(
@@ -2858,6 +2915,10 @@ async function runContentOpportunityVideoGeneration(input: {
         : "auto_run_video_factory",
       sourceId: failedGenerationRequest.id,
       platform: attemptOpportunity.recommendedPlatforms[0] ?? null,
+      provider,
+      abTestConfigId: failedRenderJob.abTest?.configId ?? null,
+      abTestDimension: failedRenderJob.abTest?.dimension ?? null,
+      abTestVariant: failedRenderJob.abTest?.variant ?? null,
       ...buildContentOpportunityLearningMetadata({
         opportunity: attemptOpportunity,
         hook: attemptBrief.hook,
@@ -3034,6 +3095,10 @@ async function runContentOpportunityVideoGeneration(input: {
         : "auto_run_video_factory",
       sourceId: completedGenerationRequest.id,
       platform: attemptOpportunity.recommendedPlatforms[0] ?? null,
+      provider,
+      abTestConfigId: renderJob.abTest?.configId ?? null,
+      abTestDimension: renderJob.abTest?.dimension ?? null,
+      abTestVariant: renderJob.abTest?.variant ?? null,
       ...buildContentOpportunityLearningMetadata({
         opportunity: attemptOpportunity,
         hook: attemptBrief.hook,
@@ -3241,6 +3306,10 @@ async function runContentOpportunityVideoGeneration(input: {
         : "auto_run_video_factory",
       sourceId: activeGenerationRequest.id,
       platform: attemptOpportunity.recommendedPlatforms[0] ?? null,
+      provider,
+      abTestConfigId: activeQueuedRenderJob.abTest?.configId ?? null,
+      abTestDimension: activeQueuedRenderJob.abTest?.dimension ?? null,
+      abTestVariant: activeQueuedRenderJob.abTest?.variant ?? null,
       ...buildContentOpportunityLearningMetadata({
         opportunity: attemptOpportunity,
         hook: attemptBrief.hook,
@@ -3484,7 +3553,7 @@ function applyPhaseEIntelligence(
     performanceDrivers,
   };
 
-  return {
+  const learningAdjustedOpportunity = {
     ...opportunityWithDrivers,
     intendedViewerEffect:
       preserveExisting && opportunity.intendedViewerEffect
@@ -3494,6 +3563,38 @@ function applyPhaseEIntelligence(
       preserveExisting && opportunity.suggestedCTA
         ? opportunity.suggestedCTA
         : suggestCTA(opportunityWithDrivers),
+  };
+  const contentLearningAdjustment = getContentLearningAdjustmentSync({
+    format: learningAdjustedOpportunity.recommendedFormat,
+    hookType: inferHookType(
+      learningAdjustedOpportunity.hookRanking?.[0]?.hook ??
+        learningAdjustedOpportunity.hookOptions?.[0] ??
+        null,
+    ),
+    ctaType: inferCtaType(learningAdjustedOpportunity.suggestedCTA),
+  });
+  const learningBoost = contentLearningAdjustment.scoreDelta;
+
+  if (!learningBoost) {
+    return learningAdjustedOpportunity;
+  }
+
+  const existingDrivers = learningAdjustedOpportunity.performanceDrivers ?? {};
+
+  return {
+    ...learningAdjustedOpportunity,
+    performanceDrivers: {
+      ...existingDrivers,
+      hookStrength: clampDriverScore(
+        (existingDrivers.hookStrength ?? 3) + learningBoost,
+      ),
+      viewerConnection: clampDriverScore(
+        (existingDrivers.viewerConnection ?? 3) + learningBoost * 0.7,
+      ),
+      conversionPotential: clampDriverScore(
+        (existingDrivers.conversionPotential ?? 3) + learningBoost,
+      ),
+    },
   };
 }
 
@@ -4311,6 +4412,13 @@ export async function reviewContentOpportunityRenderedAsset(input: {
       : "auto_run_video_factory",
     sourceId: normalizedCurrent.generationState.renderedAsset.id,
     platform: normalizedCurrent.recommendedPlatforms[0] ?? null,
+    provider: normalizedCurrent.generationState.renderJob?.provider ?? null,
+    abTestConfigId:
+      normalizedCurrent.generationState.renderJob?.abTest?.configId ?? null,
+    abTestDimension:
+      normalizedCurrent.generationState.renderJob?.abTest?.dimension ?? null,
+    abTestVariant:
+      normalizedCurrent.generationState.renderJob?.abTest?.variant ?? null,
     ...buildContentOpportunityLearningMetadata({
       opportunity: normalizedCurrent,
       hook: normalizedCurrent.selectedVideoBrief?.hook ?? null,
