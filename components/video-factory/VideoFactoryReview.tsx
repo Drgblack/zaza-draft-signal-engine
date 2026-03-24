@@ -109,6 +109,10 @@ function formatCurrency(value: number | null | undefined) {
   return value === null || value === undefined ? "—" : `$${value.toFixed(2)}`
 }
 
+function formatPercent(value: number | null | undefined) {
+  return value === null || value === undefined ? "—" : `${Math.round(value * 100)}%`
+}
+
 function formatDateLabel(value: string | null | undefined) {
   if (!value) {
     return "Not available"
@@ -289,6 +293,11 @@ function PreGenerationState({
               <Badge className="text-xs">
                 {brief.audience}
               </Badge>
+              {(brief.historicalCostAvg !== null || brief.historicalApprovalRate !== null) ? (
+                <Badge className="text-xs bg-amber-50 text-amber-800 ring-amber-200">
+                  Similar pain points: avg {formatCurrency(brief.historicalCostAvg)} / {formatPercent(brief.historicalApprovalRate)} approved
+                </Badge>
+              ) : null}
               {brief.finalScriptTrustScore !== null ? (
                 <Badge className="text-xs bg-slate-100 text-slate-700 ring-slate-200">
                   Final script trust {brief.finalScriptTrustScore}/100
@@ -1034,6 +1043,8 @@ export const DEMO_PROPS: VideoFactoryReviewProps = {
       "Must sound like a teacher, not a brand",
     ],
     audience: "Primary and secondary school teachers",
+    historicalCostAvg: 0.82,
+    historicalApprovalRate: 0.64,
     finalScriptTrustScore: 91,
   },
   job: {

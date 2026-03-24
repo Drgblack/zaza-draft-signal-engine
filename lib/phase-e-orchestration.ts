@@ -10,6 +10,10 @@ import {
   type PerformanceSignal,
 } from "@/lib/performance-signals";
 import {
+  buildVideoFactoryDeliveryAsset,
+  videoFactoryDeliveryAssetSchema,
+} from "@/lib/video-factory-delivery";
+import {
   productionPackageSchema,
   type ProductionPackage,
 } from "@/lib/production-packages";
@@ -53,6 +57,15 @@ export const PLATFORM_PACKAGE_PLATFORMS = [
 export const platformPackageSchema = z.object({
   platform: z.enum(PLATFORM_PACKAGE_PLATFORMS),
   aspectRatio: z.string().trim().nullable().default(null),
+  title: z.string().trim().min(1).default("Teacher-real video"),
+  captionDraft: z.string().trim().min(1).default("Teacher-real video"),
+  hashtagsMode: z
+    .enum(["minimal", "standard", "discussion_led", "none"])
+    .default("minimal"),
+  hookWindowSec: z.number().int().positive().nullable().default(null),
+  maxDurationSec: z.number().int().positive().nullable().default(null),
+  requiresCoverFrame: z.boolean().default(false),
+  deliveryAsset: videoFactoryDeliveryAssetSchema.nullable().default(null),
   packagingNotes: z.array(z.string().trim().min(1)).default([]),
 });
 
@@ -266,6 +279,34 @@ function buildPlatformPackages(
           : productionPackage.defaultsSnapshot?.aspectRatio ??
             productionPackage.connectSummary.aspectRatio ??
             null,
+      title:
+        platform === "youtube"
+          ? `${productionPackage.brief.title} | Shorts`
+          : platform === "linkedin"
+            ? `${productionPackage.brief.title} for teacher teams`
+            : productionPackage.brief.title,
+      captionDraft: [
+        normalizeText(productionPackage.brief.hook),
+        normalizeText(productionPackage.brief.cta),
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join(" "),
+      hashtagsMode:
+        platform === "linkedin"
+          ? "minimal"
+          : platform === "reddit"
+            ? "none"
+            : platform === "youtube"
+              ? "standard"
+              : "discussion_led",
+      hookWindowSec:
+        platform === "tiktok" || platform === "instagram" ? 2 : 3,
+      maxDurationSec: platform === "linkedin" ? 90 : 60,
+      requiresCoverFrame: platform === "instagram" || platform === "linkedin",
+      deliveryAsset: buildVideoFactoryDeliveryAsset({
+        assetType: "video",
+        sourceUrl: productionPackage.connectSummary.finalVideoUrl,
+      }),
       packagingNotes: platformPackagingNotes(platform),
     }),
   );

@@ -27,7 +27,11 @@ import {
 import { determineViewerEffect, suggestCTA } from "@/lib/viewer-effect";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { resolveActiveABTestResult } from "@/lib/factory-ab-tests";
-import { findLinkedBatchRenderJobForOpportunity } from "@/lib/factory-batch-control";
+import {
+  assessAutoApproveOpportunity,
+  findLinkedBatchRenderJobForOpportunity,
+  getActiveAutoApproveConfig,
+} from "@/lib/factory-batch-control";
 import { buildMessageAngles } from "@/lib/message-angles";
 import {
   filterSignalsForActiveReviewQueue,
@@ -106,6 +110,10 @@ import { buildWeeklyRecap } from "@/lib/weekly-recap";
 import { buildWeeklyPostingPack } from "@/lib/weekly-posting-pack";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
 import { syncPhaseEArtifactsForProductionPackage } from "@/lib/phase-e-orchestration";
+import {
+  buildVideoFactoryThumbnailSpec,
+  upsertVideoFactoryThumbnailSpec,
+} from "@/lib/video-factory-thumbnail-specs";
 import {
   createDraftVideoFactoryLifecycle,
   transitionVideoFactoryLifecycle,
@@ -1357,6 +1365,44 @@ function normalizeFounderSelection(
       selectedHookId: null,
       selectedVideoBrief: null,
     };
+  }
+}
+
+export function buildAutoApprovedOpportunity(
+  opportunity: ContentOpportunity,
+  approvedAt: string,
+): ContentOpportunity | null {
+  try {
+    const angle = buildMessageAngles(opportunity)[0] ?? null;
+    if (!angle) {
+      return null;
+    }
+
+    const hookSet = buildHookSet(opportunity, angle);
+    const selectedHook = hookSet.variants[0] ?? null;
+    if (!selectedHook) {
+      return null;
+    }
+
+    const selectedVideoBrief = buildVideoBrief(
+      opportunity,
+      angle,
+      applySelectedHookSelection(hookSet, selectedHook.id),
+    );
+
+    return contentOpportunitySchema.parse({
+      ...opportunity,
+      status: "approved_for_production",
+      founderSelectionStatus: "approved",
+      selectedAngleId: angle.id,
+      selectedHookId: selectedHook.id,
+      selectedVideoBrief,
+      approvedAt,
+      dismissedAt: null,
+      updatedAt: approvedAt,
+    });
+  } catch {
+    return null;
   }
 }
 
@@ -3558,10 +3604,52 @@ export async function syncContentOpportunityState(input: {
     activeCampaignIds: input.activeCampaignIds,
     campaignsExist: input.campaignsExist,
   });
+  const activeAutoApproveConfig = getActiveAutoApproveConfig();
+  const todayKey = now.toISOString().slice(0, 10);
+  let autoApprovedTodayCount = store.opportunities.filter(
+    (opportunity) => opportunity.approvedAt?.startsWith(todayKey),
+  ).length;
+  let totalAutoApprovedCount = store.opportunities.filter(
+    (opportunity) => opportunity.status === "approved_for_production",
+  ).length;
+  const nextOpportunities = activeAutoApproveConfig
+    ? nextState.opportunities.map((opportunity) => {
+        if (
+          opportunity.status !== "open" ||
+          opportunity.founderSelectionStatus !== "pending" ||
+          opportunity.approvedAt
+        ) {
+          return opportunity;
+        }
+
+        const assessment = assessAutoApproveOpportunity({
+          opportunity,
+          config: activeAutoApproveConfig,
+          autoApprovedTodayCount,
+          totalAutoApprovedCount,
+        });
+
+        if (!assessment.eligible || assessment.heldForMandatoryReview) {
+          return opportunity;
+        }
+
+        const autoApproved = buildAutoApprovedOpportunity(
+          opportunity,
+          now.toISOString(),
+        );
+        if (!autoApproved) {
+          return opportunity;
+        }
+
+        autoApprovedTodayCount += 1;
+        totalAutoApprovedCount += 1;
+        return autoApproved;
+      })
+    : nextState.opportunities;
   const previousById = new Map(store.opportunities.map((item) => [item.opportunityId, item]));
   const auditEvents: AuditEventInput[] = [];
 
-  for (const opportunity of nextState.opportunities) {
+  for (const opportunity of nextOpportunities) {
     const previous = previousById.get(opportunity.opportunityId);
     const hasChanged =
       !previous ||
@@ -3584,15 +3672,33 @@ export async function syncContentOpportunityState(input: {
         },
       });
     }
+
+    if (
+      activeAutoApproveConfig &&
+      previous?.status !== "approved_for_production" &&
+      opportunity.status === "approved_for_production"
+    ) {
+      auditEvents.push({
+        signalId: opportunity.signalId,
+        eventType: "CONTENT_OPPORTUNITY_APPROVED" as const,
+        actor: "system",
+        summary: `Auto-approved content opportunity "${opportunity.title}" under active confidence rails.`,
+        metadata: {
+          autoApproved: true,
+          configId: activeAutoApproveConfig.configId,
+          confidence: opportunity.confidence,
+        },
+      });
+    }
   }
 
   await writePersistedStore({
     updatedAt: now.toISOString(),
-    opportunities: nextState.opportunities,
+    opportunities: nextOpportunities,
   });
   await appendAuditEventsSafe(auditEvents);
 
-  return nextState;
+  return summarizeState(nextOpportunities);
 }
 
 async function updateOpportunity(
@@ -4431,6 +4537,31 @@ export async function updateContentOpportunityThumbnail(input: {
     }),
     updatedAt: timestamp,
   }));
+  const updatedOpportunity = state.opportunities.find(
+    (item) => item.opportunityId === input.opportunityId,
+  );
+
+  if (updatedOpportunity?.generationState?.renderedAsset) {
+    await upsertVideoFactoryThumbnailSpec(
+      buildVideoFactoryThumbnailSpec({
+        opportunityId: updatedOpportunity.opportunityId,
+        renderJobId: updatedOpportunity.generationState.renderJob?.id ?? null,
+        renderedAssetId: updatedOpportunity.generationState.renderedAsset.id,
+        source:
+          input.action === "override" ? "manual_override" : "generated",
+        imageUrl: nextThumbnailUrl,
+        generatedImageUrl: generatedThumbnailUrl,
+        providerId:
+          input.action === "override"
+            ? "manual-override"
+            : existingGeneratedThumbnailArtifact?.providerId ??
+              matchingAttempt?.composedVideoArtifact?.providerId ??
+              "ffmpeg",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+  }
 
   await appendAuditEventsSafe([
     {
@@ -4475,6 +4606,39 @@ export async function exportContentOpportunityProductionPackage(
     opportunity: normalizedCurrent,
     publishOutcome,
   });
+  if (normalizedCurrent.generationState?.renderedAsset?.thumbnailUrl) {
+    const matchingAttempt =
+      normalizedCurrent.generationState?.attemptLineage.find(
+        (attempt) =>
+          attempt.renderedAssetId ===
+          normalizedCurrent.generationState?.renderedAsset?.id,
+      ) ??
+      normalizedCurrent.generationState?.attemptLineage.at(-1) ??
+      null;
+    await upsertVideoFactoryThumbnailSpec(
+      buildVideoFactoryThumbnailSpec({
+        opportunityId: normalizedCurrent.opportunityId,
+        renderJobId: normalizedCurrent.generationState?.renderJob?.id ?? null,
+        renderedAssetId:
+          normalizedCurrent.generationState?.renderedAsset?.id ?? null,
+        source:
+          matchingAttempt?.thumbnailArtifact?.providerId === "manual-override"
+            ? "manual_override"
+            : "generated",
+        imageUrl: normalizedCurrent.generationState.renderedAsset.thumbnailUrl,
+        generatedImageUrl:
+          matchingAttempt?.composedVideoArtifact?.thumbnailUrl ?? null,
+        providerId:
+          matchingAttempt?.thumbnailArtifact?.providerId ??
+          matchingAttempt?.composedVideoArtifact?.providerId ??
+          "ffmpeg",
+        createdAt:
+          matchingAttempt?.thumbnailArtifact?.createdAt ??
+          productionPackage.createdAt,
+        updatedAt: productionPackage.createdAt,
+      }),
+    );
+  }
   await syncPhaseEArtifactsForProductionPackage({
     opportunity: normalizedCurrent,
     productionPackage,

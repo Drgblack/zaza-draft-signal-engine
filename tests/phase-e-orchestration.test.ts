@@ -604,6 +604,9 @@ test("buildConnectHandoffPackage and buildCreatorBrief derive stable Phase E exp
   assert.equal(handoffPackage.suggestedCampaignType, "influencer");
   assert.equal(handoffPackage.videoUrl, "https://blob.example/video.mp4");
   assert.ok(handoffPackage.publishPackages.length >= 1);
+  assert.equal(handoffPackage.publishPackages[0]?.deliveryAsset?.deliveryClass, "cdn_ready");
+  assert.equal(typeof handoffPackage.publishPackages[0]?.captionDraft, "string");
+  assert.equal(typeof handoffPackage.publishPackages[0]?.requiresCoverFrame, "boolean");
   assert.equal(creatorBrief.referenceVideoUrl, "https://blob.example/video.mp4");
   assert.equal(creatorBrief.callToAction, "Try Zaza Draft free.");
 });

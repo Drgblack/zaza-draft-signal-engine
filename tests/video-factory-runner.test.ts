@@ -50,7 +50,18 @@ async function createQueuePath() {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "video-factory-runner-"));
   return {
     cleanup: async () => {
-      await rm(tempDir, { recursive: true, force: true });
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          await rm(tempDir, { recursive: true, force: true });
+          return;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY" || attempt === 4) {
+            throw error;
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+      }
     },
     queuePath: path.join(tempDir, "video-factory-run-queue.json"),
   };

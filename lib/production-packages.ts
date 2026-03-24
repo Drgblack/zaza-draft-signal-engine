@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import type { ContentOpportunity } from "./content-opportunities";
+import {
+  buildVideoFactoryDeliveryAsset,
+  videoFactoryDeliveryAssetSchema,
+} from "./video-factory-delivery";
 import { productionDefaultsSchema } from "./production-defaults";
 import {
   applyVideoFactoryRetentionPolicyToArtifactRef,
@@ -252,6 +256,14 @@ const productionPackagePublishReadySchema = z.object({
   connectSummary: productionPackageConnectSummarySchema,
 });
 
+const productionPackageDeliveryBundleSchema = z.object({
+  finalVideo: videoFactoryDeliveryAssetSchema.nullable().default(null),
+  thumbnail: videoFactoryDeliveryAssetSchema.nullable().default(null),
+  narration: videoFactoryDeliveryAssetSchema.nullable().default(null),
+  captions: videoFactoryDeliveryAssetSchema.nullable().default(null),
+  sceneAssets: z.array(videoFactoryDeliveryAssetSchema).default([]),
+});
+
 export const productionPackageSchema = z.object({
   id: z.string().trim().min(1),
   opportunityId: z.string().trim().min(1),
@@ -282,6 +294,7 @@ export const productionPackageSchema = z.object({
   }),
   publishReadyPackage: productionPackagePublishReadySchema,
   connectSummary: productionPackageConnectSummarySchema,
+  delivery: productionPackageDeliveryBundleSchema,
   exportFormat: z.literal("json"),
   version: z.literal(1),
 });
@@ -649,6 +662,32 @@ export function buildProductionPackage(input: {
     publishOutcome,
     connectSummary,
   });
+  const delivery = productionPackageDeliveryBundleSchema.parse({
+    finalVideo: buildVideoFactoryDeliveryAsset({
+      assetType: "video",
+      sourceUrl: connectSummary.finalVideoUrl,
+    }),
+    thumbnail: buildVideoFactoryDeliveryAsset({
+      assetType: "thumbnail",
+      sourceUrl: connectSummary.thumbnailUrl,
+    }),
+    narration: buildVideoFactoryDeliveryAsset({
+      assetType: "audio",
+      sourceUrl: connectSummary.narrationAudioUrl,
+    }),
+    captions: buildVideoFactoryDeliveryAsset({
+      assetType: "caption",
+      sourceUrl: connectSummary.captionTrackUrl,
+    }),
+    sceneAssets: connectSummary.sceneAssetUrls
+      .map((sceneAssetUrl) =>
+        buildVideoFactoryDeliveryAsset({
+          assetType: "scene_video",
+          sourceUrl: sceneAssetUrl,
+        }),
+      )
+      .filter((asset): asset is NonNullable<typeof asset> => Boolean(asset)),
+  });
 
   return productionPackageSchema.parse({
     id: productionPackageId(brief.id),
@@ -684,6 +723,7 @@ export function buildProductionPackage(input: {
     },
     publishReadyPackage,
     connectSummary,
+    delivery,
     exportFormat: "json",
     version: 1,
   });

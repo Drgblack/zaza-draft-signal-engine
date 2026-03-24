@@ -2,19 +2,21 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { z } from "zod";
+import {
+  buildInngestCompatibleEventPayload,
+  buildVideoFactoryQueueJobId,
+  getInngestCompatibleWebhookUrl,
+  resolveVideoFactoryQueueEngine,
+  videoFactoryQueueJobSchema,
+  type VideoFactoryQueueEngine,
+  type VideoFactoryQueueJob,
+} from "@/lib/video-factory-queue-engine";
 
 const DEFAULT_VIDEO_FACTORY_RUN_QUEUE_PATH = path.join(
   process.cwd(),
   "data",
   "video-factory-run-queue.json",
 );
-
-const VIDEO_FACTORY_RUN_QUEUE_JOB_STATUSES = [
-  "queued",
-  "running",
-  "completed",
-  "failed",
-] as const;
 
 const ACTIVE_QUEUE_JOB_STATUSES = new Set(["queued", "running"]);
 const TERMINAL_LIFECYCLE_STATUSES = new Set([
@@ -52,24 +54,11 @@ type VideoFactoryRunSnapshot = {
   }>;
 };
 
-const videoFactoryRunQueueJobSchema = z.object({
-  queueJobId: z.string().trim().min(1),
-  opportunityId: z.string().trim().min(1),
-  factoryJobId: z.string().trim().nullable().default(null),
-  renderJobId: z.string().trim().nullable().default(null),
-  status: z.enum(VIDEO_FACTORY_RUN_QUEUE_JOB_STATUSES),
-  scheduledAt: z.string().trim().min(1),
-  startedAt: z.string().trim().nullable().default(null),
-  completedAt: z.string().trim().nullable().default(null),
-  errorMessage: z.string().trim().nullable().default(null),
-});
-
 const videoFactoryRunQueueStoreSchema = z.object({
   updatedAt: z.string().trim().nullable().default(null),
-  jobs: z.array(videoFactoryRunQueueJobSchema).default([]),
+  jobs: z.array(videoFactoryQueueJobSchema).default([]),
 });
 
-type VideoFactoryRunQueueJob = z.infer<typeof videoFactoryRunQueueJobSchema>;
 type VideoFactoryRunQueueStore = z.infer<typeof videoFactoryRunQueueStoreSchema>;
 
 export interface VideoFactoryRunQueueStateSummary {
@@ -129,6 +118,7 @@ export interface VideoFactoryRunSchedulerOptions {
   loadRunSnapshot?: (opportunityId: string) => Promise<VideoFactoryRunSnapshot | null>;
   maxConcurrentRuns?: number;
   queuePath?: string;
+  queueEngine?: VideoFactoryQueueEngine;
   resolveRunContext?: (opportunityId: string) => Promise<VideoFactoryRunContext | null>;
 }
 
@@ -137,7 +127,7 @@ function buildQueueJobId(input: {
   factoryJobId: string | null;
   renderJobId: string | null;
 }) {
-  return `video-factory-queue:${input.factoryJobId ?? input.renderJobId ?? input.opportunityId}`;
+  return buildVideoFactoryQueueJobId(input);
 }
 
 async function defaultResolveRunContext(
@@ -276,7 +266,7 @@ function getSnapshotFromExecutionResult(
 
 function findMatchingRunLedgerEntry(
   snapshot: VideoFactoryRunSnapshot,
-  queueJob: VideoFactoryRunQueueJob,
+  queueJob: VideoFactoryQueueJob,
 ) {
   for (let index = snapshot.runLedger.length - 1; index >= 0; index -= 1) {
     const entry = snapshot.runLedger[index];
@@ -310,6 +300,8 @@ export function createVideoFactoryRunCoordinator(
     options.queuePath?.trim() || DEFAULT_VIDEO_FACTORY_RUN_QUEUE_PATH;
   const maxConcurrentRuns =
     options.maxConcurrentRuns ?? MAX_CONCURRENT_VIDEO_FACTORY_RUNS;
+  const queueEngine =
+    options.queueEngine ?? resolveVideoFactoryQueueEngine();
   const resolveRunContext =
     options.resolveRunContext ?? defaultResolveRunContext;
   const loadRunSnapshot =
@@ -348,12 +340,12 @@ export function createVideoFactoryRunCoordinator(
     await writeFile(queuePath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
   }
 
-  function isActiveQueueJob(job: VideoFactoryRunQueueJob) {
+  function isActiveQueueJob(job: VideoFactoryQueueJob) {
     return ACTIVE_QUEUE_JOB_STATUSES.has(job.status);
   }
 
   function queueJobMatchesContext(
-    job: VideoFactoryRunQueueJob,
+    job: VideoFactoryQueueJob,
     context: VideoFactoryRunContext,
   ) {
     return (
@@ -365,6 +357,42 @@ export function createVideoFactoryRunCoordinator(
         !job.factoryJobId &&
         !job.renderJobId)
     );
+  }
+
+  async function dispatchExternally(
+    queueJob: VideoFactoryQueueJob,
+  ): Promise<VideoFactoryQueueJob> {
+    const webhookUrl = getInngestCompatibleWebhookUrl();
+    if (!webhookUrl) {
+      throw new Error(
+        "VIDEO_FACTORY_QUEUE_ENGINE is set to inngest-compatible but VIDEO_FACTORY_INNGEST_WEBHOOK_URL is not configured.",
+      );
+    }
+
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(
+        buildInngestCompatibleEventPayload({
+          queueJob,
+        }),
+      ),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Unable to dispatch the queue job to the Inngest-compatible webhook (${response.status}).`,
+      );
+    }
+
+    return videoFactoryQueueJobSchema.parse({
+      ...queueJob,
+      eventName: "video-factory/run.requested",
+      externalDispatchUrl: webhookUrl,
+      externalDispatchedAt: new Date().toISOString(),
+    });
   }
 
   async function enqueueRun(opportunityId: string) {
@@ -389,12 +417,20 @@ export function createVideoFactoryRunCoordinator(
 
       const timestamp = new Date().toISOString();
       store.jobs.push(
-        videoFactoryRunQueueJobSchema.parse({
+        videoFactoryQueueJobSchema.parse({
           queueJobId: context.queueJobId,
           opportunityId: context.opportunityId,
+          batchId: null,
           factoryJobId: context.factoryJobId,
           renderJobId: context.renderJobId,
+          engine: queueEngine,
           status: "queued",
+          priority: "normal",
+          throttleGroup: "video-factory",
+          concurrencyLimit: maxConcurrentRuns,
+          eventName: null,
+          externalDispatchUrl: null,
+          externalDispatchedAt: null,
           scheduledAt: timestamp,
           startedAt: null,
           completedAt: null,
@@ -419,7 +455,7 @@ export function createVideoFactoryRunCoordinator(
         }
 
         didMutate = true;
-        return videoFactoryRunQueueJobSchema.parse({
+        return videoFactoryQueueJobSchema.parse({
           ...job,
           status: "queued",
           startedAt: null,
@@ -432,16 +468,20 @@ export function createVideoFactoryRunCoordinator(
         (job) => job.status === "running",
       ).length;
       const remainingCapacity = Math.max(0, maxConcurrentRuns - runningCount);
-      const nextQueuedJobs: VideoFactoryRunQueueJob[] = [];
+      const nextQueuedJobs: VideoFactoryQueueJob[] = [];
       let claimed = 0;
       const nextJobs = repairedJobs.map((job) => {
-        if (job.status !== "queued" || claimed >= remainingCapacity) {
+        if (
+          job.status !== "queued" ||
+          job.engine !== "local-file" ||
+          claimed >= remainingCapacity
+        ) {
           return job;
         }
 
         claimed += 1;
         didMutate = true;
-        const claimedJob = videoFactoryRunQueueJobSchema.parse({
+        const claimedJob = videoFactoryQueueJobSchema.parse({
           ...job,
           status: "running",
           startedAt: timestamp,
@@ -474,7 +514,7 @@ export function createVideoFactoryRunCoordinator(
       const nextJobs = store.jobs.map((job) =>
         job.queueJobId !== input.queueJobId
           ? job
-          : videoFactoryRunQueueJobSchema.parse({
+          : videoFactoryQueueJobSchema.parse({
               ...job,
               status: input.status,
               completedAt: timestamp,
@@ -493,7 +533,7 @@ export function createVideoFactoryRunCoordinator(
   }
 
   async function resolveExecutionOutcome(
-    queueJob: VideoFactoryRunQueueJob,
+    queueJob: VideoFactoryQueueJob,
     executionResult: unknown,
   ) {
     const snapshot =
@@ -542,7 +582,7 @@ export function createVideoFactoryRunCoordinator(
     };
   }
 
-  function startClaimedRun(job: VideoFactoryRunQueueJob) {
+  function startClaimedRun(job: VideoFactoryQueueJob) {
     const execution = (async () => {
       try {
         const result = await executor({
@@ -571,6 +611,10 @@ export function createVideoFactoryRunCoordinator(
   }
 
   async function drainQueue() {
+    if (queueEngine !== "local-file") {
+      return;
+    }
+
     if (activeDrain) {
       return activeDrain;
     }
@@ -598,11 +642,43 @@ export function createVideoFactoryRunCoordinator(
   return {
     async schedule(input: { opportunityId: string }) {
       const scheduled = await enqueueRun(input.opportunityId);
-      await drainQueue();
+
+      if (scheduled && queueEngine === "inngest-compatible") {
+        await withQueueMutationLock(async () => {
+          const store = await readQueueStore();
+          const queueJob = [...store.jobs]
+            .reverse()
+            .find(
+              (job) =>
+                job.opportunityId === input.opportunityId &&
+                job.status === "queued" &&
+                job.engine === "inngest-compatible",
+            );
+          if (!queueJob) {
+            return;
+          }
+
+          const dispatchedJob = await dispatchExternally(queueJob);
+          await writeQueueStore({
+            updatedAt:
+              dispatchedJob.externalDispatchedAt ?? new Date().toISOString(),
+            jobs: store.jobs.map((job) =>
+              job.queueJobId === dispatchedJob.queueJobId
+                ? dispatchedJob
+                : job,
+            ),
+          });
+        });
+      } else {
+        await drainQueue();
+      }
+
       return scheduled;
     },
     async resume() {
-      await drainQueue();
+      if (queueEngine === "local-file") {
+        await drainQueue();
+      }
     },
   };
 }

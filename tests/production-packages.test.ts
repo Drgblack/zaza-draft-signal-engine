@@ -614,6 +614,9 @@ test("buildProductionPackage exports accepted real artifacts and lineage", () =>
     "runway-gen4",
   ]);
   assert.equal(productionPackage.connectSummary.reviewStatus, "accepted");
+  assert.equal(productionPackage.delivery.finalVideo?.deliveryClass, "cdn_ready");
+  assert.equal(productionPackage.delivery.thumbnail?.publicUrl, "https://blob.example/thumb.jpg");
+  assert.equal(productionPackage.delivery.sceneAssets.length, 1);
 });
 
 test("buildProductionPackage falls back to latest attempt when the current render is not accepted", () => {

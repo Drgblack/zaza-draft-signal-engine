@@ -426,11 +426,16 @@ function buildOpportunityFixture(): ContentOpportunity {
 }
 
 test("buildVideoFactoryReviewBrief maps the selected brief", () => {
-  const brief = buildVideoFactoryReviewBrief(buildOpportunityFixture());
+  const opportunity = buildOpportunityFixture();
+  opportunity.historicalCostAvg = 1.18;
+  opportunity.historicalApprovalRate = 0.62;
+  const brief = buildVideoFactoryReviewBrief(opportunity);
 
   assert.equal(brief?.briefId, "brief-1");
   assert.equal(brief?.primaryHook, "Every teacher knows the feeling of rereading the email five times.");
   assert.equal(brief?.finalScriptTrustScore, 88);
+  assert.equal(brief?.historicalCostAvg, 1.18);
+  assert.equal(brief?.historicalApprovalRate, 0.62);
   assert.deepEqual(brief?.trustGuardrails, ["No exaggerated claims", "No urgency language"]);
 });
 

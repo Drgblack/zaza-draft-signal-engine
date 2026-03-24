@@ -44,6 +44,8 @@ export interface VideoBriefSummary {
   softClose: string;
   trustGuardrails: string[];
   audience: string;
+  historicalCostAvg: number | null;
+  historicalApprovalRate: number | null;
   finalScriptTrustScore: number | null;
 }
 
@@ -420,6 +422,8 @@ export function buildVideoFactoryReviewBrief(
     softClose: brief.cta,
     trustGuardrails: brief.productionNotes ?? [],
     audience: opportunity.memoryContext.audienceCue ?? opportunity.primaryPainPoint,
+    historicalCostAvg: opportunity.historicalCostAvg ?? null,
+    historicalApprovalRate: opportunity.historicalApprovalRate ?? null,
     finalScriptTrustScore: brief.finalScriptTrustScore ?? null,
   };
 }

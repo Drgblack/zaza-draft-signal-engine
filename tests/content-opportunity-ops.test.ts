@@ -310,6 +310,32 @@ test("dismissContentOpportunity requires a skip reason", { concurrency: false },
   });
 });
 
+test("buildAutoApprovedOpportunity selects the first stable angle, hook, and brief", async () => {
+  const contentOpportunities = await import("../lib/content-opportunities");
+  const openOpportunity = contentOpportunitySchema.parse({
+    ...buildOpportunityFixture(),
+    status: "open",
+    approvedAt: null,
+    founderSelectionStatus: "pending",
+    selectedAngleId: null,
+    selectedHookId: null,
+    selectedVideoBrief: null,
+    generationState: null,
+  });
+
+  const approved = contentOpportunities.buildAutoApprovedOpportunity(
+    openOpportunity,
+    "2026-03-24T10:00:00.000Z",
+  );
+
+  assert.ok(approved);
+  assert.equal(approved?.status, "approved_for_production");
+  assert.equal(approved?.founderSelectionStatus, "approved");
+  assert.ok(approved?.selectedAngleId);
+  assert.ok(approved?.selectedHookId);
+  assert.ok(approved?.selectedVideoBrief);
+});
+
 test("updateContentOpportunityThumbnail overrides and resets the persisted review thumbnail", { concurrency: false }, async () => {
   await withTempContentOpportunityModule(async ({ dataDir, loadModule }) => {
     await writeFile(
@@ -384,6 +410,24 @@ test("updateContentOpportunityThumbnail overrides and resets the persisted revie
 
     assert.equal(
       rawStore.opportunities[0]?.generationState?.renderedAsset?.thumbnailUrl,
+      "https://blob.example/generated-thumb.jpg",
+    );
+
+    const thumbnailSpecStore = JSON.parse(
+      await readFile(
+        path.join(dataDir, "video-factory-thumbnail-specs.json"),
+        "utf8",
+      ),
+    ) as {
+      specs: Array<{
+        providerId?: string;
+        imageUrl?: string;
+      }>;
+    };
+
+    assert.equal(thumbnailSpecStore.specs[0]?.providerId, "ffmpeg");
+    assert.equal(
+      thumbnailSpecStore.specs[0]?.imageUrl,
       "https://blob.example/generated-thumb.jpg",
     );
   });
