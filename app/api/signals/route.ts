@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, buildRecommendationEvent } from "@/lib/audit";
-import { createSignal, getSafeAirtableErrorMessage, listSignals } from "@/lib/airtable";
+import { createSignal, getSafeAirtableErrorMessage, listSignals } from "@/lib/signal-repository";
 import { buildMockCreatedSignal, mockSignalRecords } from "@/lib/mock-data";
 import { getAppConfig } from "@/lib/config";
 import { getOperatorTuning } from "@/lib/tuning";
@@ -149,3 +149,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

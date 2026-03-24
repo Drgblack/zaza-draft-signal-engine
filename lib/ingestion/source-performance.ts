@@ -1,5 +1,5 @@
 import { hasGeneration, hasInterpretation } from "@/lib/workflow";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { managedIngestionSourceSchema, type IngestionSourceDefinition, type ManagedIngestionSource } from "@/lib/ingestion/types";
 import { listPostingLogEntries, type PostingLogEntry } from "@/lib/posting-log";
 import { listPostingOutcomes, type PostingOutcome } from "@/lib/outcomes";
@@ -249,3 +249,4 @@ export async function getManagedIngestionSourcesWithFallback(): Promise<{
     error: signalResult.error,
   };
 }
+

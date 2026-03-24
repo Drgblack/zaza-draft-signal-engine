@@ -1,4 +1,5 @@
 import { buildDuplicateKeyFromSignal, canonicalizeSourceUrl } from "@/lib/ingestion/normalize";
+import { flattenSignalEnvelope, toSignalEnvelope } from "@/lib/signal-envelope";
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import {
   ABSTRACT_COMMENTARY_PATTERNS,
@@ -23,7 +24,7 @@ import {
   type OperatorTuningSettings,
 } from "@/lib/tuning";
 import { assessTransformability } from "@/lib/transformability";
-import type { SignalRecord, SignalScoringResult } from "@/types/signal";
+import type { SignalEnvelope, SignalRecord, SignalScoringResult } from "@/types/signal";
 
 function buildSignalText(signal: SignalRecord): string {
   return [
@@ -444,52 +445,58 @@ function buildRejectedReason(
   return `Rejected because ${reasons.slice(0, 2).join(" and ")}.`;
 }
 
-export function buildInitialScoringFromSignal(signal: SignalRecord): SignalScoringResult | null {
+type SignalScoringSource = SignalRecord | SignalEnvelope;
+
+export function buildInitialScoringFromSignal(signal: SignalScoringSource): SignalScoringResult | null {
+  const envelope = toSignalEnvelope(signal);
+
   if (
-    signal.signalRelevanceScore === null ||
-    signal.signalNoveltyScore === null ||
-    signal.signalUrgencyScore === null ||
-    signal.brandFitScore === null ||
-    signal.sourceTrustScore === null ||
-    signal.keepRejectRecommendation === null ||
-    signal.qualityGateResult === null ||
-    signal.reviewPriority === null ||
-    signal.needsHumanReview === null
+    envelope.score.signalRelevanceScore === null ||
+    envelope.score.signalNoveltyScore === null ||
+    envelope.score.signalUrgencyScore === null ||
+    envelope.score.brandFitScore === null ||
+    envelope.score.sourceTrustScore === null ||
+    envelope.score.keepRejectRecommendation === null ||
+    envelope.score.qualityGateResult === null ||
+    envelope.score.reviewPriority === null ||
+    envelope.score.needsHumanReview === null
   ) {
     return null;
   }
 
   return {
-    signalRelevanceScore: signal.signalRelevanceScore,
-    signalNoveltyScore: signal.signalNoveltyScore,
-    signalUrgencyScore: signal.signalUrgencyScore,
-    brandFitScore: signal.brandFitScore,
-    sourceTrustScore: signal.sourceTrustScore,
-    keepRejectRecommendation: signal.keepRejectRecommendation,
-    whySelected: signal.whySelected,
-    whyRejected: signal.whyRejected,
-    needsHumanReview: signal.needsHumanReview,
-    qualityGateResult: signal.qualityGateResult,
-    reviewPriority: signal.reviewPriority,
-    similarityToExistingContent: signal.similarityToExistingContent,
-    duplicateClusterId: signal.duplicateClusterId,
+    signalRelevanceScore: envelope.score.signalRelevanceScore,
+    signalNoveltyScore: envelope.score.signalNoveltyScore,
+    signalUrgencyScore: envelope.score.signalUrgencyScore,
+    brandFitScore: envelope.score.brandFitScore,
+    sourceTrustScore: envelope.score.sourceTrustScore,
+    keepRejectRecommendation: envelope.score.keepRejectRecommendation,
+    whySelected: envelope.score.whySelected,
+    whyRejected: envelope.score.whyRejected,
+    needsHumanReview: envelope.score.needsHumanReview,
+    qualityGateResult: envelope.score.qualityGateResult,
+    reviewPriority: envelope.score.reviewPriority,
+    similarityToExistingContent: envelope.score.similarityToExistingContent,
+    duplicateClusterId: envelope.score.duplicateClusterId,
     scoringVersion: SCORING_VERSION,
-    scoredAt: signal.createdDate,
+    scoredAt: envelope.meta.createdDate,
   };
 }
 
 export function scoreSignal(
-  signal: SignalRecord,
-  existingSignals: SignalRecord[],
+  signal: SignalScoringSource,
+  existingSignals: SignalScoringSource[],
   tuning?: OperatorTuningSettings,
 ): SignalScoringResult {
-  const text = buildSignalText(signal);
-  const similarityToExistingContent = getSimilarityToExistingContent(signal, existingSignals);
-  const relevance = scoreRelevance(signal, text, tuning);
-  const brandFit = scoreBrandFit(signal, text, tuning);
-  const urgency = scoreUrgency(signal, text);
-  const trust = scoreSourceTrust(signal, text, tuning);
-  const novelty = scoreNovelty(signal, similarityToExistingContent, tuning);
+  const legacySignal = flattenSignalEnvelope(signal);
+  const legacySignals = existingSignals.map(flattenSignalEnvelope);
+  const text = buildSignalText(legacySignal);
+  const similarityToExistingContent = getSimilarityToExistingContent(legacySignal, legacySignals);
+  const relevance = scoreRelevance(legacySignal, text, tuning);
+  const brandFit = scoreBrandFit(legacySignal, text, tuning);
+  const urgency = scoreUrgency(legacySignal, text);
+  const trust = scoreSourceTrust(legacySignal, text, tuning);
+  const novelty = scoreNovelty(legacySignal, similarityToExistingContent, tuning);
   const decision = decideRecommendation({
     relevance,
     novelty,
@@ -514,14 +521,14 @@ export function scoreSignal(
     reviewPriority: decision.reviewPriority,
     similarityToExistingContent,
     duplicateClusterId:
-      (similarityToExistingContent ?? 0) >= 95 ? buildDuplicateKeyFromSignal(signal).replace(/^url:|^title-date:/, "dup-") : null,
+      (similarityToExistingContent ?? 0) >= 95 ? buildDuplicateKeyFromSignal(legacySignal).replace(/^url:|^title-date:/, "dup-") : null,
     scoringVersion: SCORING_VERSION,
     scoredAt,
   };
 
   return {
     ...provisional,
-    whySelected: buildSelectedReason(signal, provisional, tuning),
-    whyRejected: buildRejectedReason(signal, provisional, tuning),
+    whySelected: buildSelectedReason(legacySignal, provisional, tuning),
+    whyRejected: buildRejectedReason(legacySignal, provisional, tuning),
   };
 }

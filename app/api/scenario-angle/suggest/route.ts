@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback } from "@/lib/signal-repository";
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import { suggestScenarioAngles } from "@/lib/scenario-angle-suggest";
 import {
@@ -66,3 +66,4 @@ export async function POST(request: Request) {
     message: suggestionResult.message,
   });
 }
+

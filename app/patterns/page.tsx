@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { listAuditEvents } from "@/lib/audit";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { getBundlesForPattern, listPatternBundles } from "@/lib/pattern-bundles";
@@ -294,3 +294,4 @@ export default async function PatternsPage({
     </div>
   );
 }
+

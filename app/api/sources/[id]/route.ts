@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { updateIngestionSource } from "@/lib/ingestion/sources";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { listPostingOutcomes } from "@/lib/outcomes";

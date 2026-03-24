@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { getCampaignStrategy } from "@/lib/campaigns";
 import {
@@ -176,3 +176,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

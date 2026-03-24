@@ -4,7 +4,7 @@ import { FlywheelOptimisationPanel } from "@/components/optimisation/flywheel-op
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
@@ -274,3 +274,4 @@ export default async function OptimisationPage() {
     </div>
   );
 }
+

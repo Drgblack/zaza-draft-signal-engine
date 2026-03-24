@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { syncAttributionMemory } from "@/lib/attribution";
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
 import { getCampaignStrategy } from "@/lib/campaigns";

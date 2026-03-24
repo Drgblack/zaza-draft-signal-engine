@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
-import { getSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback } from "@/lib/signal-repository";
 import { createPatternRequestSchema } from "@/lib/pattern-definitions";
 import { appendPattern, getPatternAuditSubjectId, listPatterns } from "@/lib/patterns";
 import type { PatternListResponse, PatternResponse } from "@/types/api";
@@ -124,3 +124,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

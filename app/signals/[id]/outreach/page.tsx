@@ -5,7 +5,7 @@ import { OutreachPanel } from "@/components/outreach/outreach-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
-import { getSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback } from "@/lib/signal-repository";
 import { listInfluencers } from "@/lib/influencer-graph";
 import {
   buildZazaConnectSignalHints,

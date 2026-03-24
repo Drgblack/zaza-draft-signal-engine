@@ -4,7 +4,7 @@ import { WeeklyRecapPanel } from "@/components/recap/weekly-recap-panel";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { syncAttributionMemory } from "@/lib/attribution";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { listExperiments } from "@/lib/experiments";
@@ -96,3 +96,4 @@ export default async function WeeklyRecapPage() {
     </div>
   );
 }
+

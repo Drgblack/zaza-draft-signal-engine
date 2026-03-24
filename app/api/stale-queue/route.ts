@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback } from "@/lib/signal-repository";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import {
   getStaleQueueOperatorStateSync,
@@ -104,3 +104,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

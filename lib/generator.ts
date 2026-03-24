@@ -1,4 +1,5 @@
 import { getEditorialModeDefinition } from "@/lib/editorial-modes";
+import { isSignalEnvelope, toSignalEnvelope } from "@/lib/signal-envelope";
 import { applyFounderVoiceToGeneration, isFounderVoiceOn } from "@/lib/founder-voice";
 import { buildAssetBundle, buildSignalAssetBundle, parseAssetBundle, stringifyAssetBundle } from "@/lib/assets";
 import { GENERATION_JSON_SCHEMA, GENERATION_PROMPT_VERSION, buildGenerationSystemPrompt, buildGenerationUserPrompt } from "@/lib/generation-prompts";
@@ -8,7 +9,7 @@ import { getPlatformIntentProfile } from "@/lib/platform-profiles";
 import { getScenarioPriority } from "@/lib/scenario-angle";
 import { generationResultSchema } from "@/types/api";
 import { HOOK_TEMPLATES } from "@/types/signal";
-import type { EditorialMode, FounderVoiceMode, SignalGenerationInput, SignalGenerationResult, SignalRecord } from "@/types/signal";
+import type { EditorialMode, FounderVoiceMode, SignalEnvelope, SignalGenerationInput, SignalGenerationResult, SignalRecord } from "@/types/signal";
 import { ZodError } from "zod";
 
 export interface DraftGenerationRun {
@@ -224,87 +225,96 @@ export function buildMockDrafts(
   };
 }
 
-export function toGenerationInputFromSignal(signal: SignalRecord): SignalGenerationInput | null {
-  const hookTemplateUsed = signal.hookTemplateUsed && HOOK_TEMPLATES.includes(signal.hookTemplateUsed as SignalGenerationInput["hookTemplateUsed"])
-    ? (signal.hookTemplateUsed as SignalGenerationInput["hookTemplateUsed"])
+type SignalGenerationSource = SignalRecord | SignalEnvelope;
+
+export function toGenerationInputFromSignal(signal: SignalGenerationSource): SignalGenerationInput | null {
+  const envelope = toSignalEnvelope(signal);
+  const hookTemplateUsed =
+    envelope.interpretation.hookTemplateUsed &&
+    HOOK_TEMPLATES.includes(envelope.interpretation.hookTemplateUsed as SignalGenerationInput["hookTemplateUsed"])
+      ? (envelope.interpretation.hookTemplateUsed as SignalGenerationInput["hookTemplateUsed"])
     : null;
 
   if (
-    !signal.signalCategory ||
-    !signal.severityScore ||
-    !signal.signalSubtype ||
-    !signal.emotionalPattern ||
-    !signal.teacherPainPoint ||
-    !signal.relevanceToZazaDraft ||
-    !signal.riskToTeacher ||
-    !signal.interpretationNotes ||
+    !envelope.interpretation.signalCategory ||
+    !envelope.interpretation.severityScore ||
+    !envelope.interpretation.signalSubtype ||
+    !envelope.interpretation.emotionalPattern ||
+    !envelope.interpretation.teacherPainPoint ||
+    !envelope.interpretation.relevanceToZazaDraft ||
+    !envelope.interpretation.riskToTeacher ||
+    !envelope.interpretation.interpretationNotes ||
     !hookTemplateUsed ||
-    !signal.contentAngle ||
-    !signal.platformPriority ||
-    !signal.suggestedFormatPriority
+    !envelope.interpretation.contentAngle ||
+    !envelope.interpretation.platformPriority ||
+    !envelope.interpretation.suggestedFormatPriority
   ) {
     return null;
   }
 
   return {
-    recordId: signal.recordId,
-    sourceTitle: signal.sourceTitle,
-    sourceType: signal.sourceType,
-    sourcePublisher: signal.sourcePublisher,
-    sourceDate: signal.sourceDate,
-    sourceUrl: signal.sourceUrl,
-    rawExcerpt: signal.rawExcerpt,
-    manualSummary: signal.manualSummary,
-    scenarioAngle: signal.scenarioAngle,
-    signalCategory: signal.signalCategory,
-    severityScore: signal.severityScore,
-    signalSubtype: signal.signalSubtype,
-    emotionalPattern: signal.emotionalPattern,
-    teacherPainPoint: signal.teacherPainPoint,
-    relevanceToZazaDraft: signal.relevanceToZazaDraft,
-    riskToTeacher: signal.riskToTeacher,
-    interpretationNotes: signal.interpretationNotes,
+    recordId: envelope.meta.recordId,
+    sourceTitle: envelope.input.sourceTitle,
+    sourceType: envelope.input.sourceType,
+    sourcePublisher: envelope.input.sourcePublisher,
+    sourceDate: envelope.input.sourceDate,
+    sourceUrl: envelope.input.sourceUrl,
+    rawExcerpt: envelope.input.rawExcerpt,
+    manualSummary: envelope.input.manualSummary,
+    scenarioAngle: envelope.input.scenarioAngle,
+    signalCategory: envelope.interpretation.signalCategory,
+    severityScore: envelope.interpretation.severityScore,
+    signalSubtype: envelope.interpretation.signalSubtype,
+    emotionalPattern: envelope.interpretation.emotionalPattern,
+    teacherPainPoint: envelope.interpretation.teacherPainPoint,
+    relevanceToZazaDraft: envelope.interpretation.relevanceToZazaDraft,
+    riskToTeacher: envelope.interpretation.riskToTeacher,
+    interpretationNotes: envelope.interpretation.interpretationNotes,
     hookTemplateUsed,
-    contentAngle: signal.contentAngle,
-    platformPriority: signal.platformPriority,
-    suggestedFormatPriority: signal.suggestedFormatPriority,
+    contentAngle: envelope.interpretation.contentAngle,
+    platformPriority: envelope.interpretation.platformPriority,
+    suggestedFormatPriority: envelope.interpretation.suggestedFormatPriority,
   };
 }
 
-export function buildInitialGenerationFromSignal(signal: SignalRecord): SignalGenerationResult | null {
+export function buildInitialGenerationFromSignal(signal: SignalGenerationSource): SignalGenerationResult | null {
+  const envelope = toSignalEnvelope(signal);
+
   if (
-    !signal.xDraft ||
-    !signal.linkedInDraft ||
-    !signal.redditDraft ||
-    !signal.imagePrompt ||
-    !signal.videoScript ||
-    !signal.ctaOrClosingLine ||
-    !signal.hashtagsOrKeywords
+    !envelope.draft.xDraft ||
+    !envelope.draft.linkedInDraft ||
+    !envelope.draft.redditDraft ||
+    !envelope.draft.imagePrompt ||
+    !envelope.draft.videoScript ||
+    !envelope.draft.ctaOrClosingLine ||
+    !envelope.draft.hashtagsOrKeywords
   ) {
     return null;
   }
 
   const providerConfig = getGenerationProviderConfig();
-  const assetBundle = parseAssetBundle(signal.assetBundleJson) ?? buildSignalAssetBundle(signal);
+  const assetBundle =
+    parseAssetBundle(envelope.draft.assetBundleJson) ??
+    (isSignalEnvelope(signal) ? null : buildSignalAssetBundle(signal));
 
   return {
-    xDraft: signal.xDraft,
-    linkedInDraft: signal.linkedInDraft,
-    redditDraft: signal.redditDraft,
-    imagePrompt: signal.imagePrompt,
-    videoScript: signal.videoScript,
-    ctaOrClosingLine: signal.ctaOrClosingLine,
-    hashtagsOrKeywords: signal.hashtagsOrKeywords,
+    xDraft: envelope.draft.xDraft,
+    linkedInDraft: envelope.draft.linkedInDraft,
+    redditDraft: envelope.draft.redditDraft,
+    imagePrompt: envelope.draft.imagePrompt,
+    videoScript: envelope.draft.videoScript,
+    ctaOrClosingLine: envelope.draft.ctaOrClosingLine,
+    hashtagsOrKeywords: envelope.draft.hashtagsOrKeywords,
     generationSource: providerConfig.provider === "mock" ? "manual" : providerConfig.provider,
-    generationModelVersion: signal.generationModelVersion ?? "manual-save",
-    promptVersion: signal.promptVersion ?? GENERATION_PROMPT_VERSION,
-    generatedAt: signal.createdDate,
-    assetBundleJson: signal.assetBundleJson,
-    publishPrepBundleJson: signal.publishPrepBundleJson,
-    preferredAssetType: signal.preferredAssetType,
-    selectedImageAssetId: signal.selectedImageAssetId ?? assetBundle?.imageAssets[0]?.id ?? null,
-    selectedVideoConceptId: signal.selectedVideoConceptId ?? assetBundle?.videoConcepts[0]?.id ?? null,
-    generatedImageUrl: signal.generatedImageUrl,
+    generationModelVersion: envelope.draft.generationModelVersion ?? "manual-save",
+    promptVersion: envelope.draft.promptVersion ?? GENERATION_PROMPT_VERSION,
+    generatedAt: envelope.meta.createdDate,
+    assetBundleJson: envelope.draft.assetBundleJson,
+    publishPrepBundleJson: envelope.draft.publishPrepBundleJson,
+    preferredAssetType: envelope.draft.preferredAssetType,
+    selectedImageAssetId: envelope.draft.selectedImageAssetId ?? assetBundle?.imageAssets[0]?.id ?? null,
+    selectedVideoConceptId: envelope.draft.selectedVideoConceptId ?? assetBundle?.videoConcepts[0]?.id ?? null,
+    generatedImageUrl: envelope.draft.generatedImageUrl,
   };
 }
 

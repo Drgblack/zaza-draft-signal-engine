@@ -4,7 +4,7 @@ import { OperatorTaskList } from "@/components/tasks/operator-task-list";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { listDuplicateClusters } from "@/lib/duplicate-clusters";
 import { listExperiments } from "@/lib/experiments";
@@ -150,3 +150,4 @@ export default async function TasksPage() {
     </div>
   );
 }
+

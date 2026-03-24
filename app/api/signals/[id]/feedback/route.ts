@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, listAuditEvents, type AuditEventInput } from "@/lib/audit";
-import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/signal-repository";
 import { createFeedbackRequestSchema, getFeedbackAuditSummary } from "@/lib/feedback-definitions";
 import { appendFeedback, getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { buildPatternCoverageRecords, buildPatternGapDetectedEvent } from "@/lib/pattern-coverage";

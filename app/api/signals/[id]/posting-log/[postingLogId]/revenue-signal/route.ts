@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback } from "@/lib/signal-repository";
 import { getPostingPlatformLabel, getPostingLogEntries } from "@/lib/posting-log";
 import {
   getRevenueSignal,

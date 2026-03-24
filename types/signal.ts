@@ -325,7 +325,45 @@ export interface SignalScoringResult {
 
 export type SignalScoringSavePayload = SignalScoringResult;
 
-export interface SignalAutomationEvaluationFields {
+export interface SignalEnvelopeMeta {
+  recordId: string;
+  createdDate: string;
+  createdBy: string | null;
+  status: SignalStatus;
+}
+
+export interface SignalStrategyContext {
+  campaignId: string | null;
+  pillarId: string | null;
+  audienceSegmentId: string | null;
+  funnelStage: FunnelStage | null;
+  ctaGoal: CtaGoal | null;
+}
+
+export interface SignalAssetSelection {
+  preferredAssetType: AssetPrimaryType | null;
+  selectedImageAssetId: string | null;
+  selectedVideoConceptId: string | null;
+  generatedImageUrl: string | null;
+}
+
+export interface SignalInput extends SignalStrategyContext {
+  sourceUrl: string | null;
+  sourceTitle: string;
+  sourceType: string | null;
+  sourcePublisher: string | null;
+  sourceDate: string | null;
+  rawExcerpt: string | null;
+  manualSummary: string | null;
+  scenarioAngle: string | null;
+  ingestionSource: string | null;
+  ingestionMethod: string | null;
+  teacherVoiceSource: TeacherVoiceSource | null;
+  anonymisedUserPattern: boolean | null;
+  relatedZazaFrameworkTag: string | null;
+}
+
+export interface SignalScore {
   ingestionSource: string | null;
   ingestionMethod: string | null;
   signalRelevanceScore: number | null;
@@ -344,23 +382,7 @@ export interface SignalAutomationEvaluationFields {
   reviewPriority: ReviewPriority | null;
 }
 
-export interface SignalRecord extends SignalAutomationEvaluationFields {
-  recordId: string;
-  createdDate: string;
-  createdBy: string | null;
-  status: SignalStatus;
-  reviewNotes: string | null;
-  reuseFlag: boolean;
-  scheduledDate: string | null;
-  postedDate: string | null;
-  sourceUrl: string | null;
-  sourceTitle: string;
-  sourceType: string | null;
-  sourcePublisher: string | null;
-  sourceDate: string | null;
-  rawExcerpt: string | null;
-  manualSummary: string | null;
-  scenarioAngle: string | null;
+export interface SignalInterpretation extends SignalStrategyContext {
   signalCategory: SignalCategory | null;
   severityScore: SeverityScore | null;
   signalSubtype: string | null;
@@ -373,9 +395,29 @@ export interface SignalRecord extends SignalAutomationEvaluationFields {
   contentAngle: string | null;
   platformPriority: PlatformPriority | null;
   suggestedFormatPriority: SuggestedFormatPriority | null;
+}
+
+export interface SignalDraft extends SignalAssetSelection {
   xDraft: string | null;
   linkedInDraft: string | null;
   redditDraft: string | null;
+  imagePrompt: string | null;
+  videoScript: string | null;
+  ctaOrClosingLine: string | null;
+  hashtagsOrKeywords: string | null;
+  editorialMode: EditorialMode | null;
+  founderVoiceMode: FounderVoiceMode | null;
+  founderVoiceAppliedAt: string | null;
+  generationModelVersion: string | null;
+  promptVersion: string | null;
+  assetBundleJson: string | null;
+  repurposingBundleJson: string | null;
+  publishPrepBundleJson: string | null;
+  selectedRepurposedOutputIdsJson: string | null;
+}
+
+export interface SignalReview {
+  reviewNotes: string | null;
   finalXDraft: string | null;
   finalLinkedInDraft: string | null;
   finalRedditDraft: string | null;
@@ -385,15 +427,21 @@ export interface SignalRecord extends SignalAutomationEvaluationFields {
   finalReviewNotes: string | null;
   finalReviewStartedAt: string | null;
   finalReviewedAt: string | null;
-  imagePrompt: string | null;
-  videoScript: string | null;
-  ctaOrClosingLine: string | null;
-  hashtagsOrKeywords: string | null;
+  autoRepairHistoryJson: string | null;
+}
+
+export interface SignalPublish {
+  reuseFlag: boolean;
+  scheduledDate: string | null;
+  postedDate: string | null;
   posted: boolean;
   platformPostedTo: string | null;
   finalCaptionUsed: string | null;
   assetLink: string | null;
   postUrl: string | null;
+}
+
+export interface SignalPerformance {
   platformPerformedBest: string | null;
   likesOrReactions: number | null;
   comments: number | null;
@@ -408,30 +456,30 @@ export interface SignalRecord extends SignalAutomationEvaluationFields {
   evergreenPotential: string | null;
   repurposeLater: boolean;
   repurposeIdeas: string | null;
-  teacherVoiceSource: TeacherVoiceSource | null;
-  anonymisedUserPattern: boolean | null;
-  relatedZazaFrameworkTag: string | null;
-  editorialMode: EditorialMode | null;
-  founderVoiceMode: FounderVoiceMode | null;
-  founderVoiceAppliedAt: string | null;
-  campaignId: string | null;
-  pillarId: string | null;
-  audienceSegmentId: string | null;
-  funnelStage: FunnelStage | null;
-  ctaGoal: CtaGoal | null;
-  generationModelVersion: string | null;
-  promptVersion: string | null;
-  assetBundleJson: string | null;
-  repurposingBundleJson: string | null;
-  publishPrepBundleJson: string | null;
-  selectedRepurposedOutputIdsJson: string | null;
-  autoRepairHistoryJson: string | null;
-  preferredAssetType: AssetPrimaryType | null;
-  selectedImageAssetId: string | null;
-  selectedVideoConceptId: string | null;
-  generatedImageUrl: string | null;
 }
 
+export interface SignalEnvelope {
+  meta: SignalEnvelopeMeta;
+  input: SignalInput;
+  score: SignalScore;
+  interpretation: SignalInterpretation;
+  draft: SignalDraft;
+  review: SignalReview;
+  publish: SignalPublish;
+  performance: SignalPerformance;
+}
+
+export interface SignalRecord
+  extends SignalEnvelopeMeta,
+    SignalInput,
+    SignalScore,
+    SignalInterpretation,
+    SignalDraft,
+    SignalReview,
+    SignalPublish,
+    SignalPerformance {}
+
+export type SignalAutomationEvaluationFields = SignalScore;
 export type UpdateSignalInput = Partial<Omit<SignalRecord, "recordId">>;
 
 export type SignalDataSource = "airtable" | "mock";

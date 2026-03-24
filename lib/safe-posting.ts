@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { evaluateAutonomyPolicy } from "@/lib/autonomy-policy";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import {
@@ -476,3 +476,4 @@ export function buildSafePostingInsights(input: {
       .slice(0, 4),
   } satisfies SafePostingInsights;
 }
+

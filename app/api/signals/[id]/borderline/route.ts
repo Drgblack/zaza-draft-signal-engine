@@ -6,7 +6,7 @@ import {
   assessAutoRepairPlan,
   buildAutoRepairHistoryEntry,
 } from "@/lib/auto-repair";
-import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/signal-repository";
 import { appendAuditEventsSafe, buildRecommendationEvent, type AuditEventInput } from "@/lib/audit";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { assembleGuidanceForSignal } from "@/lib/guidance";

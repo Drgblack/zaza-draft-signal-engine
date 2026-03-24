@@ -3,7 +3,7 @@ import Link from "next/link";
 import { PlaybookCardFormCard } from "@/components/playbook/playbook-card-form-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildPlaybookCoverageSummary, buildPlaybookDraftFromCoverageGap } from "@/lib/playbook-coverage";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { listPatternBundles } from "@/lib/pattern-bundles";
@@ -255,3 +255,4 @@ export default async function PlaybookPage({
     </div>
   );
 }
+

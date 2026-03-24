@@ -4,7 +4,7 @@ import { GrowthScorecardPanel } from "@/components/scorecard/growth-scorecard-pa
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
@@ -295,3 +295,4 @@ export default async function ScorecardPage() {
     </div>
   );
 }
+

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
@@ -437,3 +437,4 @@ export async function POST(request: Request) {
           : "Zaza Connect export created and replaced the previous latest snapshot.",
   });
 }
+

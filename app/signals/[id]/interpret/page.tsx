@@ -6,7 +6,7 @@ import { GuidancePanel } from "@/components/signals/guidance-panel";
 import { InterpretationWorkbench } from "@/components/signals/interpretation-workbench";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/signal-repository";
 import { listAuditEvents } from "@/lib/audit";
 import { getCampaignStrategy } from "@/lib/campaigns";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";

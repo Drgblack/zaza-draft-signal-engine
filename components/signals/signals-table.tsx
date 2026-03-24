@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { CopilotHint } from "@/components/signals/copilot-guidance";
 import { buttonVariants } from "@/components/ui/button";
-import { deriveDisplayEngagementScore } from "@/lib/airtable";
+import { deriveDisplayEngagementScore } from "@/lib/signal-repository";
 import { getCopilotGuidance, type CopilotGuidance } from "@/lib/copilot";
 import { CategoryBadge } from "@/components/signals/category-badge";
 import { SourceContextBadge } from "@/components/signals/source-context-badge";
@@ -141,3 +141,4 @@ export function SignalsTable({
     </Card>
   );
 }
+

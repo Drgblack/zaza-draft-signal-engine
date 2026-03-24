@@ -12,7 +12,7 @@ import { ExperimentProposalSection } from "@/components/signals/experiment-propo
 import { WorkflowQueueSection } from "@/components/signals/workflow-queue-section";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { appendAuditEventsSafe, listAuditEvents, type AuditEventInput } from "@/lib/audit";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
@@ -1169,3 +1169,4 @@ export default async function ReviewPage({
     </div>
   );
 }
+

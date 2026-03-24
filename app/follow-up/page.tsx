@@ -4,7 +4,7 @@ import { FollowUpTaskList } from "@/components/follow-up/follow-up-task-list";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { listExperiments } from "@/lib/experiments";
 import { listFollowUpTasks } from "@/lib/follow-up";
 import { listPostingOutcomes } from "@/lib/outcomes";
@@ -99,3 +99,4 @@ export default async function FollowUpPage() {
     </div>
   );
 }
+

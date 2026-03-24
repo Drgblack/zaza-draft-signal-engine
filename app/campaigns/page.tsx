@@ -3,7 +3,7 @@ import { CampaignLifecyclePanel } from "@/components/campaigns/campaign-lifecycl
 import { CampaignStrategyManager } from "@/components/campaigns/campaign-strategy-manager";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
@@ -275,3 +275,4 @@ export default async function CampaignsPage() {
     </div>
   );
 }
+

@@ -15,7 +15,7 @@ import { GrowthScorecardPanel } from "@/components/scorecard/growth-scorecard-pa
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { appendAuditEventsSafe, listAuditEvents } from "@/lib/audit";
 import { buildAttributionInsights, buildAttributionRecordsFromInputs } from "@/lib/attribution";
@@ -1653,3 +1653,4 @@ export default async function DigestPage() {
     </div>
   );
 }
+

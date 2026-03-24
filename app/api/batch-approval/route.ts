@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getSignalWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, saveSignalWithFallback } from "@/lib/signal-repository";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { batchApprovalActionRequestSchema } from "@/lib/batch-approval";
 import { buildFinalReviewSummary } from "@/lib/final-review";
@@ -262,3 +262,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

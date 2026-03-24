@@ -1,5 +1,5 @@
 import { BatchApprovalWorkspace } from "@/components/signals/batch-approval-workspace";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
@@ -121,3 +121,4 @@ export default async function BatchReviewPage() {
 
   return <BatchApprovalWorkspace batch={batch} />;
 }
+

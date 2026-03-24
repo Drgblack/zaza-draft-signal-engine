@@ -1,4 +1,4 @@
-import { createSignal, listSignalsWithFallback } from "@/lib/airtable";
+import { createSignal, listSignalsWithFallback } from "@/lib/signal-repository";
 import { appendAuditEventsSafe, buildRecommendationEvent, type AuditEventInput } from "@/lib/audit";
 import { buildMockQueryItems, fetchQueryItems } from "@/lib/ingestion/fetch-query";
 import { addMockSignalRecord } from "@/lib/mock-data";
@@ -182,3 +182,4 @@ export async function runIngestion(sourceIds?: string[]): Promise<{
     }),
   };
 }
+

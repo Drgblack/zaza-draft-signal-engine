@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
-import { getSignalWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, saveSignalWithFallback } from "@/lib/signal-repository";
 import { getAuditEvents } from "@/lib/audit";
 import {
   getPrimaryLinkVariant,

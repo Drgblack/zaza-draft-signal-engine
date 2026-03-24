@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { appendAuditEventsSafe } from "@/lib/audit";
-import { getSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback } from "@/lib/signal-repository";
 import { getPattern } from "@/lib/patterns";
 
 const patternSuggestionRequestSchema = z.object({

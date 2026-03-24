@@ -4,7 +4,7 @@ import { ExperimentManager } from "@/components/experiments/experiment-manager";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildExperimentInsights, listExperiments } from "@/lib/experiments";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { getPostingPlatformLabel, listPostingLogEntries } from "@/lib/posting-log";
@@ -96,3 +96,4 @@ export default async function ExperimentsPage() {
     </div>
   );
 }
+

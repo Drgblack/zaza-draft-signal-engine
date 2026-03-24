@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, buildOperatorOverrideEvent, type AuditEventInput } from "@/lib/audit";
-import { getSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback } from "@/lib/signal-repository";
 import { suggestEditorialMode } from "@/lib/editorial-modes";
 import { generateDrafts, toGenerationInputFromSignal } from "@/lib/generator";
 import { getPattern, getPatternAuditSubjectId, isPatternActive } from "@/lib/patterns";
@@ -167,3 +167,4 @@ export async function POST(request: Request) {
     usedFallback: generation.usedFallback,
   });
 }
+

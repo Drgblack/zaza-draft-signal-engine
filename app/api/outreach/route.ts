@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildAudienceMemoryState, getAudienceMemorySegment } from "@/lib/audience-memory";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { syncAttributionMemory } from "@/lib/attribution";
@@ -148,3 +148,4 @@ export async function POST(request: Request) {
         : "Outreach message generated for manual use.",
   });
 }
+

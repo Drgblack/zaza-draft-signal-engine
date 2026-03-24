@@ -1,4 +1,10 @@
-import type { SignalCategory, SignalRecord, SignalStatus } from "@/types/signal";
+import { toSignalEnvelope } from "@/lib/signal-envelope";
+import {
+  hasReviewableDraftPackage,
+  isFilteredOutSignal,
+  resolveWorkflowState,
+} from "@/lib/workflow-state-machine";
+import type { SignalCategory, SignalEnvelope, SignalRecord, SignalStatus } from "@/types/signal";
 
 export type SignalsSortKey = "createdDate-desc" | "createdDate-asc" | "sourceDate-desc" | "sourceDate-asc";
 
@@ -16,27 +22,7 @@ export interface AutomationReadinessSnapshot {
   totalChecks: number;
 }
 
-export function isFilteredOutSignal(signal: SignalRecord): boolean {
-  return (
-    signal.status === "Rejected" ||
-    signal.keepRejectRecommendation === "Reject" ||
-    signal.qualityGateResult === "Fail"
-  );
-}
-
-export function hasScoring(signal: SignalRecord): boolean {
-  return Boolean(
-    signal.signalRelevanceScore !== null &&
-      signal.signalNoveltyScore !== null &&
-      signal.signalUrgencyScore !== null &&
-      signal.brandFitScore !== null &&
-      signal.sourceTrustScore !== null &&
-      signal.keepRejectRecommendation &&
-      signal.qualityGateResult &&
-      signal.reviewPriority &&
-      signal.needsHumanReview !== null,
-  );
-}
+type SignalWorkflowSource = SignalRecord | SignalEnvelope;
 
 function parseDateValue(value: string | null | undefined): number {
   if (!value) {
@@ -47,45 +33,7 @@ function parseDateValue(value: string | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function hasInterpretation(signal: SignalRecord): boolean {
-  return Boolean(
-    signal.signalCategory &&
-      signal.severityScore &&
-      signal.signalSubtype &&
-      signal.emotionalPattern &&
-      signal.teacherPainPoint &&
-      signal.relevanceToZazaDraft &&
-      signal.riskToTeacher &&
-      signal.interpretationNotes &&
-      signal.hookTemplateUsed &&
-      signal.contentAngle &&
-      signal.platformPriority &&
-      signal.suggestedFormatPriority,
-  );
-}
-
-export function hasGeneration(signal: SignalRecord): boolean {
-  return Boolean(
-    signal.xDraft &&
-      signal.linkedInDraft &&
-      signal.redditDraft &&
-      signal.imagePrompt &&
-      signal.videoScript &&
-      signal.ctaOrClosingLine,
-  );
-}
-
-export function hasReviewableDraftPackage(signal: SignalRecord): boolean {
-  if (hasGeneration(signal)) {
-    return true;
-  }
-
-  const hasCoreTextDrafts = Boolean(signal.xDraft && signal.linkedInDraft && signal.redditDraft);
-  const hasSupportingCreative = Boolean(signal.imagePrompt || signal.videoScript);
-  const isLegacyReviewState = signal.status === "Draft Generated" || signal.status === "Reviewed";
-
-  return hasCoreTextDrafts && hasSupportingCreative && isLegacyReviewState;
-}
+export { hasGeneration, hasInterpretation, hasReviewableDraftPackage, hasScoring, isFilteredOutSignal } from "@/lib/workflow-state-machine";
 
 export function filterSignals(signals: SignalRecord[], filters: SignalFilters): SignalRecord[] {
   return signals.filter((signal) => {
@@ -124,12 +72,22 @@ export function sortSignals(signals: SignalRecord[], sort: SignalsSortKey = "cre
 
 export function getWorkflowBuckets(signals: SignalRecord[]) {
   return {
-    needsInterpretation: signals.filter((signal) => !isFilteredOutSignal(signal) && (!hasInterpretation(signal) || signal.status === "New")),
-    readyForGeneration: signals.filter((signal) => !isFilteredOutSignal(signal) && hasInterpretation(signal) && !hasGeneration(signal)),
-    readyForReview: signals.filter((signal) => hasReviewableDraftPackage(signal) && ["Draft Generated", "Reviewed"].includes(signal.status)),
-    readyToSchedule: signals.filter((signal) => signal.status === "Approved"),
-    scheduledAwaitingPosting: signals.filter((signal) => signal.status === "Scheduled"),
-    filteredOut: signals.filter((signal) => isFilteredOutSignal(signal)),
+    needsInterpretation: signals.filter((signal) => {
+      if (isFilteredOutSignal(signal)) {
+        return false;
+      }
+
+      const state = resolveWorkflowState(signal);
+      return state === "NEW" || state === "SCORED" || signal.status === "New";
+    }),
+    readyForGeneration: signals.filter((signal) => !isFilteredOutSignal(signal) && resolveWorkflowState(signal) === "INTERPRETED"),
+    readyForReview: signals.filter((signal) => {
+      const state = resolveWorkflowState(signal);
+      return hasReviewableDraftPackage(signal) && (state === "GENERATED" || state === "REVIEW_READY");
+    }),
+    readyToSchedule: signals.filter((signal) => resolveWorkflowState(signal) === "APPROVED"),
+    scheduledAwaitingPosting: signals.filter((signal) => resolveWorkflowState(signal) === "SCHEDULED"),
+    filteredOut: signals.filter((signal) => resolveWorkflowState(signal) === "REJECTED"),
   };
 }
 
@@ -139,26 +97,27 @@ export function getScheduledSoonSignals(signals: SignalRecord[], daysAhead = 7):
 
   return signals.filter((signal) => {
     const scheduledAt = parseDateValue(signal.scheduledDate);
-    return signal.status === "Scheduled" && scheduledAt >= now && scheduledAt <= end;
+    return resolveWorkflowState(signal) === "SCHEDULED" && scheduledAt >= now && scheduledAt <= end;
   });
 }
 
-export function getAutomationReadinessSnapshot(signal: SignalRecord): AutomationReadinessSnapshot {
+export function getAutomationReadinessSnapshot(signal: SignalWorkflowSource): AutomationReadinessSnapshot {
+  const envelope = toSignalEnvelope(signal);
   const readinessChecks = [
-    signal.signalRelevanceScore,
-    signal.signalNoveltyScore,
-    signal.signalUrgencyScore,
-    signal.brandFitScore,
-    signal.sourceTrustScore,
-    signal.keepRejectRecommendation,
-    signal.qualityGateResult,
-    signal.reviewPriority,
+    envelope.score.signalRelevanceScore,
+    envelope.score.signalNoveltyScore,
+    envelope.score.signalUrgencyScore,
+    envelope.score.brandFitScore,
+    envelope.score.sourceTrustScore,
+    envelope.score.keepRejectRecommendation,
+    envelope.score.qualityGateResult,
+    envelope.score.reviewPriority,
   ];
 
   const completedChecks = readinessChecks.filter((value) => value !== null && value !== undefined).length;
   const totalChecks = readinessChecks.length;
 
-  if (signal.needsHumanReview) {
+  if (envelope.score.needsHumanReview) {
     return {
       label: "Needs human review",
       tone: "warning",
@@ -167,7 +126,7 @@ export function getAutomationReadinessSnapshot(signal: SignalRecord): Automation
     };
   }
 
-  if (signal.qualityGateResult === "Fail" || signal.keepRejectRecommendation === "Reject") {
+  if (envelope.score.qualityGateResult === "Fail" || envelope.score.keepRejectRecommendation === "Reject") {
     return {
       label: "Filtered out",
       tone: "neutral",

@@ -7,7 +7,7 @@ import { FlywheelOptimisationPanel } from "@/components/optimisation/flywheel-op
 import { PlaybookPackSuggestions } from "@/components/playbook/playbook-pack-suggestions";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildAudienceMemoryInsights, syncAudienceMemory } from "@/lib/audience-memory";
 import { buildAttributionInsights, syncAttributionMemory } from "@/lib/attribution";
 import { buildAutonomyPolicyInsights, evaluateAutonomyPolicy } from "@/lib/autonomy-policy";
@@ -5290,3 +5290,4 @@ export default async function InsightsPage({
     </div>
   );
 }
+

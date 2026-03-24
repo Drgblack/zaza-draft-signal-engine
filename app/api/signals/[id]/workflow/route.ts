@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, buildOperatorOverrideEvent, buildRecommendationEvent, listAuditEvents, type AuditEventInput } from "@/lib/audit";
-import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/signal-repository";
+import { mapSignalStatusToWorkflowState, validateWorkflowTransition } from "@/lib/workflow-state-machine";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { buildPatternCoverageRecords, buildPatternGapDetectedEvent } from "@/lib/pattern-coverage";
 import { assessPatternCandidate, buildPatternCandidateDetectedEvent } from "@/lib/pattern-discovery";
@@ -56,6 +57,25 @@ export async function PATCH(
   const workflow = toWorkflowSavePayload(parsed.data);
   const tuning = await getOperatorTuning();
   const previousSignalResult = await getSignalWithFallback(id);
+  const targetState = mapSignalStatusToWorkflowState(workflow.status);
+  const transitionValidation = previousSignalResult.signal
+    ? validateWorkflowTransition(previousSignalResult.signal, targetState)
+    : null;
+
+  if (transitionValidation && !transitionValidation.valid) {
+    return NextResponse.json(
+      {
+        success: false,
+        persisted: false,
+        source: previousSignalResult.source,
+        signal: previousSignalResult.signal,
+        message: "Workflow update could not be saved.",
+        error: transitionValidation.reason,
+      },
+      { status: 409 },
+    );
+  }
+
   const result = await saveSignalWithFallback(id, {
     status: workflow.status,
     reviewNotes: workflow.reviewNotes,

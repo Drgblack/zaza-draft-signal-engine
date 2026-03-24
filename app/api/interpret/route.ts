@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, buildOperatorOverrideEvent, type AuditEventInput } from "@/lib/audit";
-import { getSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback } from "@/lib/signal-repository";
 import { interpretSignal, toInterpretationInput as toSignalInterpretationInput } from "@/lib/interpreter";
 import { getOperatorTuning } from "@/lib/tuning";
 import {
@@ -92,3 +92,4 @@ export async function POST(request: Request) {
     interpretation,
   });
 }
+

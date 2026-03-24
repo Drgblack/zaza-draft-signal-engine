@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { z } from "zod";
 
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { appendAuditEventsSafe } from "@/lib/audit";
 import { buildManagedIngestionSources } from "@/lib/ingestion/source-performance";
 import { listIngestionSources, updateIngestionSource } from "@/lib/ingestion/sources";
@@ -850,3 +850,4 @@ export async function applySourceChangeProposalAction(
     state: await getSourceAutopilotV2State(),
   };
 }
+

@@ -4,7 +4,7 @@ import { SignalsFilters } from "@/components/signals/signals-filters";
 import { SignalsTable } from "@/components/signals/signals-table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { listFeedbackEntries } from "@/lib/feedback";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
@@ -129,3 +129,4 @@ export default async function SignalsPage({
     </div>
   );
 }
+

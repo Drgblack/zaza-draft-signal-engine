@@ -7,7 +7,7 @@ import { GuidancePanel } from "@/components/signals/guidance-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAuditEvents, listAuditEvents } from "@/lib/audit";
-import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback } from "@/lib/signal-repository";
 import { getCampaignStrategy } from "@/lib/campaigns";
 import { suggestEditorialMode } from "@/lib/editorial-modes";
 import { listExperiments } from "@/lib/experiments";

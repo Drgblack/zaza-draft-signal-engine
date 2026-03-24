@@ -4,7 +4,7 @@ import { ExceptionInboxPanel } from "@/components/exceptions/exception-inbox-pan
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
@@ -280,3 +280,4 @@ export default async function ExceptionsPage() {
     </div>
   );
 }
+

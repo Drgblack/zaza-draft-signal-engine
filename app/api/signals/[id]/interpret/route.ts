@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, buildOperatorOverrideEvent, buildRecommendationEvent, listAuditEvents, type AuditEventInput } from "@/lib/audit";
-import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/signal-repository";
 import { assignSignalContentContext, getCampaignStrategy } from "@/lib/campaigns";
 import { getFeedbackEntries, listFeedbackEntries } from "@/lib/feedback";
 import { assembleGuidanceForSignal } from "@/lib/guidance";

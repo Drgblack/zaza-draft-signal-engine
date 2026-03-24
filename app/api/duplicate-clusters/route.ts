@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
-import { listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback, saveSignalWithFallback } from "@/lib/signal-repository";
 import { getClusterById, listDuplicateClusters, saveDuplicateCluster, type DuplicateCluster } from "@/lib/duplicate-clusters";
 import { duplicateClusterActionRequestSchema, type DuplicateClusterActionResponse } from "@/types/api";
 
@@ -257,3 +257,4 @@ export async function POST(request: Request) {
     message,
   } satisfies DuplicateClusterActionResponse);
 }
+

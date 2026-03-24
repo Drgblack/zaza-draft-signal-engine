@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
-import { deriveDisplayEngagementScore, getSignalWithFallback, listSignalsWithFallback } from "@/lib/airtable";
+import { deriveDisplayEngagementScore, getSignalWithFallback, listSignalsWithFallback } from "@/lib/signal-repository";
 import { appendAuditEventsSafe, getAuditEvents, listAuditEvents } from "@/lib/audit";
 import { getLatestAutoRepairEntry, getAutoRepairLabel } from "@/lib/auto-repair";
 import { buildBundleCoverageSummary, getSignalBundleCoverageHint } from "@/lib/bundle-coverage";

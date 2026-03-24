@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, buildRecommendationEvent, type AuditEventInput } from "@/lib/audit";
-import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, listSignalsWithFallback, saveSignalWithFallback } from "@/lib/signal-repository";
 import { getCampaignStrategy } from "@/lib/campaigns";
 import { evaluateApprovalPackageCompleteness } from "@/lib/completeness";
 import { recordLearnedEditPatterns } from "@/lib/edit-patterns";

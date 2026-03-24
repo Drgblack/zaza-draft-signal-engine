@@ -15,7 +15,7 @@ import { buildAttributionInsights, buildAttributionRecordsFromInputs } from "@/l
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { appendAuditEventsSafe, listAuditEvents } from "@/lib/audit";
 import { buildAutonomyScorecard } from "@/lib/autonomy-scorecard";
@@ -651,3 +651,4 @@ export default async function DirectorPage() {
     </div>
   );
 }
+

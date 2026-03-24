@@ -3,7 +3,7 @@ import { z } from "zod";
 import { NextResponse } from "next/server";
 
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { getCampaignStrategy } from "@/lib/campaigns";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
@@ -247,3 +247,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

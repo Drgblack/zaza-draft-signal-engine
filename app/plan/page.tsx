@@ -10,7 +10,7 @@ import { WeeklyPlanManager } from "@/components/plan/weekly-plan-manager";
 import { WeeklyRecapPanel } from "@/components/recap/weekly-recap-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildAudienceMemoryInsights, syncAudienceMemory } from "@/lib/audience-memory";
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
@@ -430,3 +430,4 @@ export default async function WeeklyPlanPage() {
     </div>
   );
 }
+

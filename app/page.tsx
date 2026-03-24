@@ -19,7 +19,7 @@ import { listFeedbackEntries } from "@/lib/feedback";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
 import { STATUS_DISPLAY_ORDER } from "@/lib/constants";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPlaybookCards } from "@/lib/playbook-cards";
@@ -287,3 +287,4 @@ export default async function DashboardPage() {
     </div>
   );
 }
+

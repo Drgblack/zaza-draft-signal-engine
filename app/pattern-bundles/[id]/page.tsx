@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { AuditTrail } from "@/components/signals/audit-trail";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { getAuditEvents, listAuditEvents } from "@/lib/audit";
 import {
   BUNDLE_COVERAGE_STRENGTH_LABELS,

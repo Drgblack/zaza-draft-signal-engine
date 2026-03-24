@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { buildSignalAssetBundle, getAssetPrimaryImage, getAssetPrimaryVideo } from "@/lib/assets";
 import { appendAuditEventsSafe } from "@/lib/audit";
-import { getSignalWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { getSignalWithFallback, saveSignalWithFallback } from "@/lib/signal-repository";
 import {
   appendPostingLogEntry,
   buildSignalPostingSummary,
@@ -799,3 +799,4 @@ export async function safePostPostingAssistantPackage(input: {
     throw new Error(message);
   }
 }
+

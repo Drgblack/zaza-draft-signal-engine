@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import type { ApprovalQueueCandidate } from "@/lib/approval-ranking";
 import { rankApprovalCandidates } from "@/lib/approval-ranking";
-import { listSignalsWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 import { buildAudienceMemoryState } from "@/lib/audience-memory";
 import { appendAuditEventsSafe, type AuditEventInput } from "@/lib/audit";
 import { evaluateAutonomyPolicy, type AutonomyPolicyDecision, type AutonomyRiskLevel } from "@/lib/autonomy-policy";
@@ -4882,3 +4882,4 @@ export async function refreshContentOpportunityStateFromSystem() {
     campaignsExist: strategy.campaigns.some((campaign) => campaign.status === "active"),
   });
 }
+

@@ -1,10 +1,12 @@
 import { CATEGORY_DEFAULTS, CATEGORY_RULES, EMOTIONAL_PATTERNS, SEVERITY_THREE_PATTERNS, SEVERITY_TWO_PATTERNS, SUBTYPE_RULES } from "@/lib/interpreter-rules";
+import { toSignalEnvelope } from "@/lib/signal-envelope";
 import { assessScenarioAngle } from "@/lib/scenario-angle";
 import type {
   HookTemplate,
   InterpretationConfidence,
   PlatformPriority,
   SignalCategory,
+  SignalEnvelope,
   SignalInterpretationInput,
   SignalInterpretationResult,
   SignalRecord,
@@ -463,58 +465,65 @@ function buildInterpretationNotes(
   return `Classified as ${category} with severity ${severity} because ${reason}.${sourceHint}${scenarioHint}`;
 }
 
-export function toInterpretationInput(signal: SignalRecord): SignalInterpretationInput {
+export function toInterpretationInput(signal: SignalInterpretationSource): SignalInterpretationInput {
+  const envelope = toSignalEnvelope(signal);
+
   return {
-    recordId: signal.recordId,
-    sourceTitle: signal.sourceTitle,
-    sourceType: signal.sourceType,
-    sourcePublisher: signal.sourcePublisher,
-    sourceDate: signal.sourceDate,
-    sourceUrl: signal.sourceUrl,
-    rawExcerpt: signal.rawExcerpt,
-    manualSummary: signal.manualSummary,
-    scenarioAngle: signal.scenarioAngle,
+    recordId: envelope.meta.recordId,
+    sourceTitle: envelope.input.sourceTitle,
+    sourceType: envelope.input.sourceType,
+    sourcePublisher: envelope.input.sourcePublisher,
+    sourceDate: envelope.input.sourceDate,
+    sourceUrl: envelope.input.sourceUrl,
+    rawExcerpt: envelope.input.rawExcerpt,
+    manualSummary: envelope.input.manualSummary,
+    scenarioAngle: envelope.input.scenarioAngle,
   };
 }
 
-export function buildInitialInterpretationFromSignal(signal: SignalRecord): SignalInterpretationResult | null {
-  const hookTemplateUsed = signal.hookTemplateUsed && HOOK_TEMPLATES.includes(signal.hookTemplateUsed as HookTemplate)
-    ? (signal.hookTemplateUsed as HookTemplate)
+type SignalInterpretationSource = SignalRecord | SignalEnvelope;
+
+export function buildInitialInterpretationFromSignal(signal: SignalInterpretationSource): SignalInterpretationResult | null {
+  const envelope = toSignalEnvelope(signal);
+  const hookTemplateUsed =
+    envelope.interpretation.hookTemplateUsed &&
+    HOOK_TEMPLATES.includes(envelope.interpretation.hookTemplateUsed as HookTemplate)
+      ? (envelope.interpretation.hookTemplateUsed as HookTemplate)
     : null;
 
   if (
-    !signal.signalCategory ||
-    !signal.severityScore ||
-    !signal.signalSubtype ||
-    !signal.emotionalPattern ||
-    !signal.teacherPainPoint ||
-    !signal.relevanceToZazaDraft ||
-    !signal.riskToTeacher ||
-    !signal.interpretationNotes ||
+    !envelope.interpretation.signalCategory ||
+    !envelope.interpretation.severityScore ||
+    !envelope.interpretation.signalSubtype ||
+    !envelope.interpretation.emotionalPattern ||
+    !envelope.interpretation.teacherPainPoint ||
+    !envelope.interpretation.relevanceToZazaDraft ||
+    !envelope.interpretation.riskToTeacher ||
+    !envelope.interpretation.interpretationNotes ||
     !hookTemplateUsed ||
-    !signal.contentAngle ||
-    !signal.platformPriority ||
-    !signal.suggestedFormatPriority
+    !envelope.interpretation.contentAngle ||
+    !envelope.interpretation.platformPriority ||
+    !envelope.interpretation.suggestedFormatPriority
   ) {
     return null;
   }
 
   return {
-    signalCategory: signal.signalCategory,
-    severityScore: signal.severityScore,
-    signalSubtype: signal.signalSubtype,
-    emotionalPattern: signal.emotionalPattern,
-    teacherPainPoint: signal.teacherPainPoint,
-    relevanceToZazaDraft: signal.relevanceToZazaDraft,
-    riskToTeacher: signal.riskToTeacher,
-    interpretationNotes: signal.interpretationNotes,
+    signalCategory: envelope.interpretation.signalCategory,
+    severityScore: envelope.interpretation.severityScore,
+    signalSubtype: envelope.interpretation.signalSubtype,
+    emotionalPattern: envelope.interpretation.emotionalPattern,
+    teacherPainPoint: envelope.interpretation.teacherPainPoint,
+    relevanceToZazaDraft: envelope.interpretation.relevanceToZazaDraft,
+    riskToTeacher: envelope.interpretation.riskToTeacher,
+    interpretationNotes: envelope.interpretation.interpretationNotes,
     hookTemplateUsed,
-    contentAngle: signal.contentAngle,
-    platformPriority: signal.platformPriority,
-    suggestedFormatPriority: signal.suggestedFormatPriority,
+    contentAngle: envelope.interpretation.contentAngle,
+    platformPriority: envelope.interpretation.platformPriority,
+    suggestedFormatPriority: envelope.interpretation.suggestedFormatPriority,
     interpretationConfidence: "Medium",
     interpretationSource: "manual",
-    interpretedAt: signal.createdDate,
+    interpretedAt: envelope.meta.createdDate,
   };
 }
 

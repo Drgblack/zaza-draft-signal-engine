@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getAirtableDiagnostics } from "@/lib/airtable";
+import { getAirtableDiagnostics } from "@/lib/signal-repository";
 import type { AirtableHealthResponse } from "@/types/api";
 
 export async function GET() {
@@ -17,3 +17,4 @@ export async function GET() {
     { status: isHealthy ? 200 : 503 },
   );
 }
+

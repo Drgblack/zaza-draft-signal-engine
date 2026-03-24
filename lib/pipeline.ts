@@ -3,13 +3,11 @@ import { z } from "zod";
 import { assessApprovalReadiness, assessAutoGenerate, assessAutoInterpret, type ApprovalAssetSuggestion } from "@/lib/auto-advance";
 import {
   appendAutoRepairHistory,
-  assessAutoRepairPlan,
   buildAutoRepairHistoryEntry,
   getLatestAutoRepairEntry,
 } from "@/lib/auto-repair";
-import { rankApprovalCandidates } from "@/lib/approval-ranking";
 import { appendAuditEventsSafe, buildRecommendationEvent, buildScoredEvent, type AuditEventInput } from "@/lib/audit";
-import { listSignalsWithFallback, saveSignalWithFallback } from "@/lib/airtable";
+import { listSignalsWithFallback, saveSignalWithFallback } from "@/lib/signal-repository";
 import { assignSignalContentContext, buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaigns";
 import { buildSignalAssetBundle } from "@/lib/assets";
 import {
@@ -20,18 +18,20 @@ import {
 import { buildEvergreenSummary } from "@/lib/evergreen";
 import { listExperiments } from "@/lib/experiments";
 import { listFeedbackEntries } from "@/lib/feedback";
-import { generateDrafts, toGenerationInputFromSignal } from "@/lib/generator";
+import { generateDrafts } from "@/lib/generator";
+import { buildGenerationUpdate, prepareGenerationStage } from "@/lib/generation-service";
 import { assembleGuidanceForSignal } from "@/lib/guidance";
 import { runIngestion } from "@/lib/ingestion/service";
-import { interpretSignal, toInterpretationInput } from "@/lib/interpreter";
+import { buildInterpretationUpdate, runInterpretationStage, applyScenarioAngleOverride } from "@/lib/interpretation-service";
 import { listPostingOutcomes } from "@/lib/outcomes";
 import { indexBundleSummariesByPatternId, listPatternBundles } from "@/lib/pattern-bundles";
-import { getPipelineGateDecision } from "@/lib/pipeline-rules";
 import { listPatterns } from "@/lib/patterns";
 import { buildPlaybookCoverageSummary } from "@/lib/playbook-coverage";
 import { listPlaybookCards } from "@/lib/playbook-cards";
 import { listPostingLogEntries } from "@/lib/posting-log";
 import { buildSignalPublishPrepBundle, stringifyPublishPrepBundle } from "@/lib/publish-prep";
+import { rankApprovalReadySignals, sortSignalsByAutonomousPriority } from "@/lib/ranking-service";
+import { prepareRepairStage } from "@/lib/repair-service";
 import { buildReuseMemoryCases } from "@/lib/reuse-memory";
 import {
   assessRepurposingEligibility,
@@ -39,8 +39,8 @@ import {
   stringifyRepurposingBundle,
   stringifySelectedRepurposedOutputIds,
 } from "@/lib/repurposing";
-import { SCENARIO_ANGLE_QUALITY_LEVELS, getSavedScenarioAngleReuseDecision } from "@/lib/scenario-angle";
-import { scoreSignal } from "@/lib/scoring";
+import { SCENARIO_ANGLE_QUALITY_LEVELS } from "@/lib/scenario-angle";
+import { runScoringStage } from "@/lib/scoring-service";
 import { listStrategicOutcomes } from "@/lib/strategic-outcomes";
 import { getOperatorTuning } from "@/lib/tuning";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
@@ -215,48 +215,6 @@ export interface AutonomousRunOptions {
   reuseSavedScenarioAngles?: boolean;
 }
 
-function buildScoringUpdate(scoring: SignalScoringResult) {
-  return {
-    signalRelevanceScore: scoring.signalRelevanceScore,
-    signalNoveltyScore: scoring.signalNoveltyScore,
-    signalUrgencyScore: scoring.signalUrgencyScore,
-    brandFitScore: scoring.brandFitScore,
-    sourceTrustScore: scoring.sourceTrustScore,
-    keepRejectRecommendation: scoring.keepRejectRecommendation,
-    whySelected: scoring.whySelected,
-    whyRejected: scoring.whyRejected,
-    needsHumanReview: scoring.needsHumanReview,
-    qualityGateResult: scoring.qualityGateResult,
-    reviewPriority: scoring.reviewPriority,
-    similarityToExistingContent: scoring.similarityToExistingContent,
-    duplicateClusterId: scoring.duplicateClusterId,
-  } as const;
-}
-
-function buildInterpretationUpdate(signal: SignalRecord) {
-  const interpretation = interpretSignal(toInterpretationInput(signal));
-
-  return {
-    interpretation,
-    update: {
-      signalCategory: interpretation.signalCategory,
-      severityScore: interpretation.severityScore,
-      signalSubtype: interpretation.signalSubtype,
-      emotionalPattern: interpretation.emotionalPattern,
-      teacherPainPoint: interpretation.teacherPainPoint,
-      relevanceToZazaDraft: interpretation.relevanceToZazaDraft,
-      riskToTeacher: interpretation.riskToTeacher,
-      interpretationNotes: interpretation.interpretationNotes,
-      hookTemplateUsed: interpretation.hookTemplateUsed,
-      contentAngle: interpretation.contentAngle,
-      platformPriority: interpretation.platformPriority,
-      suggestedFormatPriority: interpretation.suggestedFormatPriority,
-      needsHumanReview: true,
-      status: "Interpreted" as const,
-    },
-  };
-}
-
 function buildSummaryRecord(
   signalBefore: SignalRecord,
   signalAfter: SignalRecord,
@@ -315,13 +273,6 @@ function buildPipelineMessage(summary: PipelineRunSummary, source: SignalDataSou
   return `${sourcePrefix} ${summary.generated} records ${source === "airtable" ? "advanced to draft generation" : "reached draft generation"}, ${summary.interpreted} ${source === "airtable" ? "advanced to interpretation only" : "reached interpretation"}, ${summary.reviewOnly} were held for review, and ${summary.rejected} were filtered out.${scenarioSummary}`;
 }
 
-function applyScenarioAngleOverride(signal: SignalRecord, scenarioAngle: string | null): SignalRecord {
-  return {
-    ...signal,
-    scenarioAngle,
-  };
-}
-
 function replaceSignal(signals: SignalRecord[], nextSignal: SignalRecord): SignalRecord[] {
   const index = signals.findIndex((signal) => signal.recordId === nextSignal.recordId);
   if (index === -1) {
@@ -339,23 +290,6 @@ function buildContentContextMetadata(signal: SignalRecord) {
     funnelStage: signal.funnelStage,
     ctaGoal: signal.ctaGoal,
   };
-}
-
-function sortAutonomousTargets(signals: SignalRecord[]): SignalRecord[] {
-  const priorityWeight: Record<NonNullable<SignalRecord["reviewPriority"]>, number> = {
-    Urgent: 4,
-    High: 3,
-    Medium: 2,
-    Low: 1,
-  };
-
-  return [...signals].sort(
-    (left, right) =>
-      (priorityWeight[right.reviewPriority ?? "Low"] ?? 0) - (priorityWeight[left.reviewPriority ?? "Low"] ?? 0) ||
-      (right.signalUrgencyScore ?? 0) - (left.signalUrgencyScore ?? 0) ||
-      new Date(right.createdDate).getTime() - new Date(left.createdDate).getTime() ||
-      left.sourceTitle.localeCompare(right.sourceTitle),
-  );
 }
 
 function buildAutonomousRecord(input: {
@@ -454,8 +388,12 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
   let candidatesScored = 0;
 
   for (const signal of targets) {
-    const scoring = scoreSignal(signal, signalResult.signals, tuning.settings);
-    const savedScoring = await saveSignalWithFallback(signal.recordId, buildScoringUpdate(scoring));
+    const scoringStage = runScoringStage({
+      signal,
+      allSignals: signalResult.signals,
+      tuningSettings: tuning.settings,
+    });
+    const savedScoring = await saveSignalWithFallback(signal.recordId, scoringStage.scoringUpdate);
 
     if (!savedScoring.signal) {
       errors.push(
@@ -471,34 +409,32 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
     candidatesScored += 1;
     touchedRecordIds.add(signal.recordId);
     auditEvents.push(
-      buildScoredEvent(savedScoring.signal, scoring),
+      buildScoredEvent(savedScoring.signal, scoringStage.scoring),
       buildRecommendationEvent(savedScoring.signal, tuning.settings),
     );
 
     const scoredSignal = savedScoring.signal;
-    const decision = getPipelineGateDecision(scoring);
+    const decision = scoringStage.decision;
 
     if (decision.action === "reject") {
-      rejected.push(buildSummaryRecord(signal, scoredSignal, scoring, "Scored", decision.summary, savedScoring.persisted));
+      rejected.push(
+        buildSummaryRecord(signal, scoredSignal, scoringStage.scoring, "Scored", decision.summary, savedScoring.persisted),
+      );
       continue;
     }
 
     if (decision.action === "review") {
-      reviewOnly.push(buildSummaryRecord(signal, scoredSignal, scoring, "Scored", decision.summary, savedScoring.persisted));
+      reviewOnly.push(
+        buildSummaryRecord(signal, scoredSignal, scoringStage.scoring, "Scored", decision.summary, savedScoring.persisted),
+      );
       continue;
     }
 
-    const savedScenarioAngleDecision = getSavedScenarioAngleReuseDecision({
-      scenarioAngle: scoredSignal.scenarioAngle,
-      sourceTitle: scoredSignal.sourceTitle,
-      reuseAllowed: reuseSavedScenarioAngles,
+    const interpretationStage = runInterpretationStage({
+      signal: scoredSignal,
+      reuseSavedScenarioAngles,
     });
-    const interpretationSignal = applyScenarioAngleOverride(
-      scoredSignal,
-      savedScenarioAngleDecision.reusableScenarioAngle,
-    );
-    const interpretationStage = buildInterpretationUpdate(interpretationSignal);
-    const savedInterpretation = await saveSignalWithFallback(signal.recordId, interpretationStage.update);
+    const savedInterpretation = await saveSignalWithFallback(signal.recordId, interpretationStage.interpretationUpdate.update);
 
     if (!savedInterpretation.signal) {
       errors.push(
@@ -512,12 +448,14 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
         buildSummaryRecord(
           signal,
           scoredSignal,
-          scoring,
+          scoringStage.scoring,
           "Scored",
-          `${decision.summary} ${savedScenarioAngleDecision.ignoreReason ?? ""} Interpretation could not be saved, so the record remains in scoring-only state.`.trim(),
+          `${decision.summary} ${interpretationStage.savedScenarioAngleDecision.ignoreReason ?? ""} Interpretation could not be saved, so the record remains in scoring-only state.`.trim(),
           savedScoring.persisted,
           {
-            scenarioAngleQuality: savedScenarioAngleDecision.hasSavedScenarioAngle ? savedScenarioAngleDecision.assessment.quality : null,
+            scenarioAngleQuality: interpretationStage.savedScenarioAngleDecision.hasSavedScenarioAngle
+              ? interpretationStage.savedScenarioAngleDecision.assessment.quality
+              : null,
           },
         ),
       );
@@ -529,23 +467,23 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
       signalId: interpretedSignal.recordId,
       eventType: "INTERPRETATION_SAVED",
       actor: "system",
-      summary: savedScenarioAngleDecision.shouldReuse
+      summary: interpretationStage.savedScenarioAngleDecision.shouldReuse
         ? "Pipeline saved interpretation using stored scenario framing."
         : "Pipeline saved interpretation.",
       metadata: {
-        reusedScenarioAngle: savedScenarioAngleDecision.shouldReuse,
+        reusedScenarioAngle: interpretationStage.savedScenarioAngleDecision.shouldReuse,
       },
     });
-    if (savedScenarioAngleDecision.shouldReuse) {
+    if (interpretationStage.savedScenarioAngleDecision.shouldReuse) {
       reusedScenarioAngleRecordIds.add(signal.recordId);
       recordsInterpretedWithSavedAngle.push(
         pipelineScenarioAngleReuseRecordSchema.parse({
           recordId: interpretedSignal.recordId,
           sourceTitle: interpretedSignal.sourceTitle,
-          quality: savedScenarioAngleDecision.assessment.quality,
+          quality: interpretationStage.savedScenarioAngleDecision.assessment.quality,
         }),
       );
-    } else if (savedScenarioAngleDecision.wasIgnored) {
+    } else if (interpretationStage.savedScenarioAngleDecision.wasIgnored) {
       ignoredScenarioAngleRecordIds.add(signal.recordId);
     }
 
@@ -554,13 +492,15 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
         buildSummaryRecord(
           signal,
           interpretedSignal,
-          scoring,
+          scoringStage.scoring,
           "Interpreted",
-          `${decision.summary}${savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused during interpretation." : savedScenarioAngleDecision.ignoreReason ? ` ${savedScenarioAngleDecision.ignoreReason}` : ""}`,
+          `${decision.summary}${interpretationStage.savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused during interpretation." : interpretationStage.savedScenarioAngleDecision.ignoreReason ? ` ${interpretationStage.savedScenarioAngleDecision.ignoreReason}` : ""}`,
           savedScoring.persisted && savedInterpretation.persisted,
           {
-            scenarioAngleQuality: savedScenarioAngleDecision.hasSavedScenarioAngle ? savedScenarioAngleDecision.assessment.quality : null,
-            usedSavedScenarioAngleForInterpretation: savedScenarioAngleDecision.shouldReuse,
+            scenarioAngleQuality: interpretationStage.savedScenarioAngleDecision.hasSavedScenarioAngle
+              ? interpretationStage.savedScenarioAngleDecision.assessment.quality
+              : null,
+            usedSavedScenarioAngleForInterpretation: interpretationStage.savedScenarioAngleDecision.shouldReuse,
           },
         ),
       );
@@ -570,9 +510,12 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
 
     const generationSignal = applyScenarioAngleOverride(
       interpretedSignal,
-      savedScenarioAngleDecision.reusableScenarioAngle,
+      interpretationStage.savedScenarioAngleDecision.reusableScenarioAngle,
     );
-    const generationInput = toGenerationInputFromSignal(generationSignal);
+    const generationStage = prepareGenerationStage({
+      signal: generationSignal,
+    });
+    const generationInput = generationStage.generationInput;
     if (!generationInput) {
       errors.push(
         pipelineErrorSchema.parse({
@@ -585,13 +528,15 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
         buildSummaryRecord(
           signal,
           interpretedSignal,
-          scoring,
+          scoringStage.scoring,
           "Interpreted",
-          `${decision.summary}${savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused during interpretation." : savedScenarioAngleDecision.ignoreReason ? ` ${savedScenarioAngleDecision.ignoreReason}` : ""} Generation input was incomplete, so the record stopped after interpretation.`,
+          `${decision.summary}${interpretationStage.savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused during interpretation." : interpretationStage.savedScenarioAngleDecision.ignoreReason ? ` ${interpretationStage.savedScenarioAngleDecision.ignoreReason}` : ""} Generation input was incomplete, so the record stopped after interpretation.`,
           savedScoring.persisted && savedInterpretation.persisted,
           {
-            scenarioAngleQuality: savedScenarioAngleDecision.hasSavedScenarioAngle ? savedScenarioAngleDecision.assessment.quality : null,
-            usedSavedScenarioAngleForInterpretation: savedScenarioAngleDecision.shouldReuse,
+            scenarioAngleQuality: interpretationStage.savedScenarioAngleDecision.hasSavedScenarioAngle
+              ? interpretationStage.savedScenarioAngleDecision.assessment.quality
+              : null,
+            usedSavedScenarioAngleForInterpretation: interpretationStage.savedScenarioAngleDecision.shouldReuse,
           },
         ),
       );
@@ -601,24 +546,7 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
 
     const generationRun = await generateDrafts(generationInput);
     const draftOutputs = generationRun.outputs;
-    const savedGeneration = await saveSignalWithFallback(signal.recordId, {
-      xDraft: draftOutputs.xDraft,
-      linkedInDraft: draftOutputs.linkedInDraft,
-      redditDraft: draftOutputs.redditDraft,
-      imagePrompt: draftOutputs.imagePrompt,
-      videoScript: draftOutputs.videoScript,
-      ctaOrClosingLine: draftOutputs.ctaOrClosingLine,
-      hashtagsOrKeywords: draftOutputs.hashtagsOrKeywords,
-      assetBundleJson: draftOutputs.assetBundleJson ?? null,
-      preferredAssetType: draftOutputs.preferredAssetType ?? null,
-      selectedImageAssetId: draftOutputs.selectedImageAssetId ?? null,
-      selectedVideoConceptId: draftOutputs.selectedVideoConceptId ?? null,
-      generatedImageUrl: draftOutputs.generatedImageUrl ?? null,
-      generationModelVersion: draftOutputs.generationModelVersion,
-      promptVersion: draftOutputs.promptVersion,
-      needsHumanReview: true,
-      status: "Draft Generated",
-    });
+    const savedGeneration = await saveSignalWithFallback(signal.recordId, buildGenerationUpdate(draftOutputs));
 
     if (!savedGeneration.signal) {
       errors.push(
@@ -632,14 +560,16 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
         buildSummaryRecord(
           signal,
           interpretedSignal,
-          scoring,
+          scoringStage.scoring,
           "Interpreted",
-          `${decision.summary}${savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused for interpretation and generation." : savedScenarioAngleDecision.ignoreReason ? ` ${savedScenarioAngleDecision.ignoreReason}` : ""} Drafts were generated but could not be saved, so the record stopped after interpretation.`,
+          `${decision.summary}${interpretationStage.savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused for interpretation and generation." : interpretationStage.savedScenarioAngleDecision.ignoreReason ? ` ${interpretationStage.savedScenarioAngleDecision.ignoreReason}` : ""} Drafts were generated but could not be saved, so the record stopped after interpretation.`,
           savedScoring.persisted && savedInterpretation.persisted,
           {
-            scenarioAngleQuality: savedScenarioAngleDecision.hasSavedScenarioAngle ? savedScenarioAngleDecision.assessment.quality : null,
-            usedSavedScenarioAngleForInterpretation: savedScenarioAngleDecision.shouldReuse,
-            usedSavedScenarioAngleForGeneration: savedScenarioAngleDecision.shouldReuse,
+            scenarioAngleQuality: interpretationStage.savedScenarioAngleDecision.hasSavedScenarioAngle
+              ? interpretationStage.savedScenarioAngleDecision.assessment.quality
+              : null,
+            usedSavedScenarioAngleForInterpretation: interpretationStage.savedScenarioAngleDecision.shouldReuse,
+            usedSavedScenarioAngleForGeneration: interpretationStage.savedScenarioAngleDecision.shouldReuse,
           },
         ),
       );
@@ -651,22 +581,22 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
       signalId: savedGeneration.signal.recordId,
       eventType: "GENERATION_SAVED",
       actor: "system",
-      summary: savedScenarioAngleDecision.shouldReuse
+      summary: interpretationStage.savedScenarioAngleDecision.shouldReuse
         ? "Pipeline saved generated drafts using stored scenario framing."
         : "Pipeline saved generated drafts.",
       metadata: {
-        reusedScenarioAngle: savedScenarioAngleDecision.shouldReuse,
+        reusedScenarioAngle: interpretationStage.savedScenarioAngleDecision.shouldReuse,
         generationSource: draftOutputs.generationSource,
       },
     });
     auditEvents.push(buildRecommendationEvent(savedGeneration.signal, tuning.settings));
 
-    if (savedScenarioAngleDecision.shouldReuse) {
+    if (interpretationStage.savedScenarioAngleDecision.shouldReuse) {
       recordsGeneratedWithSavedAngle.push(
         pipelineScenarioAngleReuseRecordSchema.parse({
           recordId: savedGeneration.signal.recordId,
           sourceTitle: savedGeneration.signal.sourceTitle,
-          quality: savedScenarioAngleDecision.assessment.quality,
+          quality: interpretationStage.savedScenarioAngleDecision.assessment.quality,
         }),
       );
     }
@@ -675,14 +605,16 @@ export async function runPipeline(options: PipelineRunOptions = {}): Promise<{
       buildSummaryRecord(
         signal,
         savedGeneration.signal,
-        scoring,
+        scoringStage.scoring,
         "Draft Generated",
-        `${decision.summary}${savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused for interpretation and generation." : savedScenarioAngleDecision.ignoreReason ? ` ${savedScenarioAngleDecision.ignoreReason}` : ""} ${generationRun.message}`,
+        `${decision.summary}${interpretationStage.savedScenarioAngleDecision.shouldReuse ? " Saved scenario framing was reused for interpretation and generation." : interpretationStage.savedScenarioAngleDecision.ignoreReason ? ` ${interpretationStage.savedScenarioAngleDecision.ignoreReason}` : ""} ${generationRun.message}`,
         savedScoring.persisted && savedInterpretation.persisted && savedGeneration.persisted,
         {
-          scenarioAngleQuality: savedScenarioAngleDecision.hasSavedScenarioAngle ? savedScenarioAngleDecision.assessment.quality : null,
-          usedSavedScenarioAngleForInterpretation: savedScenarioAngleDecision.shouldReuse,
-          usedSavedScenarioAngleForGeneration: savedScenarioAngleDecision.shouldReuse,
+          scenarioAngleQuality: interpretationStage.savedScenarioAngleDecision.hasSavedScenarioAngle
+            ? interpretationStage.savedScenarioAngleDecision.assessment.quality
+            : null,
+          usedSavedScenarioAngleForInterpretation: interpretationStage.savedScenarioAngleDecision.shouldReuse,
+          usedSavedScenarioAngleForGeneration: interpretationStage.savedScenarioAngleDecision.shouldReuse,
         },
       ),
     );
@@ -859,7 +791,8 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
     generationRun: Awaited<ReturnType<typeof generateDrafts>> | null;
     error: string | null;
   }> {
-    const generationInput = toGenerationInputFromSignal(signal);
+    const generationStage = prepareGenerationStage({ signal });
+    const generationInput = generationStage.generationInput;
     if (!generationInput) {
       return {
         signal: null,
@@ -872,25 +805,10 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
       editorialMode: signal.editorialMode ?? "awareness",
     });
     const savedGeneration = await saveSignalWithFallback(signal.recordId, {
-      xDraft: generationRun.outputs.xDraft,
-      linkedInDraft: generationRun.outputs.linkedInDraft,
-      redditDraft: generationRun.outputs.redditDraft,
-      imagePrompt: generationRun.outputs.imagePrompt,
-      videoScript: generationRun.outputs.videoScript,
-      ctaOrClosingLine: generationRun.outputs.ctaOrClosingLine,
-      hashtagsOrKeywords: generationRun.outputs.hashtagsOrKeywords,
-      assetBundleJson: generationRun.outputs.assetBundleJson ?? null,
+      ...buildGenerationUpdate(generationRun.outputs),
       publishPrepBundleJson: generationRun.outputs.publishPrepBundleJson ?? null,
-      preferredAssetType: generationRun.outputs.preferredAssetType ?? null,
-      selectedImageAssetId: generationRun.outputs.selectedImageAssetId ?? null,
-      selectedVideoConceptId: generationRun.outputs.selectedVideoConceptId ?? null,
-      generatedImageUrl: generationRun.outputs.generatedImageUrl ?? null,
-      generationModelVersion: generationRun.outputs.generationModelVersion,
-      promptVersion: generationRun.outputs.promptVersion,
       editorialMode: signal.editorialMode ?? "awareness",
       autoGenerated: true,
-      needsHumanReview: true,
-      status: "Draft Generated",
     });
 
     if (!savedGeneration.signal) {
@@ -1011,13 +929,19 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
     heldAssessment: ReturnType<typeof assessAutoInterpret> | ReturnType<typeof assessAutoGenerate> | ReturnType<typeof assessApprovalReadiness>;
     repairRecord: z.infer<typeof autonomousRunRecordSchema> | null;
   } | null> {
-    const stage = assessment.stage;
-    if (!stage || assessment.decision !== "hold") {
+    const repairStage = prepareRepairStage({
+      signal,
+      guidance,
+      assessment,
+    });
+    const stage = repairStage.stage;
+    if (!stage || !repairStage.shouldAttempt || !repairStage.repairPlan.repairType) {
       return null;
     }
 
-    const repairPlan = assessAutoRepairPlan(signal, guidance, assessment);
-    if (repairPlan.eligibility !== "repairable" || !repairPlan.repairType) {
+    const repairPlan = repairStage.repairPlan;
+    const repairType = repairPlan.repairType;
+    if (!repairType) {
       return null;
     }
 
@@ -1025,9 +949,9 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
       signalId: signal.recordId,
       eventType: "AUTO_REPAIR_ATTEMPTED",
       actor: "system",
-      summary: `Auto-repair attempted ${repairPlan.repairType.replaceAll("_", " ")}.`,
+      summary: `Auto-repair attempted ${repairType.replaceAll("_", " ")}.`,
       metadata: {
-        repairType: repairPlan.repairType,
+        repairType,
         priorHoldStage: stage,
         changedFields: repairPlan.changedFields.join(", "),
       },
@@ -1206,13 +1130,17 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
     };
   }
 
-  const scoringTargets = sortAutonomousTargets(
+  const scoringTargets = sortSignalsByAutonomousPriority(
     workingSignals.filter((signal) => signal.status === "New" && !hasScoring(signal)),
   ).slice(0, maxCandidates);
 
   for (const signal of scoringTargets) {
-    const scoring = scoreSignal(signal, workingSignals, tuning.settings);
-    const savedScoring = await saveSignalWithFallback(signal.recordId, buildScoringUpdate(scoring));
+    const scoringStage = runScoringStage({
+      signal,
+      allSignals: workingSignals,
+      tuningSettings: tuning.settings,
+    });
+    const savedScoring = await saveSignalWithFallback(signal.recordId, scoringStage.scoringUpdate);
 
     if (!savedScoring.signal) {
       errors.push(
@@ -1230,12 +1158,12 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
     const scoredWithContext = await ensureContentContext(savedScoring.signal, "Autonomous runner assigned strategy context after scoring");
     workingSignals = replaceSignal(workingSignals, scoredWithContext);
     auditEvents.push(
-      buildScoredEvent(scoredWithContext, scoring),
+      buildScoredEvent(scoredWithContext, scoringStage.scoring),
       buildRecommendationEvent(scoredWithContext, tuning.settings),
     );
   }
 
-  const interpretationTargets = sortAutonomousTargets(
+  const interpretationTargets = sortSignalsByAutonomousPriority(
     workingSignals.filter((signal) => hasScoring(signal) && !hasInterpretation(signal) && !isFilteredOutSignal(signal)),
   ).slice(0, maxCandidates);
 
@@ -1288,14 +1216,11 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
       continue;
     }
 
-    const savedScenarioAngleDecision = getSavedScenarioAngleReuseDecision({
-      scenarioAngle: currentSignal.scenarioAngle,
-      sourceTitle: currentSignal.sourceTitle,
-      reuseAllowed: reuseSavedScenarioAngles,
+    const interpretationStage = runInterpretationStage({
+      signal: currentSignal,
+      reuseSavedScenarioAngles,
     });
-    const interpretationSignal = applyScenarioAngleOverride(currentSignal, savedScenarioAngleDecision.reusableScenarioAngle);
-    const interpretationStage = buildInterpretationUpdate(interpretationSignal);
-    const savedInterpretation = await saveSignalWithFallback(currentSignal.recordId, interpretationStage.update);
+    const savedInterpretation = await saveSignalWithFallback(currentSignal.recordId, interpretationStage.interpretationUpdate.update);
 
     if (!savedInterpretation.signal) {
       errors.push(
@@ -1345,24 +1270,24 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
       summary: assessment.summary,
       metadata: {
         confidenceLevel: guidance.confidence.confidenceLevel,
-        reusedScenarioAngle: savedScenarioAngleDecision.shouldReuse,
+        reusedScenarioAngle: interpretationStage.savedScenarioAngleDecision.shouldReuse,
       },
     });
     auditEvents.push({
       signalId: interpretedWithContext.recordId,
       eventType: "INTERPRETATION_SAVED",
       actor: "system",
-      summary: savedScenarioAngleDecision.shouldReuse
+      summary: interpretationStage.savedScenarioAngleDecision.shouldReuse
         ? "Autonomous runner saved interpretation using stored scenario framing."
         : "Autonomous runner saved interpretation.",
       metadata: {
-        reusedScenarioAngle: savedScenarioAngleDecision.shouldReuse,
+        reusedScenarioAngle: interpretationStage.savedScenarioAngleDecision.shouldReuse,
       },
     });
     auditEvents.push(buildRecommendationEvent(interpretedWithContext, tuning.settings));
   }
 
-  const generationTargets = sortAutonomousTargets(
+  const generationTargets = sortSignalsByAutonomousPriority(
     workingSignals.filter((signal) => hasInterpretation(signal) && !hasGeneration(signal) && !isFilteredOutSignal(signal)),
   ).slice(0, maxCandidates);
 
@@ -1461,7 +1386,7 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
     });
   }
 
-  const approvalCandidates = sortAutonomousTargets(
+  const approvalCandidates = sortSignalsByAutonomousPriority(
     filterSignalsForActiveReviewQueue(
       workingSignals.filter((signal) => hasReviewableDraftPackage(signal) && !isFilteredOutSignal(signal)),
       await listDuplicateClusters(),
@@ -1576,10 +1501,10 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
     bundles,
     maxCandidates: 5,
   });
-  const rankedApprovalCandidates = rankApprovalCandidates(
-    approvalReadyCandidates,
-    Math.max(approvalReadyCandidates.length, 1),
-    {
+  const rankedApprovalCandidates = rankApprovalReadySignals({
+    candidates: approvalReadyCandidates,
+    limit: Math.max(approvalReadyCandidates.length, 1),
+    context: {
       strategy,
       cadence,
       weeklyPlan,
@@ -1591,7 +1516,7 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
       strategicOutcomes,
       experiments,
     },
-  );
+  });
   const approvalReadyRecords = rankedApprovalCandidates.map((candidate) =>
     autonomousRunCandidateSchema.parse({
       ...buildAutonomousRecord({
@@ -1707,3 +1632,4 @@ export async function runAutonomousPipeline(options: AutonomousRunOptions = {}):
     result,
   };
 }
+
