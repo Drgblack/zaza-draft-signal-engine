@@ -24,6 +24,8 @@ export const BATCH_RENDER_JOB_STATUSES = [
   "cancelled",
 ] as const;
 
+export const AUTO_APPROVE_CONFIG_STATUSES = ["draft", "active", "archived"] as const;
+
 export const CONTENT_MIX_DIMENSIONS = [
   "contentType",
   "format",
@@ -89,6 +91,20 @@ export const contentMixTargetSchema = z.object({
   gaps: z.array(contentMixGapIndicatorSchema).default([]),
 });
 
+export const autoApproveConfigSchema = z.object({
+  configId: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  status: z.enum(AUTO_APPROVE_CONFIG_STATUSES).default("draft"),
+  enabled: z.boolean().default(false),
+  confidenceThreshold: z.number().int().min(0).max(100).default(85),
+  requiresTrustPass: z.boolean().default(true),
+  maxPerDay: z.number().int().positive().max(25).default(5),
+  mandatoryReviewEveryN: z.number().int().positive().max(25).default(5),
+  changedAt: z.string().trim().min(1),
+  changedSource: z.string().trim().min(1),
+  changeNote: z.string().trim().nullable().default(null),
+});
+
 export const batchRenderSummarySchema = z.object({
   total: z.number().int().nonnegative(),
   withApprovedBrief: z.number().int().nonnegative(),
@@ -116,6 +132,25 @@ export const batchExecutionPolicySchema = z.object({
   notes: z.string().trim().nullable().default(null),
 });
 
+export const batchApprovalAssessmentSchema = z.object({
+  batchId: z.string().trim().min(1),
+  contentMixTargetId: z.string().trim().nullable().default(null),
+  requiresOverride: z.boolean(),
+  hasSoftBlockGaps: z.boolean(),
+  softBlockGapCount: z.number().int().nonnegative(),
+  warningGapCount: z.number().int().nonnegative(),
+  warnings: z.array(z.string().trim().min(1)).default([]),
+});
+
+export const autoApproveOpportunityAssessmentSchema = z.object({
+  configId: z.string().trim().min(1),
+  enabled: z.boolean(),
+  eligible: z.boolean(),
+  heldForMandatoryReview: z.boolean(),
+  confidenceScore: z.number().min(0).max(100).nullable().default(null),
+  reasons: z.array(z.string().trim().min(1)).default([]),
+});
+
 const DEFAULT_BATCH_EXECUTION_POLICY = batchExecutionPolicySchema.parse({});
 
 export const batchRenderJobSchema = z.object({
@@ -136,14 +171,20 @@ const factoryBatchControlStoreSchema = z.object({
   updatedAt: z.string().trim().nullable().default(null),
   batches: z.array(batchRenderJobSchema).default([]),
   mixTargets: z.array(contentMixTargetSchema).default([]),
+  autoApproveConfigs: z.array(autoApproveConfigSchema).default([]),
 });
 
 export type ContentMixTargets = z.infer<typeof contentMixTargetsSchema>;
 export type ContentMixObservedSummary = z.infer<typeof contentMixObservedSummarySchema>;
 export type ContentMixGapIndicator = z.infer<typeof contentMixGapIndicatorSchema>;
 export type ContentMixTarget = z.infer<typeof contentMixTargetSchema>;
+export type AutoApproveConfig = z.infer<typeof autoApproveConfigSchema>;
 export type BatchExecutionPolicy = z.infer<typeof batchExecutionPolicySchema>;
 export type BatchRenderJob = z.infer<typeof batchRenderJobSchema>;
+export type BatchApprovalAssessment = z.infer<typeof batchApprovalAssessmentSchema>;
+export type AutoApproveOpportunityAssessment = z.infer<
+  typeof autoApproveOpportunityAssessmentSchema
+>;
 
 type FactoryBatchControlStore = z.infer<typeof factoryBatchControlStoreSchema>;
 type MixDimension = (typeof CONTENT_MIX_DIMENSIONS)[number];
@@ -161,6 +202,11 @@ function normalizeStore(store: FactoryBatchControlStore): FactoryBatchControlSto
         right.updatedAt.localeCompare(left.updatedAt) ||
         left.name.localeCompare(right.name),
     ),
+    autoApproveConfigs: [...store.autoApproveConfigs].sort(
+      (left, right) =>
+        right.changedAt.localeCompare(left.changedAt) ||
+        left.name.localeCompare(right.name),
+    ),
   });
 }
 
@@ -169,6 +215,7 @@ function buildDefaultStore(): FactoryBatchControlStore {
     updatedAt: null,
     batches: [],
     mixTargets: [],
+    autoApproveConfigs: [],
   });
 }
 
@@ -196,6 +243,14 @@ async function writePersistedStore(store: FactoryBatchControlStore): Promise<voi
 
 function roundMetric(value: number) {
   return Math.round(value * 10000) / 10000;
+}
+
+function normalizePercent(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return null;
+  }
+
+  return roundMetric(Math.max(0, Math.min(100, value)));
 }
 
 function normalizeText(value: string | null | undefined): string | null {
@@ -557,12 +612,146 @@ export function listContentMixTargets(): ContentMixTarget[] {
   return readPersistedStoreSync().mixTargets;
 }
 
+export function listAutoApproveConfigs(): AutoApproveConfig[] {
+  return readPersistedStoreSync().autoApproveConfigs;
+}
+
 export function getBatchRenderJob(batchId: string): BatchRenderJob | null {
   return listBatchRenderJobs().find((batch) => batch.batchId === batchId) ?? null;
 }
 
 export function getContentMixTarget(targetId: string): ContentMixTarget | null {
   return listContentMixTargets().find((target) => target.targetId === targetId) ?? null;
+}
+
+export function getAutoApproveConfig(configId: string): AutoApproveConfig | null {
+  return listAutoApproveConfigs().find((config) => config.configId === configId) ?? null;
+}
+
+export function getActiveAutoApproveConfig(): AutoApproveConfig | null {
+  return (
+    listAutoApproveConfigs().find(
+      (config) => config.status === "active" && config.enabled,
+    ) ?? null
+  );
+}
+
+export function buildBatchApprovalAssessment(input: {
+  batch: BatchRenderJob;
+  contentMixTarget?: ContentMixTarget | null;
+}): BatchApprovalAssessment {
+  const targetId =
+    input.contentMixTarget?.targetId ??
+    input.batch.executionPolicy.contentMixTargetId ??
+    null;
+  const gaps =
+    input.contentMixTarget?.gaps.filter((gap) => gap.severity !== "aligned") ?? [];
+  const softBlockGapCount = gaps.filter((gap) => gap.severity === "soft_block").length;
+  const warningGapCount = gaps.filter((gap) => gap.severity === "warning").length;
+  const warnings: string[] = [];
+
+  if (softBlockGapCount > 0) {
+    warnings.push(
+      `${softBlockGapCount} content-mix gap${softBlockGapCount === 1 ? "" : "s"} exceed the soft-block threshold and require explicit founder override.`,
+    );
+  }
+
+  if (warningGapCount > 0) {
+    warnings.push(
+      `${warningGapCount} content-mix gap${warningGapCount === 1 ? "" : "s"} are outside the target band.`,
+    );
+  }
+
+  if (input.batch.summary.totalEstimatedCostUsd > 0) {
+    warnings.push(
+      `Estimated batch cost is $${input.batch.summary.totalEstimatedCostUsd.toFixed(2)} and must be founder-confirmed before execution.`,
+    );
+  }
+
+  return batchApprovalAssessmentSchema.parse({
+    batchId: input.batch.batchId,
+    contentMixTargetId: targetId,
+    requiresOverride: softBlockGapCount > 0,
+    hasSoftBlockGaps: softBlockGapCount > 0,
+    softBlockGapCount,
+    warningGapCount,
+    warnings,
+  });
+}
+
+export function assessAutoApproveOpportunity(input: {
+  opportunity: ContentOpportunity;
+  config: AutoApproveConfig;
+  autoApprovedTodayCount: number;
+  totalAutoApprovedCount: number;
+}): AutoApproveOpportunityAssessment {
+  const reasons: string[] = [];
+  const confidenceScore = normalizePercent(
+    typeof input.opportunity.confidence === "number"
+      ? input.opportunity.confidence * 100
+      : null,
+  );
+  const finalTrustScore = input.opportunity.selectedVideoBrief?.finalScriptTrustScore ?? null;
+  let eligible = input.config.enabled && input.config.status === "active";
+  let heldForMandatoryReview = false;
+
+  if (!input.config.enabled || input.config.status !== "active") {
+    reasons.push("Auto-approve is not active.");
+    eligible = false;
+  }
+
+  if (
+    confidenceScore === null ||
+    confidenceScore < input.config.confidenceThreshold
+  ) {
+    reasons.push(
+      `Confidence ${confidenceScore ?? 0} is below the ${input.config.confidenceThreshold} threshold.`,
+    );
+    eligible = false;
+  }
+
+  if (input.config.requiresTrustPass && typeof finalTrustScore === "number" && finalTrustScore < 70) {
+    reasons.push(`Final script trust score ${finalTrustScore} did not clear the trust pass.`);
+    eligible = false;
+  }
+
+  if (
+    input.config.requiresTrustPass &&
+    input.opportunity.selectedVideoBrief &&
+    finalTrustScore === null
+  ) {
+    reasons.push("Final script trust has not been evaluated yet.");
+    eligible = false;
+  }
+
+  if (input.autoApprovedTodayCount >= input.config.maxPerDay) {
+    reasons.push(`Daily auto-approve cap of ${input.config.maxPerDay} has been reached.`);
+    eligible = false;
+  }
+
+  if (
+    eligible &&
+    input.config.mandatoryReviewEveryN > 0 &&
+    (input.totalAutoApprovedCount + 1) % input.config.mandatoryReviewEveryN === 0
+  ) {
+    heldForMandatoryReview = true;
+    reasons.push(
+      `Mandatory review rail triggered for every ${input.config.mandatoryReviewEveryN}th auto-approved brief.`,
+    );
+  }
+
+  if (eligible && !heldForMandatoryReview) {
+    reasons.push("Confidence and trust checks clear the current auto-approve rails.");
+  }
+
+  return autoApproveOpportunityAssessmentSchema.parse({
+    configId: input.config.configId,
+    enabled: input.config.enabled,
+    eligible,
+    heldForMandatoryReview,
+    confidenceScore,
+    reasons,
+  });
 }
 
 export async function upsertBatchRenderJob(batch: BatchRenderJob): Promise<BatchRenderJob> {
@@ -576,6 +765,7 @@ export async function upsertBatchRenderJob(batch: BatchRenderJob): Promise<Batch
       ...store.batches.filter((item) => item.batchId !== nextBatch.batchId),
     ],
     mixTargets: store.mixTargets,
+    autoApproveConfigs: store.autoApproveConfigs,
   });
 
   return nextBatch;
@@ -594,7 +784,77 @@ export async function upsertContentMixTarget(
       nextTarget,
       ...store.mixTargets.filter((item) => item.targetId !== nextTarget.targetId),
     ],
+    autoApproveConfigs: store.autoApproveConfigs,
   });
 
   return nextTarget;
+}
+
+export async function upsertAutoApproveConfig(
+  config: AutoApproveConfig,
+): Promise<AutoApproveConfig> {
+  const store = readPersistedStoreSync();
+  const nextConfig = autoApproveConfigSchema.parse(config);
+
+  await writePersistedStore({
+    updatedAt: nextConfig.changedAt,
+    batches: store.batches,
+    mixTargets: store.mixTargets,
+    autoApproveConfigs: [
+      nextConfig,
+      ...store.autoApproveConfigs.filter(
+        (item) => item.configId !== nextConfig.configId,
+      ),
+    ],
+  });
+
+  return nextConfig;
+}
+
+export async function approveBatchRenderJob(input: {
+  batchId: string;
+  overrideMixGaps?: boolean;
+}): Promise<BatchRenderJob> {
+  const store = readPersistedStoreSync();
+  const currentBatch = store.batches.find((batch) => batch.batchId === input.batchId);
+
+  if (!currentBatch) {
+    throw new Error("Batch render job not found.");
+  }
+
+  const target =
+    currentBatch.executionPolicy.contentMixTargetId
+      ? store.mixTargets.find(
+          (mixTarget) =>
+            mixTarget.targetId === currentBatch.executionPolicy.contentMixTargetId,
+        ) ?? null
+      : null;
+  const assessment = buildBatchApprovalAssessment({
+    batch: currentBatch,
+    contentMixTarget: target,
+  });
+
+  if (assessment.requiresOverride && !input.overrideMixGaps) {
+    throw new Error(
+      "Batch approval requires an explicit content-mix override because the current mix exceeds the soft-block threshold.",
+    );
+  }
+
+  const approvedBatch = batchRenderJobSchema.parse({
+    ...currentBatch,
+    status: "approved",
+    updatedAt: new Date().toISOString(),
+  });
+
+  await writePersistedStore({
+    updatedAt: approvedBatch.updatedAt,
+    batches: [
+      approvedBatch,
+      ...store.batches.filter((batch) => batch.batchId !== approvedBatch.batchId),
+    ],
+    mixTargets: store.mixTargets,
+    autoApproveConfigs: store.autoApproveConfigs,
+  });
+
+  return approvedBatch;
 }

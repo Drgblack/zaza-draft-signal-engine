@@ -414,6 +414,36 @@ export function buildSoftCta(
   return "Teachers need calmer ways to work through messages like this.";
 }
 
+function chooseVideoBriefContentType(
+  opportunity: ContentOpportunity,
+  angle: MessageAngle,
+): string {
+  if (angle.style === "risk-awareness") {
+    return "pain";
+  }
+
+  if (angle.style === "validation" || angle.style === "calm-relief") {
+    return "validation";
+  }
+
+  if (angle.style === "practical-help" || angle.style === "reframe") {
+    return "solution";
+  }
+
+  if (
+    angle.style === "teacher-voice" &&
+    opportunity.teacherLanguage.length > 0
+  ) {
+    return "story";
+  }
+
+  if (opportunity.trustRisk === "high") {
+    return "pain";
+  }
+
+  return "validation";
+}
+
 function buildProductionNotes(
   opportunity: ContentOpportunity,
   format: VideoBrief["format"],
@@ -593,6 +623,7 @@ function rawBriefForTrustCheck(
   const structure = buildVideoBeats(opportunity, angle, hookSet, durationSec);
   const overlayLines = buildOverlayLines(opportunity, angle, hookSet, structure);
   const cta = buildSoftCta(opportunity, angle);
+  const contentType = chooseVideoBriefContentType(opportunity, angle);
 
   return videoBriefSchema.parse({
     id: briefId(opportunity.opportunityId, angle.id, hookSet.id),
@@ -609,7 +640,7 @@ function rawBriefForTrustCheck(
     visualDirection: buildVisualDirection(opportunity, angle, format),
     overlayLines,
     cta,
-    contentType: null,
+    contentType,
     finalScriptTrustScore: null,
     productionNotes: buildProductionNotes(opportunity, format),
   });

@@ -562,3 +562,124 @@ test("batch jobs and mix targets persist to the repo-native JSON store", { concu
     );
   });
 });
+
+test("batch approval requires explicit override when the linked content mix target has soft-block gaps", { concurrency: false }, async () => {
+  await withTempBatchControlModule(async ({ loadModule }) => {
+    const batchControlModule = await loadModule();
+    const opportunities = [
+      buildOpportunityFixture({
+        id: "opp-1",
+        recommendedFormat: "short_video",
+        platforms: ["linkedin"],
+        contentType: "pain",
+        effect: "caution",
+        cta: "Pause before sending",
+        lifecycleStatus: "accepted",
+        reviewStatus: "accepted",
+      }),
+      buildOpportunityFixture({
+        id: "opp-2",
+        recommendedFormat: "short_video",
+        platforms: ["linkedin"],
+        contentType: "pain",
+        effect: "caution",
+        cta: "Pause before sending",
+        lifecycleStatus: "accepted",
+        reviewStatus: "accepted",
+      }),
+    ];
+    const mixTarget = batchControlModule.buildContentMixTarget({
+      targetId: "mix-approval-1",
+      name: "Balanced mix",
+      targets: {
+        contentType: {
+          pain: 0.2,
+          validation: 0.4,
+          solution: 0.3,
+          story: 0.1,
+        },
+      },
+      opportunities,
+      status: "active",
+      createdAt: "2026-03-24T10:00:00.000Z",
+      updatedAt: "2026-03-24T10:00:00.000Z",
+    });
+    const batch = batchControlModule.buildBatchRenderJob({
+      batchId: "batch-approval-1",
+      opportunities,
+      status: "pending_approval",
+      createdAt: "2026-03-24T10:00:00.000Z",
+      updatedAt: "2026-03-24T10:00:00.000Z",
+      executionPolicy: {
+        contentMixTargetId: "mix-approval-1",
+      },
+    });
+
+    await batchControlModule.upsertContentMixTarget(mixTarget);
+    await batchControlModule.upsertBatchRenderJob(batch);
+
+    const assessment = batchControlModule.buildBatchApprovalAssessment({
+      batch,
+      contentMixTarget: mixTarget,
+    });
+
+    assert.equal(assessment.requiresOverride, true);
+    await assert.rejects(
+      () =>
+        batchControlModule.approveBatchRenderJob({
+          batchId: "batch-approval-1",
+        }),
+      /requires an explicit content-mix override/i,
+    );
+
+    const approvedBatch = await batchControlModule.approveBatchRenderJob({
+      batchId: "batch-approval-1",
+      overrideMixGaps: true,
+    });
+
+    assert.equal(approvedBatch.status, "approved");
+  });
+});
+
+test("auto-approve config keeps the safety rail explicit and holds every nth candidate for review", { concurrency: false }, async () => {
+  await withTempBatchControlModule(async ({ loadModule }) => {
+    const batchControlModule = await loadModule();
+    const config = await batchControlModule.upsertAutoApproveConfig({
+      configId: "auto-approve-1",
+      name: "Phase E trial",
+      status: "active",
+      enabled: true,
+      confidenceThreshold: 80,
+      requiresTrustPass: true,
+      maxPerDay: 5,
+      mandatoryReviewEveryN: 3,
+      changedAt: "2026-03-24T10:00:00.000Z",
+      changedSource: "operator:test",
+      changeNote: "Turn on guarded auto-approve.",
+    });
+
+    const assessment = batchControlModule.assessAutoApproveOpportunity({
+      config,
+      opportunity: buildOpportunityFixture({
+        id: "opp-auto-1",
+        recommendedFormat: "short_video",
+        platforms: ["linkedin"],
+        contentType: "validation",
+        effect: "relief",
+        cta: "Try Zaza Draft",
+        lifecycleStatus: "accepted",
+        reviewStatus: "accepted",
+      }),
+      autoApprovedTodayCount: 1,
+      totalAutoApprovedCount: 2,
+    });
+
+    assert.equal(assessment.eligible, true);
+    assert.equal(assessment.heldForMandatoryReview, true);
+    assert.ok(
+      assessment.reasons.some((reason) =>
+        reason.includes("Mandatory review rail triggered"),
+      ),
+    );
+  });
+});

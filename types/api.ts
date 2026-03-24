@@ -442,6 +442,7 @@ export const factoryInputActionRequestSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("dismiss"),
     opportunityId: z.string().trim().min(1),
+    skipReason: z.string().trim().nullable().optional(),
   }),
   z.object({
     action: z.literal("reopen"),

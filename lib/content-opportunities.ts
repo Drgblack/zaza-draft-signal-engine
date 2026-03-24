@@ -104,6 +104,7 @@ import {
 import { buildWeeklyRecap } from "@/lib/weekly-recap";
 import { buildWeeklyPostingPack } from "@/lib/weekly-posting-pack";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
+import { syncPhaseEArtifactsForProductionPackage } from "@/lib/phase-e-orchestration";
 import {
   createDraftVideoFactoryLifecycle,
   transitionVideoFactoryLifecycle,
@@ -470,6 +471,232 @@ function contentOpportunityConfidenceScore(opportunity: ContentOpportunity) {
   return 0.35;
 }
 
+function roundOpportunityMetric(value: number) {
+  return Math.round(value * 10000) / 10000;
+}
+
+function derivePainPointCategory(
+  opportunity: Pick<
+    ContentOpportunity,
+    "title" | "primaryPainPoint" | "teacherLanguage" | "recommendedAngle" | "riskSummary"
+  >,
+) {
+  const haystack = normalizeText(
+    [
+      opportunity.title,
+      opportunity.primaryPainPoint,
+      ...opportunity.teacherLanguage,
+      opportunity.recommendedAngle,
+      opportunity.riskSummary,
+    ].join(" "),
+  )?.toLowerCase();
+
+  if (!haystack) {
+    return "teacher-communication";
+  }
+
+  if (
+    haystack.includes("parent") ||
+    haystack.includes("email") ||
+    haystack.includes("message")
+  ) {
+    return "parent-communication";
+  }
+
+  if (
+    haystack.includes("report card") ||
+    haystack.includes("grading") ||
+    haystack.includes("comment")
+  ) {
+    return "assessment-feedback";
+  }
+
+  if (
+    haystack.includes("behaviour") ||
+    haystack.includes("behavior") ||
+    haystack.includes("classroom management")
+  ) {
+    return "behavior-management";
+  }
+
+  if (
+    haystack.includes("planning") ||
+    haystack.includes("workload") ||
+    haystack.includes("time") ||
+    haystack.includes("burnout")
+  ) {
+    return "teacher-workload";
+  }
+
+  if (
+    haystack.includes("leader") ||
+    haystack.includes("admin") ||
+    haystack.includes("principal")
+  ) {
+    return "school-leadership";
+  }
+
+  return "teacher-communication";
+}
+
+function deriveOpportunityConfidence(input: {
+  opportunity: ContentOpportunity;
+  performanceDrivers?: ContentOpportunityPerformanceDrivers | null;
+}) {
+  const performanceDrivers = input.performanceDrivers ?? {};
+  const scoredDrivers = Object.values(performanceDrivers).filter(
+    (value): value is number => typeof value === "number",
+  );
+  const averageDriverScore =
+    scoredDrivers.length > 0
+      ? scoredDrivers.reduce((sum, value) => sum + value, 0) / scoredDrivers.length
+      : null;
+  let confidence = contentOpportunityConfidenceScore(input.opportunity);
+
+  if (averageDriverScore !== null) {
+    confidence += (averageDriverScore - 3) * 0.06;
+  }
+
+  if ((input.opportunity.growthIntelligence?.executionPriority ?? 0) >= 75) {
+    confidence += 0.05;
+  }
+
+  if (input.opportunity.trustRisk === "high") {
+    confidence = Math.min(confidence, 0.58);
+  }
+
+  return roundOpportunityMetric(Math.max(0, Math.min(1, confidence)));
+}
+
+function extractHistoricalActualCostUsd(opportunity: ContentOpportunity) {
+  const directCost = opportunity.generationState?.latestActualCost?.actualCostUsd;
+  if (typeof directCost === "number") {
+    return directCost;
+  }
+
+  const ledgerCosts = opportunity.generationState?.runLedger
+    .map((entry) => entry.actualCost?.actualCostUsd ?? null)
+    .filter((value): value is number => typeof value === "number");
+
+  if (!ledgerCosts || ledgerCosts.length === 0) {
+    return null;
+  }
+
+  return roundOpportunityMetric(
+    ledgerCosts.reduce((sum, value) => sum + value, 0) / ledgerCosts.length,
+  );
+}
+
+function extractHistoricalApprovalOutcome(opportunity: ContentOpportunity) {
+  const terminalOutcome =
+    opportunity.generationState?.runLedger.at(-1)?.terminalOutcome ??
+    opportunity.generationState?.assetReview?.status ??
+    null;
+
+  if (!terminalOutcome) {
+    return null;
+  }
+
+  if (terminalOutcome === "accepted") {
+    return 1;
+  }
+
+  if (
+    terminalOutcome === "rejected" ||
+    terminalOutcome === "discarded" ||
+    terminalOutcome === "failed" ||
+    terminalOutcome === "failed_permanent"
+  ) {
+    return 0;
+  }
+
+  return null;
+}
+
+function buildHistoricalOpportunityMetrics(
+  opportunity: ContentOpportunity,
+  historicalUniverse: ContentOpportunity[],
+) {
+  const painPointCategory =
+    opportunity.painPointCategory ?? derivePainPointCategory(opportunity);
+  const peers = historicalUniverse.filter((candidate) => {
+    if (candidate.opportunityId === opportunity.opportunityId) {
+      return false;
+    }
+
+    const candidateCategory =
+      candidate.painPointCategory ?? derivePainPointCategory(candidate);
+
+    return (
+      candidateCategory === painPointCategory ||
+      candidate.opportunityType === opportunity.opportunityType
+    );
+  });
+  const costValues = peers
+    .map((peer) => extractHistoricalActualCostUsd(peer))
+    .filter((value): value is number => typeof value === "number");
+  const approvalOutcomes = peers
+    .map((peer) => extractHistoricalApprovalOutcome(peer))
+    .filter((value): value is 0 | 1 => value === 0 || value === 1);
+
+  return {
+    historicalCostAvg:
+      costValues.length > 0
+        ? roundOpportunityMetric(
+            costValues.reduce((sum, value) => sum + value, 0) / costValues.length,
+          )
+        : null,
+    historicalApprovalRate:
+      approvalOutcomes.length > 0
+        ? roundOpportunityMetric(
+            approvalOutcomes.reduce<number>((sum, value) => sum + value, 0) /
+              approvalOutcomes.length,
+          )
+        : null,
+  };
+}
+
+function enrichOpportunityPhaseEFields(
+  opportunity: ContentOpportunity,
+  historicalUniverse: ContentOpportunity[] = [],
+): ContentOpportunity {
+  const painPointCategory =
+    opportunity.painPointCategory ?? derivePainPointCategory(opportunity);
+  const historicalMetrics =
+    historicalUniverse.length > 0
+      ? buildHistoricalOpportunityMetrics(
+          {
+            ...opportunity,
+            painPointCategory,
+          },
+          historicalUniverse,
+        )
+      : {
+          historicalCostAvg: opportunity.historicalCostAvg ?? null,
+          historicalApprovalRate: opportunity.historicalApprovalRate ?? null,
+        };
+
+  return contentOpportunitySchema.parse({
+    ...opportunity,
+    painPointCategory,
+    confidence:
+      opportunity.confidence ??
+      deriveOpportunityConfidence({
+        opportunity: {
+          ...opportunity,
+          painPointCategory,
+        },
+        performanceDrivers: opportunity.performanceDrivers,
+      }),
+    historicalCostAvg:
+      opportunity.historicalCostAvg ?? historicalMetrics.historicalCostAvg ?? null,
+    historicalApprovalRate:
+      opportunity.historicalApprovalRate ??
+      historicalMetrics.historicalApprovalRate ??
+      null,
+  });
+}
+
 function evaluateContentOpportunityVideoAutonomyPolicy(input: {
   opportunity: ContentOpportunity;
   generationState: ContentOpportunityGenerationState | null;
@@ -743,6 +970,7 @@ export const contentOpportunityActionRequestSchema = z.discriminatedUnion("actio
   z.object({
     action: z.literal("dismiss"),
     opportunityId: z.string().trim().min(1),
+    skipReason: z.string().trim().nullable().optional(),
   }),
   z.object({
     action: z.literal("reopen"),
@@ -2928,15 +3156,17 @@ function normalizePersistedOpportunity(opportunity: ContentOpportunity): Content
     },
   );
 
-  return contentOpportunitySchema.parse({
-    ...founderNormalizedOpportunity,
-    painPointCategory: founderNormalizedOpportunity.painPointCategory ?? null,
-    confidence: founderNormalizedOpportunity.confidence ?? null,
-    historicalCostAvg: founderNormalizedOpportunity.historicalCostAvg ?? null,
-    historicalApprovalRate: founderNormalizedOpportunity.historicalApprovalRate ?? null,
-    skipReason: founderNormalizedOpportunity.skipReason ?? null,
-    generationState: normalizeGenerationState(founderNormalizedOpportunity),
-  });
+  return enrichOpportunityPhaseEFields(
+    contentOpportunitySchema.parse({
+      ...founderNormalizedOpportunity,
+      painPointCategory: founderNormalizedOpportunity.painPointCategory ?? null,
+      confidence: founderNormalizedOpportunity.confidence ?? null,
+      historicalCostAvg: founderNormalizedOpportunity.historicalCostAvg ?? null,
+      historicalApprovalRate: founderNormalizedOpportunity.historicalApprovalRate ?? null,
+      skipReason: founderNormalizedOpportunity.skipReason ?? null,
+      generationState: normalizeGenerationState(founderNormalizedOpportunity),
+    }),
+  );
 }
 
 function mergePersistedFields(
@@ -3276,6 +3506,9 @@ export function buildContentOpportunityState(input: {
 }): ContentOpportunityState {
   const now = input.now ?? new Date();
   const existingById = new Map((input.existing ?? []).map((item) => [item.opportunityId, item]));
+  const historicalUniverse = (input.existing ?? []).map((item) =>
+    normalizePersistedOpportunity(item),
+  );
   const opportunities = input.candidates
     .filter((candidate) => candidate.triage.triageState !== "suppress")
     .filter((candidate) => candidate.signal.status !== "Posted" && candidate.signal.status !== "Archived")
@@ -3284,7 +3517,13 @@ export function buildContentOpportunityState(input: {
         activeCampaignIds: input.activeCampaignIds,
         campaignsExist: input.campaignsExist,
       });
-      return mergePersistedFields(nextOpportunity, existingById.get(nextOpportunity.opportunityId));
+      return enrichOpportunityPhaseEFields(
+        mergePersistedFields(
+          nextOpportunity,
+          existingById.get(nextOpportunity.opportunityId),
+        ),
+        historicalUniverse,
+      );
     });
 
   return summarizeState(opportunities);
@@ -3396,13 +3635,17 @@ export async function approveContentOpportunity(opportunityId: string) {
   return state;
 }
 
-export async function dismissContentOpportunity(opportunityId: string) {
+export async function dismissContentOpportunity(
+  opportunityId: string,
+  skipReason?: string | null,
+) {
   const timestamp = new Date().toISOString();
   const store = await readPersistedStore();
   const current = store.opportunities.find((item) => item.opportunityId === opportunityId);
   if (!current) {
     throw new Error("Content opportunity not found.");
   }
+  const normalizedSkipReason = normalizeText(skipReason);
 
   const state = await updateOpportunity(opportunityId, (opportunity) => ({
     ...opportunity,
@@ -3414,6 +3657,7 @@ export async function dismissContentOpportunity(opportunityId: string) {
     }),
     dismissedAt: timestamp,
     approvedAt: null,
+    skipReason: normalizedSkipReason ?? opportunity.skipReason ?? null,
     updatedAt: timestamp,
   }));
   await appendAuditEventsSafe([
@@ -3422,6 +3666,11 @@ export async function dismissContentOpportunity(opportunityId: string) {
       eventType: "CONTENT_OPPORTUNITY_DISMISSED" as const,
       actor: "operator",
       summary: `Dismissed content opportunity "${current.title}".`,
+      metadata: normalizedSkipReason
+        ? {
+            skipReason: normalizedSkipReason,
+          }
+        : undefined,
     },
   ]);
   return state;
@@ -4094,6 +4343,10 @@ export async function exportContentOpportunityProductionPackage(
   const productionPackage = buildProductionPackage({
     opportunity: normalizedCurrent,
     publishOutcome,
+  });
+  await syncPhaseEArtifactsForProductionPackage({
+    opportunity: normalizedCurrent,
+    productionPackage,
   });
 
   await appendAuditEventsSafe([

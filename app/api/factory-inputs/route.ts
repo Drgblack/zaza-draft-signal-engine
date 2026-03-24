@@ -96,7 +96,10 @@ export async function PATCH(request: Request) {
         : parsed.data.action === "approve_video_brief_for_generation"
           ? await approveContentOpportunityVideoBriefForGeneration(parsed.data.opportunityId)
         : parsed.data.action === "dismiss"
-          ? await dismissContentOpportunity(parsed.data.opportunityId)
+          ? await dismissContentOpportunity(
+              parsed.data.opportunityId,
+              parsed.data.skipReason,
+            )
           : parsed.data.action === "reopen"
             ? await reopenContentOpportunity(parsed.data.opportunityId)
             : parsed.data.action === "update_notes"
