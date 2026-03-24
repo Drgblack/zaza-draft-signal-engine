@@ -9,7 +9,7 @@ import {
   listSignalsWithFallback as listSignalsWithFallbackFromAirtable,
   saveSignalWithFallback as saveSignalWithFallbackFromAirtable,
   updateSignal as updateSignalInAirtable,
-} from "@/lib/signal-repository";
+} from "@/lib/airtable";
 import type { SignalRepositoryAdapter } from "@/lib/signal-repository";
 
 export const airtableSignalRepository: SignalRepositoryAdapter = {
