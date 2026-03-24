@@ -381,3 +381,63 @@ test("buildVideoFactorySelectionDecision widens retry policy only for transient 
   );
   assert.equal(narrationPolicy?.reason, "default");
 });
+
+test("growth intelligence can conservatively bias queue priority, provider order, and budget mode", () => {
+  const decision = buildVideoFactorySelectionDecision({
+    compiledProductionPlan: buildCompiledPlanFixture(),
+    briefFormat: "talking-head",
+    briefDurationSec: 30,
+    historicalOpportunities: [],
+    appliedAt: "2026-03-23T10:30:00.000Z",
+    growthIntelligence: {
+      executionPriority: 38,
+      strategicValue: 40,
+      riskLevel: "high",
+      learningValue: 35,
+      executionPath: "review",
+    },
+  });
+
+  assert.equal(decision.queuePriority, "normal");
+  assert.equal(decision.priorityBias, "conservative");
+  assert.equal(decision.providerBias, "cost_favor");
+  assert.equal(decision.budgetMode, "tight");
+  assert.deepEqual(decision.visualProviderOrder, ["kling-2", "runway-gen4"]);
+  assert.equal(decision.warningThresholdMultiplier, 0.85);
+  assert.equal(decision.hardStopThresholdMultiplier, 0.9);
+  assert.equal(decision.autoApproveThresholdDelta, 10);
+});
+
+test("growth intelligence can widen retries for high-learning execution without changing creative fields", () => {
+  const compiledPlan = buildCompiledPlanFixture();
+  const decision = buildVideoFactorySelectionDecision({
+    compiledProductionPlan: compiledPlan,
+    briefFormat: "talking-head",
+    briefDurationSec: 30,
+    historicalOpportunities: [],
+    appliedAt: "2026-03-23T10:30:00.000Z",
+    growthIntelligence: {
+      executionPriority: 78,
+      strategicValue: 74,
+      riskLevel: "low",
+      learningValue: 81,
+      executionPath: "video_factory",
+    },
+  });
+
+  const visualsPolicy = decision.retryPolicies.find(
+    (policy) => policy.stage === "visuals",
+  );
+  assert.equal(decision.queuePriority, "high");
+  assert.equal(decision.providerBias, "quality_favor");
+  assert.equal(visualsPolicy?.reason, "growth_more_patience");
+  assert.equal(visualsPolicy?.maxRetries, 3);
+
+  const optimizedPlan = applyVideoFactorySelectionDecision({
+    compiledProductionPlan: compiledPlan,
+    decision,
+  });
+  assert.equal(optimizedPlan.narrationSpec.script, compiledPlan.narrationSpec.script);
+  assert.deepEqual(optimizedPlan.scenePrompts, compiledPlan.scenePrompts);
+  assert.deepEqual(optimizedPlan.captionSpec, compiledPlan.captionSpec);
+});

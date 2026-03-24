@@ -6,51 +6,26 @@
 **Zaza Technologies — Confidential Internal Build Document**  
 *Revision 3 — incorporates all reviewer feedback rounds*
 
-## Current Build Status — March 22 2026
+## Current Build Status — March 24 2026
 
 ### Completed
-- Phase B: ContentOpportunity layer (Run 119)
-- Phase C Slice 1: VisualProvider abstraction + lifecycle state machine
-- Phase C Slice 2: Provider registry + cost estimate snapshots
-- Phase C UI: VideoFactoryReview component (v0, committed)
-- Phase C Slice 3-7: Run ledger, failure classification, quality checks,
-  export upgrade, runner separation (Codex Prompts 6-10, in progress)
+- Phase B: ContentOpportunity + VideoBrief intelligence layer, trust heuristics, and founder review flow
+- Strategic Intelligence split: Content Intelligence read-model projection plus persisted Growth Intelligence routing metadata
+- Phase C: real provider-backed video factory pipeline, RenderJob lifecycle, queue runner, retry logic, idempotency, quality checks, ffmpeg composition, review API wiring, run ledger, lineage, and package export
+- Phase D: final-script trust pass, WeeklySignalDigest, ProductionDefaults versioning, prompt override rules, provider benchmark aggregation, A/B config/result tagging, observability surfaces, retention metadata, standalone ThumbnailSpec storage, and provider registry completion
+- Phase E foundations: BatchRenderJob, ContentMixTarget, AutoApproveConfig, ConnectHandoffPackage, ConnectPerformanceSignal, CreatorBrief, ContentSeries, and channel package metadata
 
 ### In progress
-- Codex Prompts 6-10 running now
+- Native Inngest orchestration beyond the current local queue runner + Inngest-compatible dispatch layer
+- Deeper channel-specific packaging and delivery workflows beyond the current typed metadata and handoff bundle layer
 
-### Not yet started
-- Phase C Slice 5: Real provider integration (ElevenLabs, Runway, AssemblyAI)
-- Phase C Slice 6: ffmpeg composition
-- Phase C Slice 8: Wire VideoFactoryReview to real API routes
-- Phase D onwards
+### Remaining gaps
+- No standalone CDN control plane beyond Blob-backed persistence and CDN-ready delivery metadata
+- Thumbnail overlay-text workflow remains narrower than the full Phase D vision
 
-### Next Handoff After Prompts 6-10
+### Status note
 
-Once Codex completes Prompt 10, the next prompt should be the two pre-existing test errors that appeared in the type check today. Give Codex this before anything else in the next session:
-
-```text
-Use the spec at C:\Users\User\Projects\zaza-draft-signal-engine\docs\zaza-video-factory-spec.md 
-as the source of truth before changing anything.
-
-Fix two pre-existing TypeScript test errors before continuing Phase C work:
-
-1. tests/video-factory-quality-checks.test.ts line 147:
-   defaultsSnapshot.voiceProvider is typed as string but must be 
-   typed as the literal "elevenlabs". Add "as const" or change 
-   the test fixture to use the correct literal type.
-
-2. tests/video-factory-quality-checks.test.ts line 164:
-   placement is typed as string but must be 
-   "lower-third" | "center". Add "as const" or correct the 
-   test fixture value.
-
-Fix only these two test errors. Do not change any other files.
-
-Checks:
-- npx tsc --noEmit --pretty false
-- npm run lint
-```
+This block supersedes the earlier prompt-by-prompt handoff notes. The implementation has moved well past the old "Prompts 6-10" checkpoint, so the historical handoff instructions are intentionally removed.
 
 ---
 
@@ -90,6 +65,8 @@ Memory                          VideoBrief                      Influencer hando
                                 RenderedAsset
                                 PublishPackage
 ```
+
+**Implementation note — March 24 2026:** the repo now enforces a Strategic Intelligence split in code. `ContentIntelligence` is a read-only projection over persisted opportunity fields, while `GrowthIntelligence` is persisted separately and only consumes content-level outputs for routing, prioritisation, and execution-path selection.
 
 ### 1.2 Architecture Principles
 
@@ -350,22 +327,22 @@ Phase C converts an approved VideoBrief into a real, reviewable video asset with
 
 | Component | Status |
 |-----------|--------|
-| `/factory-inputs` UI + API | Operational |
+| `/factory-inputs` UI + API | Operational and wired to real routes |
 | VideoBrief approval gate | Operational |
-| Prompt Compiler (deterministic) | Operational |
-| RenderJob + RenderedAsset schema | Defined, not wired |
-| ProductionDefaults snapshot | Defined, not applied |
-| `/render-status` polling route | Exists, returns mock |
-| Generation completes synchronously | **Must replace** |
-| Provider layer | **Mock only — must replace with abstraction** |
-| VisualProvider interface | **Absent — must build first** |
-| Lifecycle state machine | **Absent — must build** |
-| Queue system | **Absent — must build** |
-| Cost tracking | **Absent — must build** |
-| Regeneration budget cap | **Absent — must build** |
-| Pre-generation triage picker | **Absent — must build** |
-| Retry and failure logic | **Absent — must build** |
-| Idempotency protection | **Absent — must build** |
+| Prompt Compiler (deterministic) | Operational; includes trust checks and prompt overrides |
+| RenderJob + RenderedAsset schema | Operational and persisted |
+| ProductionDefaults snapshot | Operational, versioned, and applied at compile/job time |
+| `/render-status` polling route | Operational |
+| Generation completes synchronously | No — queued/local async runner with external Inngest-compatible dispatch support |
+| Provider layer | Operational registry with explicit real/mock gating |
+| VisualProvider interface | Operational |
+| Lifecycle state machine | Operational |
+| Queue system | Operational local queue runner plus Inngest-compatible dispatch layer |
+| Cost tracking | Operational |
+| Regeneration budget cap | Operational |
+| Pre-generation triage picker | Operational |
+| Retry and failure logic | Operational |
+| Idempotency protection | Operational |
 
 ### 4.4 Provider Strategy & Visual Provider Abstraction
 
@@ -1062,6 +1039,8 @@ interface WeeklySignalDigest {
 }
 ```
 
+**Implementation note:** this exists in the repo today as a deterministic stored summary built from run observability, provider benchmark rollups, and review outcomes. The concrete schema is slightly richer than this sketch and includes defaults-version comparison and top trust-warning summaries.
+
 ### 5.3 A/B Defaults Comparison Mode
 
 Phase D adds a lightweight A/B test mode for comparing two ProductionDefaults configurations or two visual providers. This is the correct mechanism for validating provider switches. Never switch primary provider based on intuition or a single video.
@@ -1089,6 +1068,8 @@ interface ABTestResult {
 
 When A/B mode is active, each new RenderJob alternates between variants. Results surface in WeeklySignalDigest and the ProductionDefaults management UI.
 
+**Implementation note:** `ABTestConfig`, `ABTestResult`, deterministic assignment, render-job tagging, and downstream benchmark attribution are implemented. The current system is strongest at explicit tagging and comparison; not every variant dimension is yet used to actively override runtime choice.
+
 ### 5.4 TrustEvaluator as Reusable Service
 
 Phase B: TrustEvaluator as inline call. Phase D: standalone service.
@@ -1100,6 +1081,8 @@ class TrustEvaluatorService {
   async getViolationHistory(opportunityId: string): Promise<TrustViolation[]>
 }
 ```
+
+**Implementation note:** the current repo implements this as a reusable local module rather than a separate network service. Angle, hook, opportunity, compiled-plan, and final assembled-script trust evaluation are all routed through shared trust functions in `lib/trust-evaluator.ts`.
 
 #### Final-Script Trust Pass
 
@@ -1123,6 +1106,8 @@ if (!finalScriptResult.passed) {
 
 Enforcement at script level surfaces to the founder rather than auto-regenerating, because the correction needed is brief editing, not prompt regeneration.
 
+**Implementation note:** the final assembled-script trust pass is now live and persisted on `VideoBrief.finalScriptTrustScore`, the compiled production plan, run ledger entries, review summaries, and export/package surfaces.
+
 ### 5.5 Prompt Improvement Loop
 
 PromptFeedback and pre-triage correlations from Phase C accumulate in Firestore. Phase D adds rule-based Prompt Compiler overrides keyed by `painPointCategory`:
@@ -1142,6 +1127,8 @@ interface PromptOverride {
 ```
 
 Overrides are proposed by the system based on aggregated PromptFeedback patterns, then approved by the founder. Not auto-applied. This keeps the feedback loop under intentional control.
+
+**Implementation note:** the current implementation uses deterministic stored override rules keyed by pain-point category, trust/risk context, review reasons, quality failures, and performance signals. These rules are applied during prompt compilation without introducing LLM-generated rule creation.
 
 ### 5.6 Opportunity Deduplication
 
@@ -1168,6 +1155,8 @@ Phase D adds:
 - Manual frame override — founder scrubs timeline in review UI and clicks Set Thumbnail
 - Optional overlay text (off by default; enabled per-brief)
 - `ThumbnailSpec` stored separately from RenderedAsset to allow re-thumbnailing without re-rendering
+
+**Implementation note:** manual override/reset and standalone `ThumbnailSpec` persistence are now implemented. Overlay-text authoring remains narrower than the full target described here.
 
 ### 5.8 Music Layer
 
@@ -1196,6 +1185,8 @@ Track selection defaults to `warm`. If the opportunity `trustRisk` is `high`, us
 
 The founder selects a representative reference image (a "Zaza teacher" character or classroom environment), stores it in Vercel Blob, and sets the URL in ProductionDefaults. All subsequent scene generations include this reference frame. Character and location consistency across videos improves substantially.
 
+**Implementation note:** the current implementation already persists `referenceImageUrl` in ProductionDefaults and threads it through visual provider prompt assembly. The founder-facing flow is currently a URL field rather than a richer asset-picker workflow.
+
 ### 5.10 ElevenLabs v3 Upgrade
 
 Phase D is when the `modelFamily` field becomes actionable.
@@ -1206,9 +1197,11 @@ Process:
 3. If variant B wins → update `modelFamily` in ProductionDefaults, increment version
 4. No code change required
 
+**Implementation note:** `modelFamily` is now persisted in ProductionDefaults and used by the narration provider layer as runtime model-selection metadata. The broader v2→v3 rollout decision remains a configuration and experimentation problem, not a schema gap.
+
 ### 5.11 ProductionDefaults Management UI
 
-`/settings/production-defaults` — founder-accessible without developer involvement. Every save increments `version` automatically. Change history shows last 10 versions with their measured approval rates.
+`/production-defaults` — founder-accessible without developer involvement. Every save increments `version` automatically. Change history shows recent versions, and the current implementation is intentionally compact rather than exposing the full future control surface sketched below.
 
 | Section | Editable |
 |---------|----------|
@@ -1228,6 +1221,8 @@ Process:
 - Intermediate artifacts private in Blob until composition is complete
 - Final asset URL pattern: `https://[blob]/assets/[opportunityId]/[jobId]/final.mp4` — Connect can consume without Signal Engine authentication
 
+**Implementation note:** the repo already carries Blob-backed artifact persistence, retention metadata, cleanup-ready selectors, and typed delivery assets that classify outputs as internal-only vs CDN-ready. This is delivery hardening in practice, though not yet a fully separate CDN control plane.
+
 ### 5.13 Publish-Ready Package Generation
 
 ```ts
@@ -1246,6 +1241,8 @@ interface PublishPackage {
 }
 ```
 
+**Implementation note:** publish/package export is already implemented via `ProductionPackage`, `connectSummary`, typed delivery bundles, and Phase E handoff packaging. The concrete schema is richer than this original sketch and includes provider/defaults/review metadata for downstream consumers.
+
 ### 5.14 Observability & Run Logs
 
 `/factory/runs` — founder-accessible:
@@ -1255,6 +1252,8 @@ interface PublishPackage {
 - Aggregate stats: approval rate, regeneration rate by reason, cost per approved video
 - Defaults version comparison table
 - A/B test results when active
+
+**Implementation note:** `/factory/runs`, factory health routes, benchmark endpoints, and weekly digest generation are all implemented. The current observability layer is compact and operator-facing rather than a full analytics dashboard.
 
 ### 5.15 Phase D Success Criteria
 
@@ -1281,6 +1280,8 @@ interface PublishPackage {
 Phase E must not begin until Phase D feedback loops are operational and the regeneration rate is below 30%. Scaling a system with a 40–50% regeneration rate amplifies cost and burden, not throughput.
 
 ### 6.2 Batch Generation
+
+**Implementation note:** `BatchRenderJob` persistence, summary building, approval assessment, and parent linkage onto render jobs are implemented. Fully autonomous batch execution remains intentionally narrow.
 
 ```ts
 interface BatchRenderJob {
@@ -1312,6 +1313,8 @@ Phase E constraints:
 
 ### 6.3 Auto-Approve High-Confidence Opportunities (with Safety Rails)
 
+**Implementation note:** `AutoApproveConfig` and bounded auto-approval are now implemented. The mandatory-review safety rail remains enforced; the current workflow is governed rather than unconstrained.
+
 ```ts
 interface AutoApproveConfig {
   enabled:               boolean    // false by default
@@ -1328,6 +1331,8 @@ The `mandatoryReviewEveryN` safety rail is non-negotiable. Even at confidence ab
 
 Prevents output from becoming repetitive. Soft blocking — not just a warning.
 
+**Implementation note:** the repo implements a broader `ContentMixTarget` than this original content-type-only sketch. Targets, observed mix summaries, and gap indicators now cover format, audience, effect, CTA, and platform as well as content type.
+
 ```ts
 interface ContentMixTarget {
   pain:       number    // 0.40
@@ -1342,6 +1347,8 @@ When a batch deviates more than 30% from the target mix, batch approval shows a 
 ### 6.5 Connect Asset Handoff
 
 Connect never accesses Signal Engine internals. Only the typed handoff package.
+
+**Implementation note:** `ConnectHandoffPackage`, stored Connect performance signals, and an inbound Connect performance route are all implemented. The remaining work is operational hardening and deeper product workflow, not core contract coverage.
 
 ```ts
 interface ConnectHandoffPackage {
@@ -1375,6 +1382,8 @@ interface ConnectPerformanceSignal extends PerformanceSignal {
 
 ### 6.6 Creator & Influencer Handoff Packages
 
+**Implementation note:** `CreatorBrief` is implemented and persisted today as part of the Phase E orchestration layer.
+
 ```ts
 interface CreatorBrief {
   briefId:           string
@@ -1402,7 +1411,11 @@ interface CreatorBrief {
 | YouTube Shorts | Title card added; end screen placeholder; description with chapters |
 | LinkedIn | Optional 1:1 or 4:5 aspect ratio; professional caption tone; reduced hashtag density |
 
+**Implementation note:** the repo already stores platform package metadata, delivery assets, and packaging notes per channel. Full per-platform render transforms are still thinner than the complete target above.
+
 ### 6.8 Content Series & Asset Families
+
+**Implementation note:** `ContentSeries` now exists as a persisted Phase E object and is synced from production-package export workflows.
 
 ```ts
 interface ContentSeries {
@@ -1552,6 +1565,8 @@ This is only possible if `JobCostRecord` and `PerformanceSignal` are both collec
 ### 10.1 Queue Engine: Inngest
 
 Correct choice for Phase C and D on Next.js / Vercel. See Section 4.10 for implementation.
+
+**Implementation note:** the current repo uses a local queue runner plus an Inngest-compatible dispatch payload and webhook contract. Native Inngest orchestration remains one of the few material infrastructure gaps between implementation and this spec target.
 
 Migration path if needed:
 - **BullMQ** — if Redis is added and Inngest rate limits become a constraint

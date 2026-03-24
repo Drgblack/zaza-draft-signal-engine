@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import type { ContentOpportunity } from "@/lib/content-opportunities";
 import { buildContentIntelligenceFromSignal } from "@/lib/strategic-intelligence-types";
+import { adjustAutoApproveConfidenceThreshold } from "@/lib/video-factory-selection";
 
 const FACTORY_BATCH_CONTROL_STORE_PATH = path.join(
   process.cwd(),
@@ -703,6 +704,10 @@ export function assessAutoApproveOpportunity(input: {
   totalAutoApprovedCount: number;
 }): AutoApproveOpportunityAssessment {
   const reasons: string[] = [];
+  const confidenceThreshold = adjustAutoApproveConfidenceThreshold({
+    baseThreshold: input.config.confidenceThreshold,
+    growthIntelligence: input.opportunity.growthIntelligence ?? null,
+  });
   const confidenceScore = normalizePercent(
     typeof input.opportunity.confidence === "number"
       ? input.opportunity.confidence * 100
@@ -719,10 +724,10 @@ export function assessAutoApproveOpportunity(input: {
 
   if (
     confidenceScore === null ||
-    confidenceScore < input.config.confidenceThreshold
+    confidenceScore < confidenceThreshold
   ) {
     reasons.push(
-      `Confidence ${confidenceScore ?? 0} is below the ${input.config.confidenceThreshold} threshold.`,
+      `Confidence ${confidenceScore ?? 0} is below the ${confidenceThreshold} threshold.`,
     );
     eligible = false;
   }

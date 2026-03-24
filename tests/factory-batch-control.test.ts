@@ -728,3 +728,55 @@ test("auto-approve config keeps the safety rail explicit and holds every nth can
     );
   });
 });
+
+test("growth intelligence can tighten the auto-approve confidence threshold for higher-risk execution", { concurrency: false }, async () => {
+  await withTempBatchControlModule(async ({ loadModule }) => {
+    const batchControlModule = await loadModule();
+    const config = await batchControlModule.upsertAutoApproveConfig({
+      configId: "auto-approve-2",
+      name: "Risk-aware trial",
+      status: "active",
+      enabled: true,
+      confidenceThreshold: 80,
+      requiresTrustPass: true,
+      maxPerDay: 5,
+      mandatoryReviewEveryN: 10,
+      changedAt: "2026-03-24T10:00:00.000Z",
+      changedSource: "operator:test",
+      changeNote: "Risk-aware threshold test.",
+    });
+
+    const opportunity = buildOpportunityFixture({
+      id: "opp-auto-risk-1",
+      recommendedFormat: "short_video",
+      platforms: ["linkedin"],
+      contentType: "validation",
+      effect: "relief",
+      cta: "Try Zaza Draft",
+      lifecycleStatus: "accepted",
+      reviewStatus: "accepted",
+    });
+    opportunity.confidence = 0.85;
+    opportunity.growthIntelligence = {
+      executionPriority: 40,
+      strategicValue: 42,
+      riskLevel: "high",
+      learningValue: 35,
+      executionPath: "review",
+    };
+
+    const assessment = batchControlModule.assessAutoApproveOpportunity({
+      config,
+      opportunity,
+      autoApprovedTodayCount: 0,
+      totalAutoApprovedCount: 0,
+    });
+
+    assert.equal(assessment.eligible, false);
+    assert.ok(
+      assessment.reasons.some((reason) =>
+        reason.includes("below the 90 threshold"),
+      ),
+    );
+  });
+});

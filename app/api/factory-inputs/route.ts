@@ -92,7 +92,7 @@ export async function PATCH(request: Request) {
   try {
     if (
       parsed.data.action === "dismiss" &&
-      !(parsed.data.skipReason?.trim().length)
+      !parsed.data.skipReason
     ) {
       return NextResponse.json<FactoryInputResponse>(
         {

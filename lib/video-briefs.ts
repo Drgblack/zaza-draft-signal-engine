@@ -19,6 +19,12 @@ export const VIDEO_BRIEF_FORMATS = [
 ] as const;
 
 export const VIDEO_BRIEF_DURATIONS = [15, 20, 30, 45] as const;
+export const VIDEO_BRIEF_CONTENT_TYPES = [
+  "pain",
+  "validation",
+  "solution",
+  "story",
+] as const;
 
 export const videoBeatSchema = z.object({
   order: z.number().int().min(1).max(4),
@@ -49,12 +55,13 @@ export const videoBriefSchema = z.object({
   visualDirection: z.string().trim().min(1),
   overlayLines: z.array(z.string().trim().min(1)).min(2).max(4),
   cta: z.string().trim().min(1),
-  contentType: z.string().trim().nullable().default(null),
+  contentType: z.enum(VIDEO_BRIEF_CONTENT_TYPES).nullable().default(null),
   finalScriptTrustScore: z.number().min(0).max(100).nullable().default(null),
   productionNotes: z.array(z.string().trim().min(1)).max(4).optional(),
 });
 
 export type VideoBrief = z.infer<typeof videoBriefSchema>;
+export type VideoBriefContentType = (typeof VIDEO_BRIEF_CONTENT_TYPES)[number];
 
 export interface VideoBriefTrustDiagnostics {
   penalty: number;
@@ -417,7 +424,7 @@ export function buildSoftCta(
 function chooseVideoBriefContentType(
   opportunity: ContentOpportunity,
   angle: MessageAngle,
-): string {
+): VideoBriefContentType {
   if (angle.style === "risk-awareness") {
     return "pain";
   }

@@ -5,11 +5,13 @@ import { useMemo, useState, useTransition } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   ContentOpportunity,
   ContentOpportunityState,
 } from "@/lib/content-opportunities";
+import { CONTENT_OPPORTUNITY_SKIP_REASONS } from "@/lib/content-opportunities";
 import { isDebugEnabled } from "@/lib/debug";
 import { buildContentIntelligenceFromSignal } from "@/lib/strategic-intelligence-types";
 import {
@@ -33,6 +35,34 @@ import type {
   FactoryInputProductionPackageResponse,
   FactoryInputResponse,
 } from "@/types/api";
+
+function skipReasonLabel(
+  skipReason: (typeof CONTENT_OPPORTUNITY_SKIP_REASONS)[number],
+) {
+  switch (skipReason) {
+    case "not_relevant":
+      return "Not relevant";
+    case "wrong_audience":
+      return "Wrong audience";
+    case "trust_risk_too_high":
+      return "Trust risk too high";
+    case "timing_wrong":
+      return "Timing wrong";
+    case "duplicate_of_existing":
+      return "Duplicate of existing";
+    case "other":
+    default:
+      return "Other";
+  }
+}
+
+function isContentOpportunitySkipReason(
+  value: string,
+): value is (typeof CONTENT_OPPORTUNITY_SKIP_REASONS)[number] {
+  return CONTENT_OPPORTUNITY_SKIP_REASONS.includes(
+    value as (typeof CONTENT_OPPORTUNITY_SKIP_REASONS)[number],
+  );
+}
 
 function priorityTone(priority: ContentOpportunity["priority"]) {
   if (priority === "high") {
@@ -596,7 +626,7 @@ export function FactoryInputsPanel({
   function dismissOpportunity(opportunityId: string) {
     const skipReason = skipReasonEdits[opportunityId]?.trim() ?? "";
 
-    if (!skipReason) {
+    if (!skipReason || !isContentOpportunitySkipReason(skipReason)) {
       setFeedback("Dismiss requires a short skip reason.");
       return;
     }
@@ -620,7 +650,11 @@ export function FactoryInputsPanel({
           body:
             | { action: "approve_for_production"; opportunityId: string }
             | { action: "approve_video_brief_for_generation"; opportunityId: string }
-            | { action: "dismiss"; opportunityId: string; skipReason: string }
+            | {
+                action: "dismiss";
+                opportunityId: string;
+                skipReason: (typeof CONTENT_OPPORTUNITY_SKIP_REASONS)[number];
+              }
             | { action: "reopen"; opportunityId: string }
             | { action: "update_notes"; opportunityId: string; notes: string }
             | {
@@ -1699,7 +1733,7 @@ export function FactoryInputsPanel({
                   <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
                     Skip reason
                   </p>
-                  <Textarea
+                  <Select
                     value={skipReasonEdits[item.opportunityId] ?? ""}
                     onChange={(event) =>
                       setSkipReasonEdits((current) => ({
@@ -1707,9 +1741,14 @@ export function FactoryInputsPanel({
                         [item.opportunityId]: event.target.value,
                       }))
                     }
-                    className="min-h-[72px]"
-                    placeholder="Required before dismissing this opportunity."
-                  />
+                  >
+                    <option value="">Select a reason before dismissing</option>
+                    {CONTENT_OPPORTUNITY_SKIP_REASONS.map((skipReason) => (
+                      <option key={skipReason} value={skipReason}>
+                        {skipReasonLabel(skipReason)}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">

@@ -5,6 +5,10 @@ import {
   buildVideoFactoryDeliveryAsset,
   videoFactoryDeliveryAssetSchema,
 } from "./video-factory-delivery";
+import {
+  buildPlatformReadyOutputs,
+  platformReadyOutputSchema,
+} from "./platform-packaging";
 import { productionDefaultsSchema } from "./production-defaults";
 import {
   applyVideoFactoryRetentionPolicyToArtifactRef,
@@ -27,6 +31,7 @@ import {
 } from "./video-factory-lineage";
 import {
   type VideoBrief,
+  VIDEO_BRIEF_CONTENT_TYPES,
 } from "./video-briefs";
 import {
   costEstimateSchema,
@@ -68,7 +73,7 @@ const exportVideoBriefSchema = z.object({
   visualDirection: z.string().trim().min(1),
   overlayLines: z.array(z.string().trim().min(1)).min(2).max(4),
   cta: z.string().trim().min(1),
-  contentType: z.string().trim().nullable().default(null),
+  contentType: z.enum(VIDEO_BRIEF_CONTENT_TYPES).nullable().default(null),
   finalScriptTrustScore: z.number().min(0).max(100).nullable().default(null),
   productionNotes: z.array(z.string().trim().min(1)).max(4).optional(),
 });
@@ -262,6 +267,7 @@ const productionPackageDeliveryBundleSchema = z.object({
   narration: videoFactoryDeliveryAssetSchema.nullable().default(null),
   captions: videoFactoryDeliveryAssetSchema.nullable().default(null),
   sceneAssets: z.array(videoFactoryDeliveryAssetSchema).default([]),
+  platformOutputs: z.array(platformReadyOutputSchema).default([]),
 });
 
 export const productionPackageSchema = z.object({
@@ -295,6 +301,7 @@ export const productionPackageSchema = z.object({
   publishReadyPackage: productionPackagePublishReadySchema,
   connectSummary: productionPackageConnectSummarySchema,
   delivery: productionPackageDeliveryBundleSchema,
+  platformOutputs: z.array(platformReadyOutputSchema).default([]),
   exportFormat: z.literal("json"),
   version: z.literal(1),
 });
@@ -687,6 +694,16 @@ export function buildProductionPackage(input: {
         }),
       )
       .filter((asset): asset is NonNullable<typeof asset> => Boolean(asset)),
+    platformOutputs: buildPlatformReadyOutputs({
+      title: brief.title,
+      hook: brief.hook,
+      cta: brief.cta,
+      overlayLines: brief.overlayLines,
+      finalVideoUrl: connectSummary.finalVideoUrl,
+      thumbnailUrl: connectSummary.thumbnailUrl,
+      durationSec: selectedAttempt.renderedAsset?.durationSec ?? brief.durationSec,
+      contentType: brief.contentType,
+    }),
   });
 
   return productionPackageSchema.parse({
@@ -724,6 +741,7 @@ export function buildProductionPackage(input: {
     publishReadyPackage,
     connectSummary,
     delivery,
+    platformOutputs: delivery.platformOutputs,
     exportFormat: "json",
     version: 1,
   });

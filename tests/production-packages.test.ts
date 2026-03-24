@@ -617,6 +617,22 @@ test("buildProductionPackage exports accepted real artifacts and lineage", () =>
   assert.equal(productionPackage.delivery.finalVideo?.deliveryClass, "cdn_ready");
   assert.equal(productionPackage.delivery.thumbnail?.publicUrl, "https://blob.example/thumb.jpg");
   assert.equal(productionPackage.delivery.sceneAssets.length, 1);
+  assert.deepEqual(
+    productionPackage.platformOutputs.map((output) => output.platform),
+    ["tiktok", "linkedin", "instagram_reels"],
+  );
+  assert.equal(
+    productionPackage.platformOutputs[0]?.finalVideoConfig.captionFormat,
+    "burned_in_dynamic",
+  );
+  assert.equal(
+    productionPackage.platformOutputs[1]?.finalVideoConfig.aspectRatio,
+    "4:5",
+  );
+  assert.equal(
+    productionPackage.delivery.platformOutputs[2]?.platform,
+    "instagram_reels",
+  );
 });
 
 test("buildProductionPackage falls back to latest attempt when the current render is not accepted", () => {

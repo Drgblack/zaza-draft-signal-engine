@@ -15,7 +15,7 @@ test("queue engine defaults to local-file unless explicitly configured", () => {
   const previous = process.env.VIDEO_FACTORY_QUEUE_ENGINE;
   delete process.env.VIDEO_FACTORY_QUEUE_ENGINE;
   try {
-    assert.equal(resolveVideoFactoryQueueEngine(), "local-file");
+    assert.equal(resolveVideoFactoryQueueEngine(), "inngest");
   } finally {
     if (previous === undefined) {
       delete process.env.VIDEO_FACTORY_QUEUE_ENGINE;
@@ -39,50 +39,48 @@ test("buildInngestCompatibleEventPayload preserves the queue identity fields", (
       batchId: "batch-1",
       factoryJobId: "factory-job-1",
       renderJobId: "render-job-1",
+      throttleGroup: "video-factory",
+      concurrencyLimit: 3,
     },
   });
 
-  assert.equal(payload.name, "video-factory/run.requested");
+  assert.equal(payload.name, "factory/render.requested");
   assert.equal(payload.data.queueJobId, queueJobId);
   assert.equal(payload.data.batchId, "batch-1");
 });
 
-test("inngest-compatible queue mode fails explicitly when no webhook is configured", async () => {
+test("queue coordinator can dispatch queued runs through an injected Inngest dispatcher", async () => {
   const previousEngine = process.env.VIDEO_FACTORY_QUEUE_ENGINE;
-  const previousWebhook = process.env.VIDEO_FACTORY_INNGEST_WEBHOOK_URL;
-  process.env.VIDEO_FACTORY_QUEUE_ENGINE = "inngest-compatible";
-  delete process.env.VIDEO_FACTORY_INNGEST_WEBHOOK_URL;
+  process.env.VIDEO_FACTORY_QUEUE_ENGINE = "inngest";
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "queue-engine-"));
+  const dispatchedOpportunityIds: string[] = [];
 
   try {
     const coordinator = createVideoFactoryRunCoordinator(async () => {
-      throw new Error("External queue mode should not execute the local runner.");
+      throw new Error("Inngest dispatch should not execute the local runner directly.");
     }, {
       queuePath: path.join(tempDir, "video-factory-run-queue.json"),
-      queueEngine: "inngest-compatible",
+      queueEngine: "inngest",
       resolveRunContext: async (opportunityId) => ({
         opportunityId,
         factoryJobId: `factory-job:${opportunityId}`,
         renderJobId: `render-job:${opportunityId}`,
         queueJobId: `video-factory-queue:factory-job:${opportunityId}`,
       }),
+      dispatchEvent: async (queueJob) => {
+        dispatchedOpportunityIds.push(queueJob.opportunityId);
+      },
     });
 
-    await assert.rejects(
-      () => coordinator.schedule({ opportunityId: "opportunity-1" }),
-      /VIDEO_FACTORY_INNGEST_WEBHOOK_URL is not configured/i,
-    );
+    const scheduled = await coordinator.schedule({ opportunityId: "opportunity-1" });
+    assert.equal(scheduled, true);
+    assert.deepEqual(dispatchedOpportunityIds, ["opportunity-1"]);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
     if (previousEngine === undefined) {
       delete process.env.VIDEO_FACTORY_QUEUE_ENGINE;
     } else {
       process.env.VIDEO_FACTORY_QUEUE_ENGINE = previousEngine;
-    }
-    if (previousWebhook === undefined) {
-      delete process.env.VIDEO_FACTORY_INNGEST_WEBHOOK_URL;
-    } else {
-      process.env.VIDEO_FACTORY_INNGEST_WEBHOOK_URL = previousWebhook;
     }
   }
 });

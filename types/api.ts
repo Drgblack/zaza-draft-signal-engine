@@ -65,6 +65,7 @@ import type {
   ContentOpportunity,
   ContentOpportunityState,
 } from "@/lib/content-opportunities";
+import { CONTENT_OPPORTUNITY_SKIP_REASONS } from "@/lib/content-opportunities";
 import type { DuplicateCluster } from "@/lib/duplicate-clusters";
 import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
@@ -443,7 +444,7 @@ export const factoryInputActionRequestSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("dismiss"),
     opportunityId: z.string().trim().min(1),
-    skipReason: z.string().trim().nullable().optional(),
+    skipReason: z.enum(CONTENT_OPPORTUNITY_SKIP_REASONS).nullable().optional(),
   }),
   z.object({
     action: z.literal("reopen"),

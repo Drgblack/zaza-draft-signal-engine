@@ -268,6 +268,7 @@ export async function orchestrateCompiledVideoGeneration(input: {
       ? []
       : input.historicalOpportunities ?? [],
     appliedAt: input.createdAt,
+    growthIntelligence: input.opportunity.growthIntelligence ?? null,
   });
   const selectedCompiledProductionPlan = applyVideoFactorySelectionDecision({
     compiledProductionPlan,

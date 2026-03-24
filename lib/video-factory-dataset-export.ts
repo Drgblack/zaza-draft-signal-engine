@@ -19,6 +19,7 @@ import {
   buildProductionPackage,
   type ProductionPackage,
 } from "./production-packages";
+import { VIDEO_BRIEF_CONTENT_TYPES } from "./video-briefs";
 import {
   qualityCheckResultSchema,
 } from "./video-factory-quality-checks";
@@ -69,7 +70,7 @@ const datasetVideoBriefSchema = z.object({
   visualDirection: z.string().trim().min(1),
   overlayLines: z.array(z.string().trim().min(1)).min(2).max(4),
   cta: z.string().trim().min(1),
-  contentType: z.string().trim().nullable().default(null),
+  contentType: z.enum(VIDEO_BRIEF_CONTENT_TYPES).nullable().default(null),
   finalScriptTrustScore: z.number().min(0).max(100).nullable().default(null),
   productionNotes: z.array(z.string().trim().min(1)).max(4).optional(),
 });

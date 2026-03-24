@@ -190,6 +190,7 @@ import {
   type CompiledProductionPlan,
 } from "@/lib/prompt-compiler";
 import {
+  applyBudgetControlThresholds,
   applyVideoFactorySelectionDecision,
   buildVideoFactorySelectionDecision,
 } from "@/lib/video-factory-selection";
@@ -232,12 +233,22 @@ export const CONTENT_OPPORTUNITY_FOUNDER_SELECTION_STATUSES = [
   "hook-selected",
   "approved",
 ] as const;
+export const CONTENT_OPPORTUNITY_SKIP_REASONS = [
+  "not_relevant",
+  "wrong_audience",
+  "trust_risk_too_high",
+  "timing_wrong",
+  "duplicate_of_existing",
+  "other",
+] as const;
 
 export type ContentOpportunityType = (typeof CONTENT_OPPORTUNITY_TYPES)[number];
 export type ContentOpportunityStatus = (typeof CONTENT_OPPORTUNITY_STATUSES)[number];
 export type ContentOpportunityPriority = (typeof CONTENT_OPPORTUNITY_PRIORITIES)[number];
 export type ContentOpportunityFounderSelectionStatus =
   (typeof CONTENT_OPPORTUNITY_FOUNDER_SELECTION_STATUSES)[number];
+export type ContentOpportunitySkipReason =
+  (typeof CONTENT_OPPORTUNITY_SKIP_REASONS)[number];
 
 export interface ContentOpportunitySourceRef {
   signalId: string;
@@ -314,7 +325,7 @@ export interface ContentOpportunity {
   historicalCostAvg: number | null;
   historicalApprovalRate: number | null;
   suggestedNextStep: string;
-  skipReason: string | null;
+  skipReason: ContentOpportunitySkipReason | null;
   hookOptions: string[] | null;
   hookRanking: ContentOpportunityHookRankingItem[] | null;
   performanceDrivers: ContentOpportunityPerformanceDrivers | null;
@@ -909,6 +920,26 @@ export const contentOpportunityGenerationStateSchema = z.object({
   performanceSignals: z.array(performanceSignalSchema).default([]),
 });
 
+const contentOpportunitySkipReasonSchema = z.preprocess((value) => {
+  const normalized =
+    typeof value === "string" ? normalizeText(value)?.toLowerCase() ?? null : value;
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (
+    typeof normalized === "string" &&
+    CONTENT_OPPORTUNITY_SKIP_REASONS.includes(
+      normalized as ContentOpportunitySkipReason,
+    )
+  ) {
+    return normalized;
+  }
+
+  return "other";
+}, z.enum(CONTENT_OPPORTUNITY_SKIP_REASONS).nullable());
+
 export const contentOpportunitySchema = z.object({
   opportunityId: z.string().trim().min(1),
   signalId: z.string().trim().min(1),
@@ -932,7 +963,7 @@ export const contentOpportunitySchema = z.object({
   historicalCostAvg: z.number().nonnegative().nullable().default(null),
   historicalApprovalRate: z.number().min(0).max(1).nullable().default(null),
   suggestedNextStep: z.string().trim().min(1),
-  skipReason: z.string().trim().nullable().default(null),
+  skipReason: contentOpportunitySkipReasonSchema.default(null),
   hookOptions: z.array(z.string().trim().min(1)).nullable().default(null),
   hookRanking: z.array(contentOpportunityHookRankingItemSchema).nullable().default(null),
   performanceDrivers: contentOpportunityPerformanceDriversSchema.nullable().default(null),
@@ -979,7 +1010,7 @@ export const contentOpportunityActionRequestSchema = z.discriminatedUnion("actio
   z.object({
     action: z.literal("dismiss"),
     opportunityId: z.string().trim().min(1),
-    skipReason: z.string().trim().nullable().optional(),
+    skipReason: z.enum(CONTENT_OPPORTUNITY_SKIP_REASONS).nullable().optional(),
   }),
   z.object({
     action: z.literal("reopen"),
@@ -2048,23 +2079,32 @@ async function runContentOpportunityVideoGeneration(input: {
         opportunity: latestOpportunity,
         brief: latestBrief,
       });
+      const queuedSelectionDecision = buildVideoFactorySelectionDecision({
+        compiledProductionPlan: baseQueuedCompiledProductionPlan,
+        briefFormat: latestBrief.format,
+        briefDurationSec: latestBrief.durationSec,
+        historicalOpportunities,
+        appliedAt: timestamp,
+        growthIntelligence: latestOpportunity.growthIntelligence ?? null,
+      });
       const queuedCompiledProductionPlan = applyVideoFactorySelectionDecision({
         compiledProductionPlan: baseQueuedCompiledProductionPlan,
-        decision: buildVideoFactorySelectionDecision({
-          compiledProductionPlan: baseQueuedCompiledProductionPlan,
-          briefFormat: latestBrief.format,
-          briefDurationSec: latestBrief.durationSec,
-          historicalOpportunities,
-          appliedAt: timestamp,
-        }),
+        decision: queuedSelectionDecision,
       });
       const queuedCostEstimate = buildCostEstimate({
         compiledProductionPlan: queuedCompiledProductionPlan,
         estimatedAt: timestamp,
       });
+      const queuedBudgetThresholds = applyBudgetControlThresholds({
+        decision: queuedSelectionDecision,
+        warningThresholdUsd: undefined,
+        hardStopThresholdUsd: undefined,
+      });
       const queuedBudgetGuard = evaluateVideoFactoryBudgetGuard({
         estimatedCost: queuedCostEstimate,
         evaluatedAt: timestamp,
+        warningThresholdUsd: queuedBudgetThresholds.warningThresholdUsd,
+        hardStopThresholdUsd: queuedBudgetThresholds.hardStopThresholdUsd,
       });
       const dailySpendGuard = evaluateVideoFactoryDailySpendGuard({
         estimatedCostUsd: queuedCostEstimate.estimatedTotalUsd,
@@ -2299,9 +2339,16 @@ async function runContentOpportunityVideoGeneration(input: {
           compiledProductionPlan,
           estimatedAt: timestamp,
         });
+        const budgetThresholds = applyBudgetControlThresholds({
+          decision: selectionDecision,
+          warningThresholdUsd: undefined,
+          hardStopThresholdUsd: undefined,
+        });
         budgetGuard = evaluateVideoFactoryBudgetGuard({
           estimatedCost: costEstimate,
           evaluatedAt: timestamp,
+          warningThresholdUsd: budgetThresholds.warningThresholdUsd,
+          hardStopThresholdUsd: budgetThresholds.hardStopThresholdUsd,
         });
 
         await updateOpportunity(input.opportunityId, (opportunity) => {
@@ -2488,9 +2535,16 @@ async function runContentOpportunityVideoGeneration(input: {
       compiledProductionPlan,
       estimatedAt: timestamp,
     });
+    const finalBudgetThresholds = applyBudgetControlThresholds({
+      decision: orchestration.selectionDecision,
+      warningThresholdUsd: undefined,
+      hardStopThresholdUsd: undefined,
+    });
     budgetGuard ??= evaluateVideoFactoryBudgetGuard({
       estimatedCost: costEstimate,
       evaluatedAt: timestamp,
+      warningThresholdUsd: finalBudgetThresholds.warningThresholdUsd,
+      hardStopThresholdUsd: finalBudgetThresholds.hardStopThresholdUsd,
     });
     let qualityCheck: QualityCheckResult | null = null;
     let qualityCheckRetryState: VideoFactoryRetryState | null = null;
@@ -3750,7 +3804,7 @@ export async function approveContentOpportunity(opportunityId: string) {
 
 export async function dismissContentOpportunity(
   opportunityId: string,
-  skipReason?: string | null,
+  skipReason?: ContentOpportunitySkipReason | null,
 ) {
   const timestamp = new Date().toISOString();
   const store = await readPersistedStore();
@@ -3758,7 +3812,8 @@ export async function dismissContentOpportunity(
   if (!current) {
     throw new Error("Content opportunity not found.");
   }
-  const normalizedSkipReason = normalizeText(skipReason);
+  const normalizedSkipReason =
+    typeof skipReason === "string" && skipReason.length > 0 ? skipReason : null;
   if (!normalizedSkipReason) {
     throw new Error("Dismiss requires a skip reason.");
   }

@@ -123,7 +123,7 @@ test("spec-alignment fields survive parse and serialize paths", () => {
       historicalCostAvg: 1.18,
       historicalApprovalRate: 0.64,
       suggestedNextStep: "Generate a video.",
-      skipReason: "held for later",
+      skipReason: "other",
       hookOptions: null,
       hookRanking: null,
       performanceDrivers: null,
@@ -166,7 +166,7 @@ test("spec-alignment fields survive parse and serialize paths", () => {
         visualDirection: "Simple portrait shot.",
         overlayLines: ["Before you send this", "Pause before replying"],
         cta: "Try Zaza Draft",
-        contentType: "teacher_reactive",
+        contentType: "validation",
         finalScriptTrustScore: 88,
         productionNotes: ["No exaggerated claims"],
       }),
@@ -183,7 +183,7 @@ test("spec-alignment fields survive parse and serialize paths", () => {
   assert.equal(reparsedOpportunity.confidence, 0.72);
   assert.equal(reparsedOpportunity.historicalCostAvg, 1.18);
   assert.equal(reparsedOpportunity.historicalApprovalRate, 0.64);
-  assert.equal(reparsedOpportunity.skipReason, "held for later");
-  assert.equal(reparsedOpportunity.selectedVideoBrief?.contentType, "teacher_reactive");
+  assert.equal(reparsedOpportunity.skipReason, "other");
+  assert.equal(reparsedOpportunity.selectedVideoBrief?.contentType, "validation");
   assert.equal(reparsedOpportunity.selectedVideoBrief?.finalScriptTrustScore, 88);
 });

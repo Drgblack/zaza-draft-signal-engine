@@ -603,9 +603,21 @@ test("buildConnectHandoffPackage and buildCreatorBrief derive stable Phase E exp
   assert.equal(handoffPackage.contentType, "solution");
   assert.equal(handoffPackage.suggestedCampaignType, "influencer");
   assert.equal(handoffPackage.videoUrl, "https://blob.example/video.mp4");
-  assert.ok(handoffPackage.publishPackages.length >= 1);
+  assert.equal(handoffPackage.publishPackages.length, 3);
   assert.equal(handoffPackage.publishPackages[0]?.deliveryAsset?.deliveryClass, "cdn_ready");
   assert.equal(typeof handoffPackage.publishPackages[0]?.captionDraft, "string");
+  assert.equal(
+    handoffPackage.publishPackages[0]?.finalVideoConfig.captionFormat,
+    "burned_in_dynamic",
+  );
+  assert.equal(
+    handoffPackage.publishPackages[1]?.finalVideoConfig.aspectRatio,
+    "4:5",
+  );
+  assert.equal(
+    handoffPackage.publishPackages[2]?.metadataBundle.channelLabel,
+    "Instagram Reels",
+  );
   assert.equal(typeof handoffPackage.publishPackages[0]?.requiresCoverFrame, "boolean");
   assert.equal(creatorBrief.referenceVideoUrl, "https://blob.example/video.mp4");
   assert.equal(creatorBrief.callToAction, "Try Zaza Draft free.");

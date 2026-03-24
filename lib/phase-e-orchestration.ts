@@ -14,9 +14,15 @@ import {
   videoFactoryDeliveryAssetSchema,
 } from "@/lib/video-factory-delivery";
 import {
+  platformMetadataBundleSchema,
+  platformVideoConfigSchema,
+  type PlatformReadyOutput,
+} from "@/lib/platform-packaging";
+import {
   productionPackageSchema,
   type ProductionPackage,
 } from "@/lib/production-packages";
+import { VIDEO_BRIEF_CONTENT_TYPES } from "@/lib/video-briefs";
 
 const PHASE_E_ORCHESTRATION_STORE_PATH = path.join(
   process.cwd(),
@@ -57,8 +63,11 @@ export const PLATFORM_PACKAGE_PLATFORMS = [
 export const platformPackageSchema = z.object({
   platform: z.enum(PLATFORM_PACKAGE_PLATFORMS),
   aspectRatio: z.string().trim().nullable().default(null),
+  finalVideoConfig: platformVideoConfigSchema,
   title: z.string().trim().min(1).default("Teacher-real video"),
+  captionText: z.string().trim().min(1).default("Teacher-real video"),
   captionDraft: z.string().trim().min(1).default("Teacher-real video"),
+  metadataBundle: platformMetadataBundleSchema,
   hashtagsMode: z
     .enum(["minimal", "standard", "discussion_led", "none"])
     .default("minimal"),
@@ -75,7 +84,7 @@ export const connectHandoffPackageSchema = z.object({
   opportunityTitle: z.string().trim().min(1),
   primaryPainPoint: z.string().trim().min(1),
   angle: z.string().trim().min(1),
-  contentType: z.string().trim().min(1),
+  contentType: z.enum(VIDEO_BRIEF_CONTENT_TYPES),
   videoUrl: z.string().trim().min(1),
   thumbnailUrl: z.string().trim().min(1),
   publishPackages: z.array(platformPackageSchema).min(1),
@@ -115,7 +124,7 @@ export const contentSeriesSchema = z.object({
   seriesId: z.string().trim().min(1),
   name: z.string().trim().min(1),
   angle: z.string().trim().min(1),
-  contentType: z.string().trim().nullable().default(null),
+  contentType: z.enum(VIDEO_BRIEF_CONTENT_TYPES).nullable().default(null),
   assetIds: z.array(z.string().trim().min(1)).default([]),
   opportunityIds: z.array(z.string().trim().min(1)).default([]),
   platforms: z.array(z.enum(PLATFORM_PACKAGE_PLATFORMS)).default([]),
@@ -247,10 +256,44 @@ function platformPackagingNotes(platform: PlatformPackage["platform"]): string[]
   }
 }
 
+function mapPlatformReadyOutputToPlatformPackage(
+  output: PlatformReadyOutput,
+): PlatformPackage {
+  const platform: PlatformPackage["platform"] =
+    output.platform === "instagram_reels" ? "instagram" : output.platform;
+  const hashtagsMode: PlatformPackage["hashtagsMode"] =
+    output.platform === "linkedin"
+      ? "minimal"
+      : output.platform === "tiktok"
+        ? "discussion_led"
+        : "standard";
+
+  return platformPackageSchema.parse({
+    platform,
+    aspectRatio: output.finalVideoConfig.aspectRatio,
+    finalVideoConfig: output.finalVideoConfig,
+    title: output.metadataBundle.title,
+    captionText: output.captionText,
+    captionDraft: output.captionText,
+    metadataBundle: output.metadataBundle,
+    hashtagsMode,
+    hookWindowSec: output.finalVideoConfig.hookPlacement.windowEndSec,
+    maxDurationSec: output.finalVideoConfig.maxDurationSec,
+    requiresCoverFrame:
+      output.platform === "instagram_reels" || output.platform === "linkedin",
+    deliveryAsset: output.deliveryAsset,
+    packagingNotes: output.metadataBundle.packagingNotes,
+  });
+}
+
 function buildPlatformPackages(
   productionPackage: ProductionPackage,
   opportunity: ContentOpportunity,
 ): PlatformPackage[] {
+  if (productionPackage.platformOutputs.length > 0) {
+    return productionPackage.platformOutputs.map(mapPlatformReadyOutputToPlatformPackage);
+  }
+
   const platforms = [
     ...opportunity.recommendedPlatforms,
     ...(productionPackage.connectSummary.publishPlatform
@@ -270,8 +313,27 @@ function buildPlatformPackages(
   const fallbackPlatforms: PlatformPackage["platform"][] =
     uniquePlatforms.length > 0 ? uniquePlatforms : ["linkedin"];
 
-  return fallbackPlatforms.map((platform) =>
-    platformPackageSchema.parse({
+  return fallbackPlatforms.map((platform) => {
+    const normalizedPlatform =
+      platform === "instagram"
+        ? "instagram_reels"
+        : platform === "linkedin"
+          ? "linkedin"
+          : "tiktok";
+    const title =
+      platform === "youtube"
+        ? `${productionPackage.brief.title} | Shorts`
+        : platform === "linkedin"
+          ? `${productionPackage.brief.title} for teacher teams`
+          : productionPackage.brief.title;
+    const captionText = [
+      normalizeText(productionPackage.brief.hook),
+      normalizeText(productionPackage.brief.cta),
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join(" ");
+
+    return platformPackageSchema.parse({
       platform,
       aspectRatio:
         platform === "instagram" || platform === "youtube"
@@ -279,18 +341,41 @@ function buildPlatformPackages(
           : productionPackage.defaultsSnapshot?.aspectRatio ??
             productionPackage.connectSummary.aspectRatio ??
             null,
-      title:
-        platform === "youtube"
-          ? `${productionPackage.brief.title} | Shorts`
-          : platform === "linkedin"
-            ? `${productionPackage.brief.title} for teacher teams`
-            : productionPackage.brief.title,
-      captionDraft: [
-        normalizeText(productionPackage.brief.hook),
-        normalizeText(productionPackage.brief.cta),
-      ]
-        .filter((value): value is string => Boolean(value))
-        .join(" "),
+      finalVideoConfig: {
+        aspectRatio: platform === "linkedin" ? "4:5" : "9:16",
+        minDurationSec: platform === "linkedin" ? null : 15,
+        maxDurationSec: platform === "linkedin" ? 90 : 60,
+        captionFormat:
+          platform === "linkedin" ? "native_friendly" : "burned_in_dynamic",
+        hookPlacement: {
+          windowStartSec: 0,
+          windowEndSec: platform === "linkedin" ? 3 : 2,
+          placement:
+            platform === "linkedin" ? "professional_open" : "front_loaded",
+        },
+        ctaFormat:
+          platform === "linkedin" ? "soft_professional" : "short_imperative",
+      },
+      title,
+      captionText,
+      captionDraft: captionText,
+      metadataBundle: {
+        platform: normalizedPlatform,
+        channelLabel:
+          platform === "linkedin"
+            ? "LinkedIn"
+            : platform === "instagram"
+              ? "Instagram Reels"
+              : "TikTok",
+        title,
+        captionText,
+        hashtags: [],
+        hookText:
+          normalizeText(productionPackage.brief.hook) ?? productionPackage.brief.title,
+        ctaText: productionPackage.brief.cta,
+        thumbnailUrl: productionPackage.connectSummary.thumbnailUrl,
+        packagingNotes: platformPackagingNotes(platform),
+      },
       hashtagsMode:
         platform === "linkedin"
           ? "minimal"
@@ -308,8 +393,8 @@ function buildPlatformPackages(
         sourceUrl: productionPackage.connectSummary.finalVideoUrl,
       }),
       packagingNotes: platformPackagingNotes(platform),
-    }),
-  );
+    });
+  });
 }
 
 function buildTrustGuardrails(
@@ -357,7 +442,7 @@ function contentSeriesId(
   return [
     "content-series",
     opportunity.selectedAngleId ?? productionPackage.brief.angleId,
-    productionPackage.brief.contentType ?? "unknown",
+    productionPackage.brief.contentType ?? "validation",
   ].join(":");
 }
 
