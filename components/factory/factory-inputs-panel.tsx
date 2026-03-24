@@ -821,7 +821,6 @@ export function FactoryInputsPanel({
                 Boolean(item.selectedVideoBrief) &&
                 item.selectedVideoBrief?.id === brief?.brief.id;
               const generationState = item.generationState;
-              const generationRequest = generationState?.generationRequest ?? null;
               const renderJob = generationState?.renderJob ?? null;
               const renderedAsset = generationState?.renderedAsset ?? null;
               const assetReview = generationState?.assetReview ?? null;
@@ -839,20 +838,7 @@ export function FactoryInputsPanel({
                 renderJob?.productionDefaultsSnapshot ??
                 renderJob?.compiledProductionPlan?.defaultsSnapshot ??
                 null;
-              const canGenerateVideo =
-                briefApprovedForGeneration &&
-                !generationRequest &&
-                !renderJob &&
-                !renderedAsset;
-              const canRegenerateVideo =
-                briefApprovedForGeneration &&
-                Boolean(generationRequest || renderJob || renderedAsset);
-              const canDiscardAsset =
-                Boolean(renderedAsset) && assetReview?.status !== "discarded";
               const canExportPackage = briefApprovedForGeneration;
-              const canReviewAsset =
-                Boolean(renderedAsset) &&
-                assetReview?.status === "pending_review";
               const primaryHookTrust =
                 selectedAngle && selectedHookSet
                   ? inspectHookTrust(item, selectedAngle, selectedHookSet.primaryHook)
@@ -1533,93 +1519,12 @@ export function FactoryInputsPanel({
                                     </div>
                                   ) : null}
                                   <div className="mt-3 flex flex-wrap gap-2">
-                                    {!briefApprovedForGeneration ? (
-                                      <Button
-                                      size="sm"
-                                      variant="secondary"
-                                      disabled={
-                                        isPending ||
-                                        item.status !== "approved_for_production" ||
-                                        !item.selectedAngleId ||
-                                        !item.selectedHookId ||
-                                        !item.selectedVideoBrief ||
-                                        item.selectedVideoBrief.id !== brief.brief.id
-                                      }
-                                      onClick={() =>
-                                        runRequest({
-                                          method: "PATCH",
-                                          body: {
-                                            action: "approve_video_brief_for_generation",
-                                            opportunityId: item.opportunityId,
-                                          },
-                                        })
-                                      }
-                                      >
-                                        Approve brief
-                                      </Button>
-                                    ) : null}
-                                    {canGenerateVideo ? (
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        disabled={isPending}
-                                        onClick={() =>
-                                          runRequest({
-                                            url: "/api/factory-inputs/generate-video",
-                                            method: "POST",
-                                            body: {
-                                              opportunityId: item.opportunityId,
-                                              provider: "mock",
-                                            },
-                                          })
-                                        }
-                                      >
-                                        Generate video
-                                      </Button>
-                                    ) : null}
-                                    {canRegenerateVideo ? (
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        disabled={isPending}
-                                        onClick={() =>
-                                          runRequest({
-                                            url: "/api/factory-inputs/regenerate-video",
-                                            method: "POST",
-                                            body: {
-                                              opportunityId: item.opportunityId,
-                                              provider: "mock",
-                                            },
-                                          })
-                                        }
-                                      >
-                                        Regenerate
-                                      </Button>
-                                    ) : null}
-                                    {canDiscardAsset ? (
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        disabled={isPending}
-                                        onClick={() =>
-                                          runRequest({
-                                            url: "/api/factory-inputs/discard-asset",
-                                            method: "POST",
-                                            body: {
-                                              opportunityId: item.opportunityId,
-                                            },
-                                          })
-                                        }
-                                      >
-                                        Discard
-                                      </Button>
-                                    ) : null}
                                     {item.selectedVideoBrief ? (
                                       <Link
                                         href={`/factory-inputs?opportunityId=${encodeURIComponent(item.opportunityId)}#review`}
                                       >
-                                        <Button size="sm" variant="ghost">
-                                          Open review flow
+                                        <Button size="sm" variant="secondary">
+                                          Open ZazaReel
                                         </Button>
                                       </Link>
                                     ) : null}
@@ -1631,44 +1536,6 @@ export function FactoryInputsPanel({
                                         onClick={() => exportProductionPackage(item.opportunityId)}
                                       >
                                         Export package
-                                      </Button>
-                                    ) : null}
-                                    {canReviewAsset ? (
-                                      <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        disabled={isPending}
-                                        onClick={() =>
-                                          runRequest({
-                                            url: "/api/factory-inputs/render-review",
-                                            method: "PATCH",
-                                            body: {
-                                              opportunityId: item.opportunityId,
-                                              status: "accepted",
-                                            },
-                                          })
-                                        }
-                                      >
-                                        Accept
-                                      </Button>
-                                    ) : null}
-                                    {canReviewAsset ? (
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        disabled={isPending}
-                                        onClick={() =>
-                                          runRequest({
-                                            url: "/api/factory-inputs/render-review",
-                                            method: "PATCH",
-                                            body: {
-                                              opportunityId: item.opportunityId,
-                                              status: "rejected",
-                                            },
-                                          })
-                                        }
-                                      >
-                                        Reject
                                       </Button>
                                     ) : null}
                                   </div>

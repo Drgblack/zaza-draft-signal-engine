@@ -41,15 +41,15 @@ export default async function FactoryInputsPage({
         <CardHeader>
           <div className="flex flex-wrap items-center gap-3">
             <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
-              Factory queue
+              Founder-facing flow
             </Badge>
             <Badge className="bg-sky-50 text-sky-700 ring-sky-200">
               Snapshot {formatDateTime(state.generatedAt)}
             </Badge>
           </div>
-          <CardTitle className="text-3xl">Factory Inputs</CardTitle>
+          <CardTitle className="text-3xl">ZazaReel</CardTitle>
           <CardDescription className="max-w-3xl text-base leading-7">
-            A lighter-weight, decision-oriented queue for selecting high-potential content opportunities before they become full production work. This is intentionally narrower than raw signal review.
+            Founder review and generation for approved video briefs, wired to the live factory flow. The opportunity queue stays below as a secondary picker.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3 pt-0">
@@ -64,6 +64,19 @@ export default async function FactoryInputsPage({
           </Link>
         </CardContent>
       </Card>
+
+      {selectedOpportunity?.selectedVideoBrief ? (
+        <VideoFactoryReviewConnected initialOpportunity={selectedOpportunity} />
+      ) : null}
+
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+          Operator surfaces
+        </p>
+        <p className="max-w-3xl text-sm leading-6 text-slate-600">
+          Queue management, diagnostics, and deeper factory controls stay available below without changing the founder-facing ZazaReel flow.
+        </p>
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl bg-white/84 px-4 py-4">
@@ -157,26 +170,11 @@ export default async function FactoryInputsPage({
         </CardContent>
       </Card>
 
-      {selectedOpportunity?.selectedVideoBrief ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Video Factory Review</CardTitle>
-            <CardDescription>
-              Connected review flow for the currently selected brief, using the persisted
-              factory state, attempt timeline, and review actions.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <VideoFactoryReviewConnected initialOpportunity={selectedOpportunity} />
-          </CardContent>
-        </Card>
-      ) : null}
-
       <Card>
         <CardHeader>
-          <CardTitle>Production Opportunity Queue</CardTitle>
+          <CardTitle>Operator Opportunity Queue</CardTitle>
           <CardDescription>
-            Compact cards for choosing what should move toward production next, with enough trust and commercial context to make a fast decision.
+            Operator-facing queue controls for selecting briefs and checking production context. Founder review and generation stay in the ZazaReel flow above.
           </CardDescription>
         </CardHeader>
         <CardContent>

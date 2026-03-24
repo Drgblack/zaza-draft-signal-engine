@@ -2,24 +2,28 @@ import type { SignalCategory, SignalStatus } from "@/types/signal";
 
 export const NAV_GROUPS = [
   {
-    label: "Core",
+    label: "Founder Flow",
     items: [
+      { href: "/factory-inputs", label: "ZazaReel" },
       { href: "/", label: "Dashboard" },
+      { href: "/plan", label: "Plan" },
+      { href: "/campaigns", label: "Campaigns" },
+      { href: "/recap", label: "Recap" },
+    ],
+  },
+  {
+    label: "Operator Tools",
+    items: [
       { href: "/signals", label: "Signals" },
       { href: "/signals/new", label: "New Signal" },
       { href: "/review", label: "Review" },
       { href: "/exceptions", label: "Exceptions" },
       { href: "/execution", label: "Execution" },
-    ],
-  },
-  {
-    label: "Strategy",
-    items: [
-      { href: "/campaigns", label: "Campaigns" },
-      { href: "/plan", label: "Plan" },
       { href: "/overrides", label: "Overrides" },
-      { href: "/recap", label: "Recap" },
-      { href: "/insights", label: "Insights" },
+      { href: "/factory/runs", label: "Factory Runs" },
+      { href: "/ingestion", label: "Ingestion" },
+      { href: "/connect-bridge", label: "Connect Bridge" },
+      { href: "/settings", label: "Settings" },
     ],
   },
   {
@@ -27,16 +31,7 @@ export const NAV_GROUPS = [
     items: [
       { href: "/patterns", label: "Patterns" },
       { href: "/playbook", label: "Playbook" },
-    ],
-  },
-  {
-    label: "Ops",
-    items: [
-      { href: "/factory-inputs", label: "Factory Inputs" },
-      { href: "/factory/runs", label: "Factory Runs" },
-      { href: "/ingestion", label: "Ingestion" },
-      { href: "/connect-bridge", label: "Connect Bridge" },
-      { href: "/settings", label: "Settings" },
+      { href: "/insights", label: "Insights" },
     ],
   },
 ] as const;

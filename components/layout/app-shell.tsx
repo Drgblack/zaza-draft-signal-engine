@@ -87,10 +87,10 @@ export function AppShell({
                 </div>
               </div>
               <Link
-                href="/signals/new"
+                href="/factory-inputs"
                 className="rounded-full border border-black/6 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-white"
               >
-                New intake
+                Open ZazaReel
               </Link>
             </div>
           </header>

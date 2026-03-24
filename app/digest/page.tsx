@@ -829,13 +829,13 @@ export default async function DigestPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
-            <CardTitle>Factory Inputs</CardTitle>
+            <CardTitle>ZazaReel</CardTitle>
             <Link href="/factory-inputs" className="text-sm text-[color:var(--accent)] underline underline-offset-4">
-              Open queue
+              Open ZazaReel
             </Link>
           </div>
           <CardDescription>
-            A lighter-weight production-input queue derived from the strongest approval-ready candidates, with trust-risk flagging kept visible.
+            Founder-facing video review and generation, backed by the same production queue and trust-aware opportunity selection.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

@@ -182,7 +182,7 @@ export default async function FactoryRunsPage() {
             href="/factory-inputs"
             className="rounded-full border border-black/6 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           >
-            Open factory inputs
+            Open ZazaReel
           </Link>
           <Link
             href="/insights"
@@ -455,7 +455,7 @@ export default async function FactoryRunsPage() {
                               href={`/factory-inputs?opportunityId=${item.opportunityId}`}
                               className="text-sm font-medium text-slate-600 underline-offset-4 hover:text-slate-950 hover:underline"
                             >
-                              Open opportunity
+                              Open in ZazaReel
                             </Link>
                           </div>
                           <div className="mt-3 space-y-2">
