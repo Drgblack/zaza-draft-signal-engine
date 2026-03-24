@@ -15,16 +15,10 @@ import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaign
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { buildGrowthMemory, type GrowthMemoryState } from "@/lib/growth-memory";
-import { buildGrowthIntelligence } from "@/lib/growth-intelligence";
-import { recommendFormat } from "@/lib/format-recommender";
 import { applySelectedHookSelection, buildHookSet } from "@/lib/hook-engine";
-import { generateHooks, rankHooks } from "@/lib/hook-generator";
-import { scoreOpportunity } from "@/lib/performance-scorer";
 import {
-  buildContentIntelligenceFromSignal,
   type GrowthIntelligence,
 } from "@/lib/strategic-intelligence-types";
-import { determineViewerEffect, suggestCTA } from "@/lib/viewer-effect";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { resolveActiveABTestResult } from "@/lib/factory-ab-tests";
 import {
@@ -68,7 +62,10 @@ import {
   type RenderedAsset,
 } from "@/lib/rendered-assets";
 import { orchestrateCompiledVideoGeneration } from "@/lib/generation-orchestrator";
-import { productionDefaultsSnapshotEquals } from "@/lib/production-defaults";
+import {
+  productionDefaultsSnapshotEquals,
+  type ProductionDefaults,
+} from "@/lib/production-defaults";
 import {
   createRenderJob,
   type RenderProvider,
@@ -164,14 +161,19 @@ import {
   updateFactoryRunLedgerOutcome,
   type FactoryRunLedgerEntry,
 } from "@/lib/video-factory-run-ledger";
+import { buildLearningRecordId, upsertLearningRecord } from "@/lib/learning-loop";
 import {
-  buildLearningInputSignature,
-  buildLearningRecordId,
-  getContentLearningAdjustmentSync,
-  inferCtaType,
-  inferHookType,
-  upsertLearningRecord,
-} from "@/lib/learning-loop";
+  buildContentOpportunityLearningMetadata,
+  buildContentOpportunityLearningSignature,
+} from "@/lib/content-opportunity-learning-service";
+import {
+  applyPhaseEIntelligence,
+  buildOpportunityGrowthIntelligence,
+} from "@/lib/content-opportunity-intelligence-service";
+import {
+  CONTENT_OPPORTUNITY_SKIP_REASONS,
+  CONTENT_OPPORTUNITY_STATUSES,
+} from "@/lib/content-opportunity-shared";
 import {
   appendFactoryComparisonRecord,
   factoryComparisonRecordSchema,
@@ -187,6 +189,7 @@ import {
   type VideoFactoryAttemptLineage,
 } from "@/lib/video-factory-lineage";
 import { summarizeVideoFactoryProviderFailure } from "@/lib/video-factory-provider-errors";
+import { resolveVideoFactoryLearningPolicy } from "@/lib/video-factory-learning-policy";
 import {
   compileVideoBriefForProduction,
   type CompiledProductionPlan,
@@ -222,26 +225,12 @@ export const CONTENT_OPPORTUNITY_TYPES = [
   "evergreen_opportunity",
 ] as const;
 
-export const CONTENT_OPPORTUNITY_STATUSES = [
-  "open",
-  "approved_for_production",
-  "dismissed",
-] as const;
-
 export const CONTENT_OPPORTUNITY_PRIORITIES = ["high", "medium", "low"] as const;
 export const CONTENT_OPPORTUNITY_FOUNDER_SELECTION_STATUSES = [
   "pending",
   "angle-selected",
   "hook-selected",
   "approved",
-] as const;
-export const CONTENT_OPPORTUNITY_SKIP_REASONS = [
-  "not_relevant",
-  "wrong_audience",
-  "trust_risk_too_high",
-  "timing_wrong",
-  "duplicate_of_existing",
-  "other",
 ] as const;
 
 export type ContentOpportunityType = (typeof CONTENT_OPPORTUNITY_TYPES)[number];
@@ -495,10 +484,6 @@ function contentOpportunityConfidenceScore(opportunity: ContentOpportunity) {
 
 function roundOpportunityMetric(value: number) {
   return Math.round(value * 10000) / 10000;
-}
-
-function clampDriverScore(value: number) {
-  return Math.max(1, Math.min(5, Math.round(value * 100) / 100));
 }
 
 function derivePainPointCategory(
@@ -757,52 +742,6 @@ function evaluateContentOpportunityVideoAutonomyPolicy(input: {
       !input.opportunity.approvedAt ||
       !(input.opportunity.recommendedPlatforms[0] ?? null),
   });
-}
-
-function buildContentOpportunityLearningSignature(input: {
-  opportunity: ContentOpportunity;
-  actionType: "auto_run_video_factory" | "auto_regenerate_video_factory";
-  provider: string | null;
-  format: string | null;
-}) {
-  const metadata = buildContentOpportunityLearningMetadata({
-    opportunity: input.opportunity,
-  });
-  return buildLearningInputSignature("video_factory", {
-    action: input.actionType,
-    content: contentOpportunityAutonomyType({
-      opportunity: input.opportunity,
-      isRegenerate: input.actionType === "auto_regenerate_video_factory",
-    }),
-    ctaType: metadata.ctaType ?? "unknown",
-    format: input.format ?? "unknown",
-    hookType: metadata.hookType ?? "unknown",
-    path: metadata.executionPath ?? "unknown",
-    platform: input.opportunity.recommendedPlatforms[0] ?? "unknown",
-    provider: input.provider ?? "unknown",
-  });
-}
-
-function buildContentOpportunityLearningMetadata(input: {
-  opportunity: ContentOpportunity;
-  hook?: string | null;
-}) {
-  return {
-    format: input.opportunity.recommendedFormat,
-    hookType: inferHookType(
-      input.hook ??
-        input.opportunity.selectedVideoBrief?.hook ??
-        input.opportunity.hookRanking?.[0]?.hook ??
-        input.opportunity.hookOptions?.[0] ??
-        null,
-    ),
-    ctaType: inferCtaType(
-      input.opportunity.selectedVideoBrief?.cta ??
-        input.opportunity.suggestedCTA ??
-        null,
-    ),
-    executionPath: input.opportunity.growthIntelligence?.executionPath ?? null,
-  };
 }
 
 export async function assertAutoProceedAllowedForQueuedContentOpportunityVideoGeneration(input: {
@@ -1992,6 +1931,7 @@ async function runContentOpportunityVideoGeneration(input: {
   const historicalOpportunities = store.opportunities.map((opportunity) =>
     normalizePersistedOpportunity(opportunity),
   );
+  let productionDefaultsOverride: ProductionDefaults | null = null;
   const executionStageProviders: Record<
     "preparing" | "generating_narration" | "generating_visuals" | "generating_captions" | "composing",
     string
@@ -2191,6 +2131,16 @@ async function runContentOpportunityVideoGeneration(input: {
         growthIntelligence: latestGrowthIntelligence,
       };
       attemptBrief = latestBrief;
+      const learningPolicy = resolveVideoFactoryLearningPolicy({
+        opportunities: historicalOpportunities,
+        brief: latestBrief,
+        requestedProvider: input.provider ?? null,
+      });
+      provider =
+        input.provider ??
+        learningPolicy.preferredProvider ??
+        provider;
+      productionDefaultsOverride = learningPolicy.defaultsSnapshot;
       attemptApprovedAt = latestApprovedAt;
       attemptApprovedBy = latestApprovedBy;
       baselineAttemptNumber =
@@ -2378,6 +2328,7 @@ async function runContentOpportunityVideoGeneration(input: {
       provider,
       renderVersion,
       createdAt: timestamp,
+      productionDefaultsOverride,
       historicalOpportunities: store.opportunities.map((opportunity) =>
         normalizePersistedOpportunity(opportunity),
       ),
@@ -3443,161 +3394,6 @@ async function writePersistedStore(store: z.infer<typeof contentOpportunityStore
   await writeFile(CONTENT_OPPORTUNITY_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
 }
 
-function toGrowthPlatformPriority(
-  platforms: PostingPlatform[],
-): "X First" | "LinkedIn First" | "Reddit First" | "Multi-platform" | undefined {
-  const normalized = Array.from(new Set(platforms));
-
-  if (normalized.length > 1) {
-    return "Multi-platform";
-  }
-
-  switch (normalized[0]) {
-    case "x":
-      return "X First";
-    case "linkedin":
-      return "LinkedIn First";
-    case "reddit":
-      return "Reddit First";
-    default:
-      return undefined;
-  }
-}
-
-function buildOpportunityGrowthIntelligence(
-  opportunity: ContentOpportunity,
-  options?: {
-    signal?: ApprovalQueueCandidate["signal"];
-    preserveExisting?: boolean;
-    activeCampaignIds?: string[] | null;
-    campaignsExist?: boolean;
-  },
-): GrowthIntelligence {
-  if (options?.preserveExisting && opportunity.growthIntelligence) {
-    return opportunity.growthIntelligence;
-  }
-
-  const contentIntelligence = buildContentIntelligenceFromSignal(opportunity);
-  const signal = options?.signal;
-
-  return buildGrowthIntelligence({
-    signal: {
-      sourceTitle: signal?.sourceTitle ?? opportunity.source.sourceTitle,
-      rawExcerpt: signal?.rawExcerpt,
-      manualSummary: signal?.manualSummary,
-      scenarioAngle: signal?.scenarioAngle,
-      signalSubtype: signal?.signalSubtype ?? opportunity.opportunityType,
-      emotionalPattern: signal?.emotionalPattern,
-      teacherPainPoint: signal?.teacherPainPoint ?? opportunity.primaryPainPoint,
-      riskToTeacher: signal?.riskToTeacher ?? opportunity.riskSummary,
-      interpretationNotes: signal?.interpretationNotes,
-      contentAngle: signal?.contentAngle ?? opportunity.recommendedAngle,
-      whySelected: signal?.whySelected ?? opportunity.whyNow,
-      signalCategory: signal?.signalCategory,
-      severityScore: signal?.severityScore ?? contentOpportunitySeverityScore(opportunity.priority),
-      platformPriority:
-        signal?.platformPriority ?? toGrowthPlatformPriority(opportunity.recommendedPlatforms),
-      campaignId: signal?.campaignId,
-      signalNoveltyScore: signal?.signalNoveltyScore,
-      similarityToExistingContent: signal?.similarityToExistingContent,
-    },
-    contentIntelligence,
-    activeCampaignIds: options?.activeCampaignIds,
-    campaignsExist: options?.campaignsExist,
-  });
-}
-
-function applyPhaseEIntelligence(
-  opportunity: ContentOpportunity,
-  options?: {
-    preserveExisting?: boolean;
-  },
-): ContentOpportunity {
-  if (!ENABLE_FORMAT_INTELLIGENCE) {
-    return opportunity;
-  }
-
-  const preserveExisting = options?.preserveExisting ?? false;
-  const recommendedFormat = recommendFormat(opportunity);
-  const opportunityWithFormat = {
-    ...opportunity,
-    recommendedFormat,
-  };
-
-  const generatedHookOptions =
-    preserveExisting && opportunity.hookOptions && opportunity.hookOptions.length > 0
-      ? opportunity.hookOptions
-      : generateHooks(opportunityWithFormat);
-  const generatedHookRanking =
-    preserveExisting && opportunity.hookRanking && opportunity.hookRanking.length > 0
-      ? opportunity.hookRanking
-      : rankHooks(generatedHookOptions, {
-          ...opportunityWithFormat,
-          hookOptions: generatedHookOptions,
-        });
-  const scoredPerformanceDrivers = scoreOpportunity({
-    ...opportunityWithFormat,
-    hookOptions: generatedHookOptions,
-    hookRanking: generatedHookRanking,
-  });
-  const performanceDrivers = preserveExisting
-    ? {
-        ...scoredPerformanceDrivers,
-        ...(opportunity.performanceDrivers ?? {}),
-      }
-    : scoredPerformanceDrivers;
-  const opportunityWithDrivers = {
-    ...opportunityWithFormat,
-    hookOptions: generatedHookOptions,
-    hookRanking: generatedHookRanking,
-    performanceDrivers,
-  };
-
-  const learningAdjustedOpportunity = {
-    ...opportunityWithDrivers,
-    intendedViewerEffect:
-      preserveExisting && opportunity.intendedViewerEffect
-        ? opportunity.intendedViewerEffect
-        : determineViewerEffect(opportunityWithDrivers),
-    suggestedCTA:
-      preserveExisting && opportunity.suggestedCTA
-        ? opportunity.suggestedCTA
-        : suggestCTA(opportunityWithDrivers),
-  };
-  const contentLearningAdjustment = getContentLearningAdjustmentSync({
-    format: learningAdjustedOpportunity.recommendedFormat,
-    hookType: inferHookType(
-      learningAdjustedOpportunity.hookRanking?.[0]?.hook ??
-        learningAdjustedOpportunity.hookOptions?.[0] ??
-        null,
-    ),
-    ctaType: inferCtaType(learningAdjustedOpportunity.suggestedCTA),
-  });
-  const learningBoost = contentLearningAdjustment.scoreDelta;
-
-  if (!learningBoost) {
-    return learningAdjustedOpportunity;
-  }
-
-  const existingDrivers = learningAdjustedOpportunity.performanceDrivers ?? {};
-
-  return {
-    ...learningAdjustedOpportunity,
-    performanceDrivers: {
-      ...existingDrivers,
-      hookStrength: clampDriverScore(
-        (existingDrivers.hookStrength ?? 3) + learningBoost,
-      ),
-      viewerConnection: clampDriverScore(
-        (existingDrivers.viewerConnection ?? 3) + learningBoost * 0.7,
-      ),
-      conversionPotential: clampDriverScore(
-        (existingDrivers.conversionPotential ?? 3) + learningBoost,
-      ),
-    },
-  };
-}
-
 function applyStrategicIntelligence(
   opportunity: ContentOpportunity,
   options?: {
@@ -3608,6 +3404,7 @@ function applyStrategicIntelligence(
   },
 ): ContentOpportunity {
   const contentIntelligenceOpportunity = applyPhaseEIntelligence(opportunity, {
+    enabled: ENABLE_FORMAT_INTELLIGENCE,
     preserveExisting: options?.preserveExisting,
   });
 

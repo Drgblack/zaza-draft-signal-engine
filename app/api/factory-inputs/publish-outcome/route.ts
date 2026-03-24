@@ -1,10 +1,6 @@
-import { NextResponse } from "next/server";
-
-import { listContentOpportunityState } from "@/lib/content-opportunities";
-import {
-  getFactoryPublishOutcome,
-  upsertFactoryPublishOutcome,
-} from "@/lib/video-factory-publish-outcomes";
+import { jsonError, jsonSuccess, parseJsonBody } from "@/lib/api-route";
+import { getContentOpportunityRepository } from "@/lib/content-opportunity-repository";
+import { getFactoryPublishOutcomeRepository } from "@/lib/factory-publish-outcome-repository";
 import {
   factoryInputPublishOutcomeRequestSchema,
   type FactoryInputPublishOutcomeResponse,
@@ -12,7 +8,11 @@ import {
 
 export const dynamic = "force-dynamic";
 
-function findAcceptedFactoryContext(opportunityId: string, state: Awaited<ReturnType<typeof listContentOpportunityState>>) {
+const contentOpportunityRepository = getContentOpportunityRepository();
+const publishOutcomeRepository = getFactoryPublishOutcomeRepository();
+
+async function findAcceptedFactoryContext(opportunityId: string) {
+  const state = await contentOpportunityRepository.getState();
   const opportunity = state.opportunities.find(
     (item) => item.opportunityId === opportunityId,
   );
@@ -53,23 +53,22 @@ export async function GET(request: Request) {
     new URL(request.url).searchParams.get("opportunityId")?.trim() ?? "";
 
   if (!opportunityId) {
-    return NextResponse.json<FactoryInputPublishOutcomeResponse>(
+    return jsonError<FactoryInputPublishOutcomeResponse>(
       {
         success: false,
         opportunityId: null,
         publishOutcome: null,
         error: "Missing opportunityId query param.",
       },
-      { status: 400 },
+      400,
     );
   }
 
   try {
-    const state = await listContentOpportunityState();
-    const acceptedContext = findAcceptedFactoryContext(opportunityId, state);
+    const acceptedContext = await findAcceptedFactoryContext(opportunityId);
 
     if (!acceptedContext) {
-      return NextResponse.json<FactoryInputPublishOutcomeResponse>({
+      return jsonSuccess<FactoryInputPublishOutcomeResponse>({
         success: true,
         opportunityId,
         publishOutcome: null,
@@ -77,11 +76,11 @@ export async function GET(request: Request) {
       });
     }
 
-    const publishOutcome = await getFactoryPublishOutcome(
+    const publishOutcome = await publishOutcomeRepository.getByRenderedAssetId(
       acceptedContext.renderedAssetId,
     );
 
-    return NextResponse.json<FactoryInputPublishOutcomeResponse>({
+    return jsonSuccess<FactoryInputPublishOutcomeResponse>({
       success: true,
       opportunityId,
       publishOutcome,
@@ -90,7 +89,7 @@ export async function GET(request: Request) {
         : "No publish outcome has been recorded for the accepted asset yet.",
     });
   } catch (error) {
-    return NextResponse.json<FactoryInputPublishOutcomeResponse>(
+    return jsonError<FactoryInputPublishOutcomeResponse>(
       {
         success: false,
         opportunityId,
@@ -100,44 +99,47 @@ export async function GET(request: Request) {
             ? error.message
             : "Unable to load factory publish outcome.",
       },
-      { status: 500 },
+      500,
     );
   }
 }
 
 export async function PATCH(request: Request) {
-  const payload = await request.json().catch(() => null);
-  const parsed = factoryInputPublishOutcomeRequestSchema.safeParse(payload);
+  const parsed = await parseJsonBody(
+    request,
+    factoryInputPublishOutcomeRequestSchema,
+  );
 
   if (!parsed.success) {
-    return NextResponse.json<FactoryInputPublishOutcomeResponse>(
+    return jsonError<FactoryInputPublishOutcomeResponse>(
       {
         success: false,
         opportunityId: null,
         publishOutcome: null,
         error: parsed.error.issues[0]?.message ?? "Invalid publish outcome payload.",
       },
-      { status: 400 },
+      400,
     );
   }
 
   try {
-    const state = await listContentOpportunityState();
-    const acceptedContext = findAcceptedFactoryContext(parsed.data.opportunityId, state);
+    const acceptedContext = await findAcceptedFactoryContext(
+      parsed.data.opportunityId,
+    );
 
     if (!acceptedContext) {
-      return NextResponse.json<FactoryInputPublishOutcomeResponse>(
+      return jsonError<FactoryInputPublishOutcomeResponse>(
         {
           success: false,
           opportunityId: parsed.data.opportunityId,
           publishOutcome: null,
           error: "Only accepted rendered assets can record factory publish outcomes.",
         },
-        { status: 409 },
+        409,
       );
     }
 
-    const { publishOutcome } = await upsertFactoryPublishOutcome({
+    const publishOutcome = await publishOutcomeRepository.save({
       opportunityId: acceptedContext.opportunity.opportunityId,
       videoBriefId: acceptedContext.videoBriefId,
       factoryJobId: acceptedContext.factoryJobId,
@@ -155,14 +157,14 @@ export async function PATCH(request: Request) {
       attributionSource: parsed.data.attributionSource ?? null,
     });
 
-    return NextResponse.json<FactoryInputPublishOutcomeResponse>({
+    return jsonSuccess<FactoryInputPublishOutcomeResponse>({
       success: true,
       opportunityId: acceptedContext.opportunity.opportunityId,
       publishOutcome,
       message: "Publish outcome saved for the accepted asset.",
     });
   } catch (error) {
-    return NextResponse.json<FactoryInputPublishOutcomeResponse>(
+    return jsonError<FactoryInputPublishOutcomeResponse>(
       {
         success: false,
         opportunityId: parsed.data.opportunityId,
@@ -172,7 +174,7 @@ export async function PATCH(request: Request) {
             ? error.message
             : "Unable to save factory publish outcome.",
       },
-      { status: 500 },
+      500,
     );
   }
 }

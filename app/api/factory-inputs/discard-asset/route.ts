@@ -1,5 +1,4 @@
-import { NextResponse } from "next/server";
-
+import { jsonError, jsonSuccess, parseJsonBody } from "@/lib/api-route";
 import { discardContentOpportunityRenderedAsset } from "@/lib/content-opportunities";
 import {
   factoryInputDiscardAssetRequestSchema,
@@ -9,17 +8,19 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const payload = await request.json().catch(() => null);
-  const parsed = factoryInputDiscardAssetRequestSchema.safeParse(payload);
+  const parsed = await parseJsonBody(
+    request,
+    factoryInputDiscardAssetRequestSchema,
+  );
 
   if (!parsed.success) {
-    return NextResponse.json<FactoryInputResponse>(
+    return jsonError<FactoryInputResponse>(
       {
         success: false,
         state: null,
         error: parsed.error.issues[0]?.message ?? "Invalid discard asset payload.",
       },
-      { status: 400 },
+      400,
     );
   }
 
@@ -30,19 +31,19 @@ export async function POST(request: Request) {
       structuredReasons: parsed.data.structuredReasons ?? [],
     });
 
-    return NextResponse.json<FactoryInputResponse>({
+    return jsonSuccess<FactoryInputResponse>({
       success: true,
       state,
       message: "Rendered asset discarded.",
     });
   } catch (error) {
-    return NextResponse.json<FactoryInputResponse>(
+    return jsonError<FactoryInputResponse>(
       {
         success: false,
         state: null,
         error: error instanceof Error ? error.message : "Unable to discard rendered asset.",
       },
-      { status: 500 },
+      500,
     );
   }
 }

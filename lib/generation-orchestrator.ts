@@ -1,4 +1,5 @@
 import type { ContentOpportunity } from "@/lib/content-opportunities";
+import type { ProductionDefaults } from "@/lib/production-defaults";
 import {
   createMockRenderedAsset,
 } from "@/lib/rendered-assets";
@@ -74,6 +75,7 @@ export async function orchestrateCompiledVideoGeneration(input: {
   provider: RenderProvider;
   renderVersion: string;
   createdAt: string;
+  productionDefaultsOverride?: ProductionDefaults | null;
   historicalOpportunities?: ContentOpportunity[];
   persistedCompiledProductionPlan?: ReturnType<typeof compileVideoBriefForProduction> | null;
   resumeLifecycleStatus?: VideoFactoryStatus | null;
@@ -254,6 +256,7 @@ export async function orchestrateCompiledVideoGeneration(input: {
         compileVideoBriefForProduction({
           opportunity: input.opportunity,
           brief: input.brief,
+          defaultsSnapshot: input.productionDefaultsOverride ?? null,
         }),
     });
     compiledProductionPlan = preparation.value;

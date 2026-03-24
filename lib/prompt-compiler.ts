@@ -188,9 +188,12 @@ function downgradeCompositionSpecForTrust(
 export function compileVideoBriefForProduction(input: {
   opportunity: ContentOpportunity;
   brief: VideoBrief;
+  defaultsSnapshot?: z.infer<typeof productionDefaultsSchema> | null;
 }): CompiledProductionPlan {
   const brief = videoBriefSchema.parse(input.brief);
-  const defaultsSnapshot = getActiveProductionDefaults();
+  const defaultsSnapshot = productionDefaultsSchema.parse(
+    input.defaultsSnapshot ?? getActiveProductionDefaults(),
+  );
   const overrideResolution = resolvePromptOverrideResolution({
     opportunity: input.opportunity,
     brief,

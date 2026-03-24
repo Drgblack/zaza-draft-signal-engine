@@ -7,11 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { CONTENT_OPPORTUNITY_SKIP_REASONS } from "@/lib/content-opportunity-shared";
 import type {
   ContentOpportunity,
   ContentOpportunityState,
 } from "@/lib/content-opportunities";
-import { CONTENT_OPPORTUNITY_SKIP_REASONS } from "@/lib/content-opportunities";
 import { isDebugEnabled } from "@/lib/debug";
 import { buildContentIntelligenceFromSignal } from "@/lib/strategic-intelligence-types";
 import {

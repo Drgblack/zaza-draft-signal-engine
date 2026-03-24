@@ -1,5 +1,4 @@
-import { NextResponse } from "next/server";
-
+import { jsonError, jsonSuccess, parseJsonBody } from "@/lib/api-route";
 import { reviewContentOpportunityRenderedAsset } from "@/lib/content-opportunities";
 import {
   factoryInputRenderReviewRequestSchema,
@@ -9,17 +8,19 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function PATCH(request: Request) {
-  const payload = await request.json().catch(() => null);
-  const parsed = factoryInputRenderReviewRequestSchema.safeParse(payload);
+  const parsed = await parseJsonBody(
+    request,
+    factoryInputRenderReviewRequestSchema,
+  );
 
   if (!parsed.success) {
-    return NextResponse.json<FactoryInputResponse>(
+    return jsonError<FactoryInputResponse>(
       {
         success: false,
         state: null,
         error: parsed.error.issues[0]?.message ?? "Invalid render review payload.",
       },
-      { status: 400 },
+      400,
     );
   }
 
@@ -32,7 +33,7 @@ export async function PATCH(request: Request) {
       structuredReasons: parsed.data.structuredReasons ?? [],
     });
 
-    return NextResponse.json<FactoryInputResponse>({
+    return jsonSuccess<FactoryInputResponse>({
       success: true,
       state,
       message:
@@ -41,7 +42,7 @@ export async function PATCH(request: Request) {
           : "Rendered asset rejected.",
     });
   } catch (error) {
-    return NextResponse.json<FactoryInputResponse>(
+    return jsonError<FactoryInputResponse>(
       {
         success: false,
         state: null,
@@ -50,7 +51,7 @@ export async function PATCH(request: Request) {
             ? error.message
             : "Unable to update rendered asset review.",
       },
-      { status: 500 },
+      500,
     );
   }
 }

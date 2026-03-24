@@ -65,7 +65,7 @@ import type {
   ContentOpportunity,
   ContentOpportunityState,
 } from "@/lib/content-opportunities";
-import { CONTENT_OPPORTUNITY_SKIP_REASONS } from "@/lib/content-opportunities";
+import { CONTENT_OPPORTUNITY_SKIP_REASONS } from "@/lib/content-opportunity-shared";
 import type { DuplicateCluster } from "@/lib/duplicate-clusters";
 import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
@@ -101,6 +101,7 @@ import {
 } from "@/lib/render-jobs";
 import type { VideoFactoryDiagnostics } from "@/lib/video-factory-diagnostics";
 import type { FactoryDatasetExport } from "@/lib/video-factory-dataset-export";
+import type { PhaseEOperationsSnapshot } from "@/lib/phase-e-operations";
 import {
   factoryPublishOutcomeSchema,
   FACTORY_ATTRIBUTION_SOURCES,
@@ -1226,6 +1227,12 @@ export interface FactoryInputDatasetExportResponse {
   success: boolean;
   dataset: FactoryDatasetExport | null;
   message?: string;
+  error?: string;
+}
+
+export interface PhaseEOperationsResponse {
+  success: boolean;
+  snapshot: PhaseEOperationsSnapshot | null;
   error?: string;
 }
 

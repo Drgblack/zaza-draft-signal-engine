@@ -1,10 +1,9 @@
-import { NextResponse } from "next/server";
-
 import {
   regenerateContentOpportunityVideo,
   VideoFactoryDailyCapExceededError,
   VideoFactoryRegenerationBudgetExceededError,
 } from "@/lib/content-opportunities";
+import { jsonError, jsonSuccess, parseJsonBody } from "@/lib/api-route";
 import { VideoFactoryActiveRunError } from "@/lib/video-factory-idempotency";
 import { scheduleVideoFactoryRun } from "@/lib/video-factory-runner";
 import {
@@ -15,11 +14,13 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const payload = await request.json().catch(() => null);
-  const parsed = factoryInputRegenerateVideoRequestSchema.safeParse(payload);
+  const parsed = await parseJsonBody(
+    request,
+    factoryInputRegenerateVideoRequestSchema,
+  );
 
   if (!parsed.success) {
-    return NextResponse.json<FactoryInputRenderActionResponse>(
+    return jsonError<FactoryInputRenderActionResponse>(
       {
         success: false,
         state: null,
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
         budgetRemaining: null,
         error: parsed.error.issues[0]?.message ?? "Invalid regenerate video payload.",
       },
-      { status: 400 },
+      400,
     );
   }
 
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
       opportunityId: parsed.data.opportunityId,
     });
 
-    return NextResponse.json<FactoryInputRenderActionResponse>({
+    return jsonSuccess<FactoryInputRenderActionResponse>({
       success: true,
       state: result.state,
       jobId: result.jobId,
@@ -58,7 +59,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof VideoFactoryDailyCapExceededError) {
-      return NextResponse.json<FactoryInputRenderActionResponse>(
+      return jsonError<FactoryInputRenderActionResponse>(
         {
           success: false,
           state: error.state,
@@ -73,12 +74,12 @@ export async function POST(request: Request) {
           projectedDailySpendUsd: error.dailySpendGuard.projectedDailySpendUsd,
           error: error.message,
         },
-        { status: 409 },
+        409,
       );
     }
 
     if (error instanceof VideoFactoryRegenerationBudgetExceededError) {
-      return NextResponse.json<FactoryInputRenderActionResponse>(
+      return jsonError<FactoryInputRenderActionResponse>(
         {
           success: false,
           state: error.state,
@@ -89,11 +90,11 @@ export async function POST(request: Request) {
           budgetExhausted: true,
           error: error.message,
         },
-        { status: 409 },
+        409,
       );
     }
 
-    return NextResponse.json<FactoryInputRenderActionResponse>(
+    return jsonError<FactoryInputRenderActionResponse>(
       {
         success: false,
         state: null,
@@ -103,9 +104,7 @@ export async function POST(request: Request) {
         budgetRemaining: null,
         error: error instanceof Error ? error.message : "Unable to regenerate video.",
       },
-      {
-        status: error instanceof VideoFactoryActiveRunError ? 409 : 500,
-      },
+      error instanceof VideoFactoryActiveRunError ? 409 : 500,
     );
   }
 }
