@@ -370,6 +370,7 @@ function buildOpportunityFixture(): ContentOpportunity {
       },
       renderJob: {
         id: "render-2",
+        batchId: null,
         generationRequestId: "generation-2",
         idempotencyKey: "idempotency-2",
         provider: "runway",
@@ -662,6 +663,55 @@ test("buildConnectPerformanceSignal extends the base performance signal without 
   assert.equal(connectSignal.source, "connect");
   assert.equal(connectSignal.campaignType, "organic");
   assert.equal(connectSignal.connectOutcome, "campaign_launched");
+});
+
+test("upsertConnectPerformanceSignal persists and lists Connect feedback signals", { concurrency: false }, async () => {
+  await withTempPhaseEModule(async ({ dataDir, loadModule }) => {
+    const phaseEModule = await loadModule();
+    const baseSignal = buildPerformanceSignal({
+      opportunityId: "opportunity-1",
+      videoBriefId: "brief-1",
+      renderedAssetId: "asset-2",
+      eventType: "asset_generated",
+      createdAt: "2026-03-24T11:00:00.000Z",
+      metadata: {
+        provider: "runway",
+      },
+    });
+
+    const persisted = await phaseEModule.upsertConnectPerformanceSignal(
+      phaseEModule.buildConnectPerformanceSignal({
+        baseSignal,
+        campaignType: "paid",
+        connectOutcome: "underperformed",
+        connectNotes: "Low click-through from the first campaign handoff.",
+      }),
+    );
+
+    const listed = phaseEModule.listConnectPerformanceSignals();
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0]?.id, persisted.id);
+    assert.equal(listed[0]?.campaignType, "paid");
+    assert.equal(listed[0]?.connectOutcome, "underperformed");
+
+    const rawStore = JSON.parse(
+      await readFile(path.join(dataDir, "phase-e-orchestration.json"), "utf8"),
+    ) as {
+      connectPerformanceSignals: Array<{
+        id: string;
+        campaignType: string;
+        connectOutcome: string;
+      }>;
+    };
+
+    assert.equal(rawStore.connectPerformanceSignals.length, 1);
+    assert.equal(rawStore.connectPerformanceSignals[0]?.id, persisted.id);
+    assert.equal(rawStore.connectPerformanceSignals[0]?.campaignType, "paid");
+    assert.equal(
+      rawStore.connectPerformanceSignals[0]?.connectOutcome,
+      "underperformed",
+    );
+  });
 });
 
 test("buildVideoBrief assigns contentType at brief creation time", () => {

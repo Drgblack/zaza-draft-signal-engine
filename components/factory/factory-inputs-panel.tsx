@@ -476,6 +476,11 @@ export function FactoryInputsPanel({
       initialState.opportunities.map((item) => [item.opportunityId, item.operatorNotes ?? ""]),
     ),
   );
+  const [skipReasonEdits, setSkipReasonEdits] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      initialState.opportunities.map((item) => [item.opportunityId, item.skipReason ?? ""]),
+    ),
+  );
   const [isPending, startTransition] = useTransition();
   const debugEnabled = isDebugEnabled();
   const sections = useMemo(
@@ -493,11 +498,17 @@ export function FactoryInputsPanel({
     [state.opportunities],
   );
 
-  function updateNotesCache(nextState: ContentOpportunityState) {
+  function updateLocalCaches(nextState: ContentOpportunityState) {
     setNoteEdits((current) => ({
       ...current,
       ...Object.fromEntries(
         nextState.opportunities.map((item) => [item.opportunityId, item.operatorNotes ?? current[item.opportunityId] ?? ""]),
+      ),
+    }));
+    setSkipReasonEdits((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        nextState.opportunities.map((item) => [item.opportunityId, item.skipReason ?? current[item.opportunityId] ?? ""]),
       ),
     }));
   }
@@ -582,6 +593,24 @@ export function FactoryInputsPanel({
     });
   }
 
+  function dismissOpportunity(opportunityId: string) {
+    const skipReason = skipReasonEdits[opportunityId]?.trim() ?? "";
+
+    if (!skipReason) {
+      setFeedback("Dismiss requires a short skip reason.");
+      return;
+    }
+
+    runRequest({
+      method: "PATCH",
+      body: {
+        action: "dismiss",
+        opportunityId,
+        skipReason,
+      },
+    });
+  }
+
   function runRequest(
     input:
       | { url?: "/api/factory-inputs"; method: "POST"; body: { refresh: true } }
@@ -591,7 +620,7 @@ export function FactoryInputsPanel({
           body:
             | { action: "approve_for_production"; opportunityId: string }
             | { action: "approve_video_brief_for_generation"; opportunityId: string }
-            | { action: "dismiss"; opportunityId: string }
+            | { action: "dismiss"; opportunityId: string; skipReason: string }
             | { action: "reopen"; opportunityId: string }
             | { action: "update_notes"; opportunityId: string; notes: string }
             | {
@@ -651,7 +680,7 @@ export function FactoryInputsPanel({
         }
 
         setState(data.state);
-        updateNotesCache(data.state);
+        updateLocalCaches(data.state);
         setFeedback(data.message ?? "Factory input queue updated.");
       } catch (error) {
         setFeedback(
@@ -1666,6 +1695,23 @@ export function FactoryInputsPanel({
                   />
                 </div>
 
+                <div className="mt-3 grid gap-2">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                    Skip reason
+                  </p>
+                  <Textarea
+                    value={skipReasonEdits[item.opportunityId] ?? ""}
+                    onChange={(event) =>
+                      setSkipReasonEdits((current) => ({
+                        ...current,
+                        [item.opportunityId]: event.target.value,
+                      }))
+                    }
+                    className="min-h-[72px]"
+                    placeholder="Required before dismissing this opportunity."
+                  />
+                </div>
+
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Link href={item.source.href}>
                     <Button size="sm" variant="secondary">Open signal</Button>
@@ -1693,15 +1739,7 @@ export function FactoryInputsPanel({
                       size="sm"
                       variant="ghost"
                       disabled={isPending}
-                      onClick={() =>
-                        runRequest({
-                          method: "PATCH",
-                          body: {
-                            action: "dismiss",
-                            opportunityId: item.opportunityId,
-                          },
-                        })
-                      }
+                      onClick={() => dismissOpportunity(item.opportunityId)}
                     >
                       Dismiss
                     </Button>

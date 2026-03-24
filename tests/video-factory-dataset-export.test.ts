@@ -533,6 +533,7 @@ function buildOpportunityFixture(): ContentOpportunity {
       },
       renderJob: {
         id: "render-2",
+        batchId: null,
         generationRequestId: "generation-2",
         idempotencyKey: "idempotency-1",
         provider: "runway",

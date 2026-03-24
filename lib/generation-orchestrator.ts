@@ -301,6 +301,7 @@ export async function orchestrateCompiledVideoGeneration(input: {
         narrationSpec: selectedCompiledProductionPlan.narrationSpec,
         voiceId: selectedCompiledProductionPlan.defaultsSnapshot.voiceId,
         voiceSettings: selectedCompiledProductionPlan.defaultsSnapshot.voiceSettings,
+        modelId: selectedCompiledProductionPlan.defaultsSnapshot.modelFamily ?? undefined,
         createdAt: input.createdAt,
       }),
   });
@@ -315,6 +316,8 @@ export async function orchestrateCompiledVideoGeneration(input: {
           visualProvider.generateScene({
             scenePrompt,
             aspectRatio: selectedCompiledProductionPlan.defaultsSnapshot.aspectRatio,
+            referenceImageUrl:
+              selectedCompiledProductionPlan.defaultsSnapshot.referenceImageUrl ?? null,
             createdAt: input.createdAt,
           }),
         ),

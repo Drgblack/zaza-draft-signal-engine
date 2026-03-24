@@ -379,6 +379,7 @@ function buildOpportunityFixture(): ContentOpportunity {
       generationRequest: null,
       renderJob: {
         id: "render-2",
+        batchId: "batch-1",
         generationRequestId: "generation-2",
         idempotencyKey: "video-factory:regenerate:opportunity-2:brief-2:v2:runway:none:wrong_mood",
         provider: "runway",
@@ -442,6 +443,7 @@ test("buildVideoFactoryReviewJob maps the latest persisted factory attempt", () 
   assert.equal(job?.priorAttemptsCount, 1);
   assert.equal(job?.retryCount, 0);
   assert.equal(job?.providerLabel, "Narration elevenlabs | Visuals runway-gen4 | Captions assemblyai | Composition ffmpeg");
+  assert.equal(job?.batchId, "batch-1");
   assert.equal(job?.qualitySummary, "Passed");
   assert.deepEqual(job?.reviewReasonLabels, []);
   assert.equal(job?.finalVideoUrl, "https://blob.example/video.mp4");

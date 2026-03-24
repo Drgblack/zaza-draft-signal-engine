@@ -42,6 +42,7 @@ export type RenderProvider = (typeof RENDER_PROVIDERS)[number];
 
 export const renderJobSchema = z.object({
   id: z.string().trim().min(1),
+  batchId: z.string().trim().nullable().default(null),
   generationRequestId: z.string().trim().min(1),
   idempotencyKey: z.string().trim().min(1),
   provider: z.enum(RENDER_PROVIDERS),
@@ -77,6 +78,7 @@ function renderJobId(
 }
 
 export function createRenderJob(input: {
+  batchId?: string | null;
   generationRequestId: string;
   idempotencyKey: string;
   provider: RenderProvider;
@@ -100,6 +102,7 @@ export function createRenderJob(input: {
       input.provider,
       input.renderVersion ?? null,
     ),
+    batchId: input.batchId ?? null,
     generationRequestId: input.generationRequestId,
     idempotencyKey: input.idempotencyKey,
     provider: input.provider,

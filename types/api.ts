@@ -56,6 +56,7 @@ import type { AudienceSegment, Campaign, CampaignStrategy, ContentPillar } from 
 import type { FounderOverrideState } from "@/lib/founder-overrides";
 import type { ProductionPackage } from "@/lib/production-packages";
 import type { ProductionDefaults } from "@/lib/production-defaults";
+import type { ConnectPerformanceSignal } from "@/lib/phase-e-orchestration";
 import type {
   BridgeOpportunity,
   BridgeOpportunitiesResponse as BridgeOpportunitiesResponseBody,
@@ -511,6 +512,26 @@ export type FactoryInputRenderReviewRequest = z.infer<
   typeof factoryInputRenderReviewRequestSchema
 >;
 
+export const factoryInputThumbnailRequestSchema = z
+  .object({
+    opportunityId: z.string().trim().min(1),
+    action: z.enum(["override", "reset_generated"]),
+    thumbnailUrl: z.string().trim().url().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.action === "override" && !value.thumbnailUrl) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Thumbnail URL is required for a manual override.",
+        path: ["thumbnailUrl"],
+      });
+    }
+  });
+
+export type FactoryInputThumbnailRequest = z.infer<
+  typeof factoryInputThumbnailRequestSchema
+>;
+
 export const factoryInputExportPackageRequestSchema = z.object({
   opportunityId: z.string().trim().min(1),
 });
@@ -581,6 +602,31 @@ export const zazaConnectBridgeActionRequestSchema = z.discriminatedUnion("action
     payloadText: z.string().trim().min(2),
   }),
 ]);
+
+export const zazaConnectPerformanceSignalRequestSchema = z.object({
+  opportunityId: z.string().trim().min(1),
+  videoBriefId: z.string().trim().nullable().optional(),
+  renderedAssetId: z.string().trim().nullable().optional(),
+  eventType: z.enum([
+    "brief_approved",
+    "asset_generated",
+    "asset_accepted",
+    "asset_rejected",
+    "asset_discarded",
+    "asset_regenerated",
+  ]),
+  value: z.number().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  campaignType: z.string().trim().min(1),
+  connectOutcome: z.enum([
+    "influencer_accepted",
+    "influencer_declined",
+    "campaign_launched",
+    "underperformed",
+  ]),
+  connectNotes: z.string().trim().nullable().optional(),
+  createdAt: z.string().trim().optional(),
+});
 
 export const ingestRequestSchema = z.object({
   sourceIds: z.array(z.string().trim().min(1)).optional(),
@@ -1342,6 +1388,13 @@ export interface ZazaConnectBridgeResponse {
   summary: ZazaConnectBridgeSummary | null;
   generationDisposition?: "created_new" | "replaced_latest" | "reused_latest" | null;
   replacedExportId?: string | null;
+  message: string;
+  error?: string;
+}
+
+export interface ZazaConnectPerformanceSignalResponse {
+  success: boolean;
+  signal: ConnectPerformanceSignal | null;
   message: string;
   error?: string;
 }

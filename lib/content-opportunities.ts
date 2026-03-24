@@ -27,6 +27,7 @@ import {
 import { determineViewerEffect, suggestCTA } from "@/lib/viewer-effect";
 import { buildFeedbackAwareCopilotGuidanceMap } from "@/lib/copilot";
 import { resolveActiveABTestResult } from "@/lib/factory-ab-tests";
+import { findLinkedBatchRenderJobForOpportunity } from "@/lib/factory-batch-control";
 import { buildMessageAngles } from "@/lib/message-angles";
 import {
   filterSignalsForActiveReviewQueue,
@@ -2091,8 +2092,14 @@ async function runContentOpportunityVideoGeneration(input: {
         renderVersion,
         timestamp,
       });
+      const linkedBatch =
+        findLinkedBatchRenderJobForOpportunity({
+          opportunityId: latestOpportunity.opportunityId,
+          statuses: ["approved", "queued", "running"],
+        }) ?? null;
       queuedRenderJob = renderJobSchema.parse({
         ...createRenderJob({
+          batchId: linkedBatch?.batchId ?? null,
           generationRequestId: generationRequest.id,
           idempotencyKey: requestedIdempotencyKey,
           provider,
@@ -3646,6 +3653,9 @@ export async function dismissContentOpportunity(
     throw new Error("Content opportunity not found.");
   }
   const normalizedSkipReason = normalizeText(skipReason);
+  if (!normalizedSkipReason) {
+    throw new Error("Dismiss requires a skip reason.");
+  }
 
   const state = await updateOpportunity(opportunityId, (opportunity) => ({
     ...opportunity,
@@ -3657,7 +3667,7 @@ export async function dismissContentOpportunity(
     }),
     dismissedAt: timestamp,
     approvedAt: null,
-    skipReason: normalizedSkipReason ?? opportunity.skipReason ?? null,
+    skipReason: normalizedSkipReason,
     updatedAt: timestamp,
   }));
   await appendAuditEventsSafe([
@@ -4318,6 +4328,127 @@ export async function discardContentOpportunityRenderedAsset(
     reviewOutcome: "discarded",
     reviewedAt: timestamp,
   });
+
+  return state;
+}
+
+export async function updateContentOpportunityThumbnail(input: {
+  opportunityId: string;
+  action: "override" | "reset_generated";
+  thumbnailUrl?: string | null;
+}) {
+  const timestamp = new Date().toISOString();
+  const store = await readPersistedStore();
+  const current = store.opportunities.find((item) => item.opportunityId === input.opportunityId);
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const normalizedCurrent = normalizePersistedOpportunity(current);
+  const generationState = normalizedCurrent.generationState;
+  const renderedAsset = generationState?.renderedAsset ?? null;
+  if (!generationState || !renderedAsset) {
+    throw new Error("A rendered asset must exist before its thumbnail can be updated.");
+  }
+
+  const normalizedThumbnailUrl = normalizeText(input.thumbnailUrl);
+  if (input.action === "override" && !normalizedThumbnailUrl) {
+    throw new Error("Thumbnail URL is required for a manual override.");
+  }
+
+  const currentRenderJobId = generationState.renderJob?.id ?? null;
+  const currentRenderedAssetId = renderedAsset.id;
+  const matchingAttempt =
+    generationState.attemptLineage.find((attempt) => {
+      if (currentRenderJobId && attempt.renderJobId === currentRenderJobId) {
+        return true;
+      }
+
+      return attempt.renderedAssetId === currentRenderedAssetId;
+    }) ??
+    generationState.attemptLineage.at(-1) ??
+    null;
+  const existingGeneratedThumbnailArtifact =
+    matchingAttempt?.thumbnailArtifact?.providerId === "manual-override"
+      ? null
+      : matchingAttempt?.thumbnailArtifact ?? null;
+  const generatedThumbnailUrl =
+    existingGeneratedThumbnailArtifact?.storage?.url ??
+    existingGeneratedThumbnailArtifact?.imageUrl ??
+    matchingAttempt?.composedVideoArtifact?.thumbnailUrl ??
+    null;
+  const nextThumbnailUrl =
+    input.action === "override" ? normalizedThumbnailUrl : generatedThumbnailUrl;
+
+  if (!nextThumbnailUrl) {
+    throw new Error("No generated thumbnail is available to restore.");
+  }
+
+  const nextAttemptLineage = generationState.attemptLineage.map((attempt) => {
+    const matchesCurrentAttempt =
+      (currentRenderJobId && attempt.renderJobId === currentRenderJobId) ||
+      attempt.renderedAssetId === currentRenderedAssetId;
+
+    if (!matchesCurrentAttempt) {
+      return attempt;
+    }
+
+    const existingThumbnailArtifact = attempt.thumbnailArtifact;
+    return videoFactoryAttemptLineageSchema.parse({
+      ...attempt,
+      thumbnailArtifact: {
+        artifactId:
+          existingThumbnailArtifact?.artifactId ??
+          `${attempt.renderJobId ?? attempt.attemptId}:artifact:thumbnail-image:manual-override`,
+        artifactType: "thumbnail_image",
+        renderJobId: attempt.renderJobId ?? generationState.renderJob?.id ?? renderedAsset.renderJobId,
+        renderVersion: attempt.renderVersion ?? generationState.renderJob?.renderVersion ?? null,
+        providerId:
+          input.action === "override"
+            ? "manual-override"
+            : existingGeneratedThumbnailArtifact?.providerId ??
+              attempt.composedVideoArtifact?.providerId ??
+              "ffmpeg",
+        imageUrl: nextThumbnailUrl,
+        storage:
+          input.action === "override"
+            ? null
+            : existingGeneratedThumbnailArtifact?.storage ?? null,
+        createdAt: timestamp,
+      },
+    });
+  });
+
+  const state = await updateOpportunity(input.opportunityId, (opportunity) => ({
+    ...opportunity,
+    generationState: contentOpportunityGenerationStateSchema.parse({
+      ...opportunity.generationState,
+      attemptLineage: nextAttemptLineage,
+      renderedAsset: renderedAssetSchema.parse({
+        ...renderedAsset,
+        thumbnailUrl: nextThumbnailUrl,
+      }),
+    }),
+    updatedAt: timestamp,
+  }));
+
+  await appendAuditEventsSafe([
+    {
+      signalId: current.signalId,
+      eventType: "CONTENT_OPPORTUNITY_ASSET_REVIEW_UPDATED" as const,
+      actor: "operator",
+      summary:
+        input.action === "override"
+          ? `Overrode thumbnail for content opportunity "${current.title}".`
+          : `Reset thumbnail to generated output for content opportunity "${current.title}".`,
+      metadata: {
+        renderedAssetId: renderedAsset.id,
+        renderJobId: generationState.renderJob?.id ?? null,
+        thumbnailUrl: nextThumbnailUrl,
+        thumbnailAction: input.action,
+      },
+    },
+  ]);
 
   return state;
 }

@@ -67,6 +67,7 @@ export interface PublishOutcomeSummary {
 
 export interface RenderJobProgress {
   jobId: string;
+  batchId: string | null;
   viewState: "pre-generation" | "generating" | "review";
   status: RenderJobStatus;
   regenerationCount: number;
@@ -481,6 +482,7 @@ export function buildVideoFactoryReviewJob(
       generationState.renderJob?.id ??
       generationState.factoryLifecycle?.factoryJobId ??
       opportunity.opportunityId,
+    batchId: generationState.renderJob?.batchId ?? null,
     viewState: inferViewState(opportunity),
     status: inferStatus(opportunity),
     regenerationCount: priorAttemptsCount,

@@ -150,6 +150,7 @@ const exportCompiledProductionPlanSchema = z.object({
 
 const exportRenderJobSchema = z.object({
   id: z.string().trim().min(1),
+  batchId: z.string().trim().nullable().default(null),
   generationRequestId: z.string().trim().min(1),
   idempotencyKey: z.string().trim().min(1),
   provider: z.enum(["mock", "runway", "capcut", "custom"]),
@@ -177,6 +178,7 @@ const exportPublishOutcomeSchema = factoryPublishOutcomeSchema;
 const productionPackageConnectSummarySchema = z.object({
   handoffStatus: z.enum(["accepted_render", "latest_attempt", "brief_only"]),
   isPublishReady: z.boolean(),
+  batchId: z.string().trim().nullable().default(null),
   renderJobId: z.string().trim().nullable().default(null),
   renderedAssetId: z.string().trim().nullable().default(null),
   factoryJobId: z.string().trim().nullable().default(null),
@@ -504,6 +506,7 @@ function buildConnectSummary(input: {
     isPublishReady:
       input.selectedAttempt.exportSource === "accepted_render" &&
       Boolean(renderedAsset?.url),
+    batchId: renderJob?.batchId ?? null,
     renderJobId: renderJob?.id ?? null,
     renderedAssetId: renderedAsset?.id ?? null,
     factoryJobId:

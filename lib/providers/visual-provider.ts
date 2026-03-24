@@ -43,6 +43,7 @@ export interface VisualProvider {
   generateScene(input: {
     scenePrompt: ScenePrompt;
     aspectRatio?: "9:16" | "1:1" | "16:9" | null;
+    referenceImageUrl?: string | null;
     createdAt?: string;
   }): Promise<GeneratedSceneAsset>;
 }
@@ -108,6 +109,18 @@ function runwayDuration(durationSec?: number): number {
   return 5;
 }
 
+function buildReferenceAwarePrompt(
+  visualPrompt: string,
+  referenceImageUrl?: string | null,
+) {
+  const normalizedReference = referenceImageUrl?.trim() ?? "";
+  if (!normalizedReference) {
+    return visualPrompt;
+  }
+
+  return `${visualPrompt}\nReference image anchor: ${normalizedReference}`;
+}
+
 type RunwayTaskResponse = {
   id: string;
   status?: string | null;
@@ -120,7 +133,7 @@ const realRunwayGen4VisualProvider: VisualProvider = {
   id: "runway-gen4",
   displayName: "Runway Gen-4",
   costPerSecond: 0.01,
-  async generateScene({ scenePrompt, aspectRatio, createdAt }) {
+  async generateScene({ scenePrompt, aspectRatio, referenceImageUrl, createdAt }) {
     if (
       !shouldUseRealProvider({
         provider: "Runway",
@@ -128,7 +141,12 @@ const realRunwayGen4VisualProvider: VisualProvider = {
         requiredEnvNames: ["RUNWAYML_API_SECRET"],
       })
     ) {
-      return runwayGen4MockProvider.generateScene({ scenePrompt, aspectRatio, createdAt });
+      return runwayGen4MockProvider.generateScene({
+        scenePrompt,
+        aspectRatio,
+        referenceImageUrl,
+        createdAt,
+      });
     }
 
     const apiKey = process.env.RUNWAYML_API_SECRET?.trim();
@@ -150,7 +168,10 @@ const realRunwayGen4VisualProvider: VisualProvider = {
         },
         body: JSON.stringify({
           model: runwayModelId(),
-          promptText: scenePrompt.visualPrompt,
+          promptText: buildReferenceAwarePrompt(
+            scenePrompt.visualPrompt,
+            referenceImageUrl,
+          ),
           ratio: runwayRatio(aspectRatio),
           duration: runwayDuration(scenePrompt.durationSec),
         }),

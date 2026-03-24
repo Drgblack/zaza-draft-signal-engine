@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import VideoFactoryReview from "@/components/video-factory/VideoFactoryReview";
 import type { ContentOpportunity, ContentOpportunityState } from "@/lib/content-opportunities";
 import { deriveStructuredReasonsFromLegacyRegenerationReason } from "@/lib/video-factory-review-reasons";
@@ -50,6 +52,9 @@ export function VideoFactoryReviewConnected({
     kind: "status" | "error";
     message: string;
   } | null>(null);
+  const [thumbnailUrlDraft, setThumbnailUrlDraft] = useState(
+    initialOpportunity.generationState?.renderedAsset?.thumbnailUrl ?? "",
+  );
   const [isPending, startTransition] = useTransition();
   const activeProvider = useMemo(
     () => opportunity.generationState?.renderJob?.provider ?? "runway",
@@ -61,6 +66,10 @@ export function VideoFactoryReviewConnected({
   useEffect(() => {
     setOpportunity(initialOpportunity);
   }, [initialOpportunity]);
+
+  useEffect(() => {
+    setThumbnailUrlDraft(opportunity.generationState?.renderedAsset?.thumbnailUrl ?? "");
+  }, [opportunity.generationState?.renderedAsset?.thumbnailUrl]);
 
   useEffect(() => {
     const reviewStatus = opportunity.generationState?.assetReview?.status ?? null;
@@ -312,9 +321,38 @@ export function VideoFactoryReviewConnected({
     });
   }
 
+  function handleThumbnailOverride() {
+    runAction(async () => {
+      await runFactoryAction({
+        url: "/api/render/thumbnail",
+        method: "PATCH",
+        body: {
+          opportunityId: opportunity.opportunityId,
+          action: "override",
+          thumbnailUrl: thumbnailUrlDraft.trim(),
+        },
+      });
+    });
+  }
+
+  function handleThumbnailReset() {
+    runAction(async () => {
+      await runFactoryAction({
+        url: "/api/render/thumbnail",
+        method: "PATCH",
+        body: {
+          opportunityId: opportunity.opportunityId,
+          action: "reset_generated",
+        },
+      });
+    });
+  }
+
   if (!brief) {
     return null;
   }
+
+  const canAdjustThumbnail = Boolean(opportunity.generationState?.renderedAsset?.id);
 
   return (
     <div id="review" className="space-y-4">
@@ -346,6 +384,44 @@ export function VideoFactoryReviewConnected({
         onDiscard={handleDiscard}
         actionsDisabled={isPending}
       />
+      {canAdjustThumbnail ? (
+        <div className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-4">
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-medium text-slate-900">Thumbnail override</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Override the current review/export thumbnail with a manual URL, or reset back to the generated thumbnail.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 md:flex-row">
+              <Input
+                value={thumbnailUrlDraft}
+                onChange={(event) => setThumbnailUrlDraft(event.target.value)}
+                placeholder="https://..."
+                disabled={isPending}
+              />
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleThumbnailOverride}
+                  disabled={isPending || thumbnailUrlDraft.trim().length === 0}
+                >
+                  Save override
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleThumbnailReset}
+                  disabled={isPending}
+                >
+                  Reset generated
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

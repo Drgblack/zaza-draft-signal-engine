@@ -335,6 +335,7 @@ function buildOpportunityFixture(input: {
       generationRequest: null,
       renderJob: {
         id: `${input.id}:render-job`,
+        batchId: null,
         generationRequestId: `${input.id}:generation-request`,
         idempotencyKey: `video-factory:${input.id}`,
         provider: input.provider,

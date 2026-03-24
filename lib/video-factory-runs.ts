@@ -18,6 +18,7 @@ export interface FactoryRunObservabilityItem {
   format: string | null;
   factoryJobId: string;
   renderJobId: string | null;
+  batchId: string | null;
   renderVersion: string | null;
   lifecycleStatus: string;
   terminalOutcome: string | null;
@@ -229,6 +230,7 @@ function toObservabilityItemFromLedger(
     format: opportunity.selectedVideoBrief?.format ?? null,
     factoryJobId: entry.factoryJobId,
     renderJobId: entry.renderJobId ?? null,
+    batchId: generationState.renderJob?.batchId ?? null,
     renderVersion: lineage?.renderVersion ?? generationState.renderJob?.renderVersion ?? null,
     lifecycleStatus: entry.lifecycleTransitions.at(-1)?.status ?? entry.terminalOutcome,
     terminalOutcome: entry.terminalOutcome,
@@ -313,6 +315,7 @@ function toObservabilityItemFromActiveLifecycle(
     format: opportunity.selectedVideoBrief?.format ?? null,
     factoryJobId: lifecycle.factoryJobId,
     renderJobId: generationState.renderJob?.id ?? null,
+    batchId: generationState.renderJob?.batchId ?? null,
     renderVersion: lifecycle.renderVersion ?? generationState.renderJob?.renderVersion ?? null,
     lifecycleStatus: lifecycle.status,
     terminalOutcome: null,

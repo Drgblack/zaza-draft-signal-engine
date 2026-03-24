@@ -620,6 +620,23 @@ export function getBatchRenderJob(batchId: string): BatchRenderJob | null {
   return listBatchRenderJobs().find((batch) => batch.batchId === batchId) ?? null;
 }
 
+export function findLinkedBatchRenderJobForOpportunity(input: {
+  opportunityId: string;
+  statuses?: BatchRenderJob["status"][];
+}): BatchRenderJob | null {
+  const eligibleStatuses = new Set<BatchRenderJob["status"]>(
+    input.statuses ?? ["approved", "queued", "running", "completed", "completed_with_failures"],
+  );
+
+  return (
+    listBatchRenderJobs().find(
+      (batch) =>
+        eligibleStatuses.has(batch.status) &&
+        batch.opportunityIds.includes(input.opportunityId),
+    ) ?? null
+  );
+}
+
 export function getContentMixTarget(targetId: string): ContentMixTarget | null {
   return listContentMixTargets().find((target) => target.targetId === targetId) ?? null;
 }

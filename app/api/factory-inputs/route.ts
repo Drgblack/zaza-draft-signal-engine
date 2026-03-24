@@ -90,6 +90,20 @@ export async function PATCH(request: Request) {
   }
 
   try {
+    if (
+      parsed.data.action === "dismiss" &&
+      !(parsed.data.skipReason?.trim().length)
+    ) {
+      return NextResponse.json<FactoryInputResponse>(
+        {
+          success: false,
+          state: null,
+          error: "Dismiss requires a skip reason.",
+        },
+        { status: 400 },
+      );
+    }
+
     const state =
       parsed.data.action === "approve_for_production"
         ? await approveContentOpportunity(parsed.data.opportunityId)

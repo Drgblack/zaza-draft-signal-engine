@@ -356,6 +356,7 @@ function buildOpportunityFixture(
       },
       renderJob: {
         id: "render-2",
+        batchId: "batch-export-1",
         generationRequestId: "generation-2",
         idempotencyKey: "idempotency-1",
         provider: "runway",
@@ -608,6 +609,7 @@ test("buildProductionPackage exports accepted real artifacts and lineage", () =>
   ]);
   assert.equal(productionPackage.connectSummary.providerStack?.narrationProvider, "elevenlabs");
   assert.equal(productionPackage.connectSummary.providerStack?.captionProvider, "assemblyai");
+  assert.equal(productionPackage.connectSummary.batchId, "batch-export-1");
   assert.deepEqual(productionPackage.connectSummary.providerStack?.visualProviders, [
     "runway-gen4",
   ]);

@@ -48,6 +48,7 @@
     "tests/connect-bridge-health.test.ts",
     "tests/connect-bridge-fallback-quality.test.ts",
     "tests/composition-provider.test.ts",
+    "tests/content-opportunity-ops.test.ts",
     "tests/factory-batch-control.test.ts",
     "tests/factory-ab-tests.test.ts",
     "tests/phase-e-orchestration.test.ts",

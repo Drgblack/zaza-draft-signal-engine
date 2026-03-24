@@ -1038,6 +1038,7 @@ export const DEMO_PROPS: VideoFactoryReviewProps = {
   },
   job: {
     jobId: "job-789",
+    batchId: null,
     viewState: "review",
     status: "completed",
     regenerationCount: 1,

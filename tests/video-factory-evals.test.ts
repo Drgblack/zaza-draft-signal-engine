@@ -91,6 +91,7 @@ test("buildVideoFactoryEvalSnapshot extracts structural metadata from runtime-sh
     },
     renderJob: {
       id: "render-job-1",
+      batchId: null,
       generationRequestId: "generation-request-1",
       idempotencyKey: "video-factory:opportunity-1",
       provider: "runway",

@@ -128,6 +128,7 @@ test("variant tagging flows through render jobs and factory ledger entries", () 
     assignedAt: "2026-03-24T09:00:00.000Z",
   };
   const renderJob = createRenderJob({
+    batchId: "batch-caption-1",
     generationRequestId: "generation-request-1",
     idempotencyKey: "video-factory:opportunity-1",
     provider: "runway",
@@ -171,6 +172,7 @@ test("variant tagging flows through render jobs and factory ledger entries", () 
   });
 
   assert.equal(renderJob.abTest?.configId, "ab-caption-1");
+  assert.equal(renderJob.batchId, "batch-caption-1");
   assert.equal(renderJob.abTest?.variant, "B");
   assert.equal(ledgerEntry.abTest?.configId, "ab-caption-1");
   assert.equal(ledgerEntry.abTest?.variant, "B");

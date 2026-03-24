@@ -277,6 +277,7 @@ function buildOpportunityFixture(input: {
       },
       renderJob: {
         id: `${input.id}:render-job`,
+        batchId: null,
         generationRequestId: `${input.id}:request`,
         idempotencyKey: `${input.id}:idempotency`,
         provider: "runway",
@@ -560,6 +561,50 @@ test("batch jobs and mix targets persist to the repo-native JSON store", { concu
       batchControlModule.getContentMixTarget("mix-store-1")?.observedMix.totalOpportunities,
       2,
     );
+  });
+});
+
+test("findLinkedBatchRenderJobForOpportunity returns the current approved batch for a queued opportunity", { concurrency: false }, async () => {
+  await withTempBatchControlModule(async ({ loadModule }) => {
+    const batchControlModule = await loadModule();
+    const opportunities = [
+      buildOpportunityFixture({
+        id: "opp-linked-1",
+        recommendedFormat: "short_video",
+        platforms: ["linkedin"],
+        contentType: "validation",
+        effect: "relief",
+        cta: "Try Zaza Draft",
+        lifecycleStatus: "accepted",
+        reviewStatus: "accepted",
+      }),
+    ];
+
+    await batchControlModule.upsertBatchRenderJob(
+      batchControlModule.buildBatchRenderJob({
+        batchId: "batch-old",
+        opportunities,
+        status: "completed",
+        createdAt: "2026-03-24T09:00:00.000Z",
+        updatedAt: "2026-03-24T09:10:00.000Z",
+      }),
+    );
+    await batchControlModule.upsertBatchRenderJob(
+      batchControlModule.buildBatchRenderJob({
+        batchId: "batch-current",
+        opportunities,
+        status: "approved",
+        createdAt: "2026-03-24T10:00:00.000Z",
+        updatedAt: "2026-03-24T10:30:00.000Z",
+      }),
+    );
+
+    const linked = batchControlModule.findLinkedBatchRenderJobForOpportunity({
+      opportunityId: "opp-linked-1",
+    });
+
+    assert.equal(linked?.batchId, "batch-current");
+    assert.equal(linked?.status, "approved");
   });
 });
 

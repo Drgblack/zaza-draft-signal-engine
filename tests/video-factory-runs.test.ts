@@ -349,6 +349,7 @@ function buildOpportunityFixture(input?: {
       generationRequest: null,
       renderJob: {
         id: "render-job-1",
+        batchId: "batch-obs-1",
         generationRequestId: "generation-request-1",
         idempotencyKey: "video-factory:opportunity-1",
         provider: "runway",
@@ -498,6 +499,7 @@ test("buildFactoryRunsObservability flattens ledger-backed runs with defaults ve
   assert.equal(result.runCount, 1);
   assert.equal(result.activeCount, 0);
   assert.equal(result.items[0]?.factoryJobId, "factory-job-1");
+  assert.equal(result.items[0]?.batchId, "batch-obs-1");
   assert.equal(result.items[0]?.defaultsProfileId, "prod-default:teacher-real-core");
   assert.equal(result.items[0]?.defaultsVersion, 3);
   assert.equal(result.items[0]?.finalScriptTrustScore, 88);
