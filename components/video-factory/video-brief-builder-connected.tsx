@@ -68,32 +68,10 @@ function buildHookSetMap(opportunity: ContentOpportunity) {
   return new Map(opportunity.hookSets.map((hookSet) => [hookSet.angleId, hookSet]));
 }
 
-function builderStatusLabel(opportunity: ContentOpportunity) {
-  if (opportunity.founderSelectionStatus === "approved") {
-    return "Brief approved";
-  }
-
-  if (opportunity.selectedVideoBrief) {
-    return "Brief in progress";
-  }
-
-  if (opportunity.selectedHookId) {
-    return "Hook selected";
-  }
-
-  if (opportunity.selectedAngleId) {
-    return "Angle selected";
-  }
-
-  return "Ready to start";
-}
-
 export function VideoBriefBuilderConnected({
   initialOpportunity,
-  approvedOpportunities,
 }: {
   initialOpportunity: ContentOpportunity;
-  approvedOpportunities: ContentOpportunity[];
 }) {
   const router = useRouter();
   const [opportunity, setOpportunity] = useState(initialOpportunity);
@@ -135,7 +113,8 @@ export function VideoBriefBuilderConnected({
     () => (selectedAngle ? hookSetMap.get(selectedAngle.id) ?? null : null),
     [hookSetMap, selectedAngle],
   );
-  const recommendedAngle = messageAngles.find((angle) => angle.isRecommended) ?? messageAngles[0] ?? null;
+  const recommendedAngle =
+    messageAngles.find((angle) => angle.isRecommended) ?? messageAngles[0] ?? null;
   const recommendedHook = selectedHookSet?.primaryHook ?? null;
   const currentStep =
     !opportunity.selectedAngleId
@@ -236,16 +215,6 @@ export function VideoBriefBuilderConnected({
       });
       router.refresh();
     });
-  }
-
-  function handleSwitchOpportunity(opportunityId: string) {
-    if (isPending) {
-      return;
-    }
-
-    router.push(
-      `/factory-inputs?opportunityId=${encodeURIComponent(opportunityId)}&mode=builder#brief-builder`,
-    );
   }
 
   async function saveDraft() {
@@ -391,67 +360,6 @@ export function VideoBriefBuilderConnected({
                 </Button>
               ) : null}
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white/92">
-          <CardHeader>
-            <CardTitle>1. Choose an approved opportunity</CardTitle>
-            <CardDescription>
-              Start from an approved opportunity. That is the source material the brief
-              will turn into a generation-ready video plan.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {approvedOpportunities.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-black/10 bg-white/75 px-4 py-8 text-sm text-slate-500">
-                Approve an opportunity in Review first.
-              </div>
-            ) : (
-              approvedOpportunities.map((candidate) => {
-                const isSelected = candidate.opportunityId === opportunity.opportunityId;
-
-                return (
-                  <div
-                    key={candidate.opportunityId}
-                    className={
-                      isSelected
-                        ? "rounded-3xl border-2 border-[#6B62D9] bg-[#F4F2FF] px-4 py-4"
-                        : "rounded-3xl border border-black/8 bg-white px-4 py-4"
-                    }
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
-                        {builderStatusLabel(candidate)}
-                      </Badge>
-                      {isSelected ? (
-                        <Badge className="bg-[#E0DBFF] text-[#4F46B5] ring-[#D1CAFF]">
-                          Selected
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <p className="mt-3 text-base font-semibold text-slate-950">{candidate.title}</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      {candidate.primaryPainPoint}
-                    </p>
-                    <div className="mt-4">
-                      {isSelected ? (
-                        <Button type="button" variant="secondary" disabled>
-                          Working on this brief
-                        </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          onClick={() => handleSwitchOpportunity(candidate.opportunityId)}
-                        >
-                          {candidate.selectedVideoBrief ? "Open brief" : "Start brief"}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
           </CardContent>
         </Card>
 
