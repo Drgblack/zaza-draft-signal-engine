@@ -68,10 +68,32 @@ function buildHookSetMap(opportunity: ContentOpportunity) {
   return new Map(opportunity.hookSets.map((hookSet) => [hookSet.angleId, hookSet]));
 }
 
+function builderStatusLabel(opportunity: ContentOpportunity) {
+  if (opportunity.founderSelectionStatus === "approved") {
+    return "Brief approved";
+  }
+
+  if (opportunity.selectedVideoBrief) {
+    return "Brief in progress";
+  }
+
+  if (opportunity.selectedHookId) {
+    return "Hook selected";
+  }
+
+  if (opportunity.selectedAngleId) {
+    return "Angle selected";
+  }
+
+  return "Ready to start";
+}
+
 export function VideoBriefBuilderConnected({
   initialOpportunity,
+  approvedOpportunities,
 }: {
   initialOpportunity: ContentOpportunity;
+  approvedOpportunities: ContentOpportunity[];
 }) {
   const router = useRouter();
   const [opportunity, setOpportunity] = useState(initialOpportunity);
@@ -113,6 +135,32 @@ export function VideoBriefBuilderConnected({
     () => (selectedAngle ? hookSetMap.get(selectedAngle.id) ?? null : null),
     [hookSetMap, selectedAngle],
   );
+  const recommendedAngle = messageAngles.find((angle) => angle.isRecommended) ?? messageAngles[0] ?? null;
+  const recommendedHook = selectedHookSet?.primaryHook ?? null;
+  const currentStep =
+    !opportunity.selectedAngleId
+      ? 2
+      : !opportunity.selectedHookId
+        ? 3
+        : 5;
+  const currentStepTitle =
+    currentStep === 2
+      ? "Choose the angle first."
+      : currentStep === 3
+        ? "Choose the opening hook next."
+        : "Review the brief, then approve it.";
+  const currentStepCopy =
+    currentStep === 2
+      ? "A brief is the production plan for the video. The angle decides which teacher tension, promise, and emotional payoff the brief will carry."
+      : currentStep === 3
+        ? "The hook is the first line the viewer hears. Pick the opening that best matches the angle before you edit the brief beats."
+        : "Once the brief is approved, generation becomes available in the existing ZazaReel review screen. Saving is optional; approving is the main next action.";
+  const upcomingLabel =
+    currentStep === 2
+      ? "Use the recommended angle"
+      : currentStep === 3
+        ? "Use the strongest hook"
+        : "Approve brief";
 
   async function runFactoryAction(body: Record<string, unknown>) {
     const response = await fetch("/api/factory-inputs", {
@@ -190,6 +238,16 @@ export function VideoBriefBuilderConnected({
     });
   }
 
+  function handleSwitchOpportunity(opportunityId: string) {
+    if (isPending) {
+      return;
+    }
+
+    router.push(
+      `/factory-inputs?opportunityId=${encodeURIComponent(opportunityId)}&mode=builder#brief-builder`,
+    );
+  }
+
   async function saveDraft() {
     if (!draft) {
       throw new Error("Select a hook before saving the video brief.");
@@ -229,6 +287,22 @@ export function VideoBriefBuilderConnected({
     setDraft((current) => (current ? updater(current) : current));
   }
 
+  function handlePrimaryNextAction() {
+    if (currentStep === 2 && recommendedAngle) {
+      handleSelectAngle(recommendedAngle.id);
+      return;
+    }
+
+    if (currentStep === 3 && recommendedHook) {
+      handleSelectHook(recommendedHook.id);
+      return;
+    }
+
+    if (currentStep === 5) {
+      handleApproveBrief();
+    }
+  }
+
   return (
     <div id="brief-builder" className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="space-y-6">
@@ -256,20 +330,135 @@ export function VideoBriefBuilderConnected({
               <Badge className="bg-[#E9E7FF] text-[#5448B3] ring-[#D8D3FF]">
                 Brief builder
               </Badge>
+              <Badge className="bg-white text-slate-700 ring-slate-200">
+                Step {currentStep} of 7
+              </Badge>
             </div>
-            <CardTitle>Choose the message, then lock the brief.</CardTitle>
+            <CardTitle>{currentStepTitle}</CardTitle>
             <CardDescription className="max-w-3xl">
-              Pick one framing angle, choose the opening hook that carries it, tune the
-              brief beats, and approve the result so the existing render review flow can
-              take over.
+              {currentStepCopy}
             </CardDescription>
           </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-2 md:grid-cols-7">
+              {[
+                "Choose opportunity",
+                "Choose angle",
+                "Choose hook",
+                "Review brief",
+                "Approve brief",
+                "Generate video",
+                "Review final video",
+              ].map((label, index) => {
+                const stepNumber = index + 1;
+                const isCurrent = stepNumber === currentStep;
+                const isComplete = stepNumber < currentStep;
+                const isFuture = stepNumber > currentStep;
+
+                return (
+                  <div
+                    key={label}
+                    className={
+                      isCurrent
+                        ? "rounded-2xl border border-[#6B62D9] bg-[#F4F2FF] px-3 py-3"
+                        : isComplete
+                          ? "rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3"
+                          : isFuture
+                            ? "rounded-2xl border border-black/8 bg-white px-3 py-3"
+                            : "rounded-2xl border border-black/8 bg-white px-3 py-3"
+                    }
+                  >
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Step {stepNumber}
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-slate-900">{label}</p>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="button" onClick={handlePrimaryNextAction} disabled={isPending}>
+                {upcomingLabel}
+              </Button>
+              {currentStep === 5 ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleSaveDraft}
+                  disabled={isPending}
+                >
+                  Save draft
+                </Button>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white/92">
+          <CardHeader>
+            <CardTitle>1. Choose an approved opportunity</CardTitle>
+            <CardDescription>
+              Start from an approved opportunity. That is the source material the brief
+              will turn into a generation-ready video plan.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {approvedOpportunities.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-black/10 bg-white/75 px-4 py-8 text-sm text-slate-500">
+                Approve an opportunity in Review first.
+              </div>
+            ) : (
+              approvedOpportunities.map((candidate) => {
+                const isSelected = candidate.opportunityId === opportunity.opportunityId;
+
+                return (
+                  <div
+                    key={candidate.opportunityId}
+                    className={
+                      isSelected
+                        ? "rounded-3xl border-2 border-[#6B62D9] bg-[#F4F2FF] px-4 py-4"
+                        : "rounded-3xl border border-black/8 bg-white px-4 py-4"
+                    }
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
+                        {builderStatusLabel(candidate)}
+                      </Badge>
+                      {isSelected ? (
+                        <Badge className="bg-[#E0DBFF] text-[#4F46B5] ring-[#D1CAFF]">
+                          Selected
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-3 text-base font-semibold text-slate-950">{candidate.title}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      {candidate.primaryPainPoint}
+                    </p>
+                    <div className="mt-4">
+                      {isSelected ? (
+                        <Button type="button" variant="secondary" disabled>
+                          Working on this brief
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          onClick={() => handleSwitchOpportunity(candidate.opportunityId)}
+                        >
+                          {candidate.selectedVideoBrief ? "Open brief" : "Start brief"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
         </Card>
 
         <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
           <Card className="bg-white/92">
             <CardHeader>
-              <CardTitle>1. Message angle</CardTitle>
+              <CardTitle>2. Choose a message angle</CardTitle>
               <CardDescription>
                 Choose the framing you want the video to carry forward.
               </CardDescription>
@@ -327,11 +516,11 @@ export function VideoBriefBuilderConnected({
                     <div className="mt-4">
                       <Button
                         type="button"
-                        variant={isSelected ? "secondary" : "primary"}
+                        variant={isSelected ? "secondary" : angle.isRecommended ? "primary" : "secondary"}
                         onClick={() => handleSelectAngle(angle.id)}
                         disabled={isPending}
                       >
-                        {isSelected ? "Angle selected" : "Choose this angle"}
+                        {isSelected ? "Angle selected" : angle.isRecommended ? "Use recommended angle" : "Choose this angle"}
                       </Button>
                     </div>
                   </div>
@@ -340,11 +529,12 @@ export function VideoBriefBuilderConnected({
             </CardContent>
           </Card>
 
-          <Card className="bg-white/92">
+          <Card className={selectedAngle ? "bg-white/92" : "bg-white/84 opacity-80"}>
             <CardHeader>
-              <CardTitle>2. Hook options</CardTitle>
+              <CardTitle>3. Choose a hook</CardTitle>
               <CardDescription>
-                Pick the opening line that best fits the angle you selected.
+                Pick the opening line that best fits the angle you selected. Generation
+                does not unlock until a hook is chosen and the brief is approved.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -403,11 +593,11 @@ export function VideoBriefBuilderConnected({
                       <div className="mt-4">
                         <Button
                           type="button"
-                          variant={isSelected ? "secondary" : "primary"}
+                          variant={isSelected ? "secondary" : hook.isRecommended ? "primary" : "secondary"}
                           onClick={() => handleSelectHook(hook.id)}
                           disabled={isPending}
                         >
-                          {isSelected ? "Hook selected" : "Use this hook"}
+                          {isSelected ? "Hook selected" : hook.isRecommended ? "Use strongest hook" : "Use this hook"}
                         </Button>
                       </div>
                     </div>
@@ -418,14 +608,14 @@ export function VideoBriefBuilderConnected({
           </Card>
         </div>
 
-        <Card className="bg-white/92">
+        <Card className={draft ? "bg-white/92" : "bg-white/84 opacity-80"}>
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <CardTitle>3. Video brief</CardTitle>
+                <CardTitle>4. Review and edit the brief</CardTitle>
                 <CardDescription>
-                  Edit the brief beats, overlays, and close before approving the brief for
-                  the downstream review and generation flow.
+                  This brief is the production plan the generator will use. Tighten the
+                  beats, overlays, and close, then approve the brief to unlock generation.
                 </CardDescription>
               </div>
               {opportunity.selectedVideoBrief ? (
@@ -673,7 +863,7 @@ export function VideoBriefBuilderConnected({
                     onClick={handleApproveBrief}
                     disabled={isPending}
                   >
-                    Approve brief
+                    5. Approve brief
                   </Button>
                 </div>
               </>
