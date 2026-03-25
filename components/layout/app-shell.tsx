@@ -21,7 +21,11 @@ export function AppShell({
         <aside className="border-b border-black/6 bg-[color:var(--panel-strong)] px-5 py-5 backdrop-blur lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-72 lg:flex-col lg:border-b-0 lg:border-r lg:px-6 lg:py-7">
           <div className="flex items-center justify-between lg:items-start">
             <div className="space-y-2">
-              <div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-black/6 bg-white shadow-sm">
+              <Link
+                href="/"
+                aria-label="Go to home"
+                className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-black/6 bg-white shadow-sm transition hover:bg-white"
+              >
                 <Image
                   src="/Z%20Logo.png"
                   alt="Zaza Draft logo"
@@ -30,7 +34,7 @@ export function AppShell({
                   className="h-full w-full object-cover"
                   priority
                 />
-              </div>
+              </Link>
               <div>
                 <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Internal Tool</p>
                 <h1 className="mt-2 text-xl font-semibold text-slate-950">{appName}</h1>
@@ -72,7 +76,11 @@ export function AppShell({
           <header className="sticky top-0 z-20 border-b border-black/6 bg-[color:var(--panel-strong)]/95 backdrop-blur">
             <div className="flex items-center justify-between px-6 py-4 lg:px-10">
               <div className="flex items-center gap-3">
-                <div className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-black/6 bg-white shadow-sm">
+                <Link
+                  href="/"
+                  aria-label="Go to home"
+                  className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-black/6 bg-white shadow-sm transition hover:bg-white"
+                >
                   <Image
                     src="/Z%20Logo.png"
                     alt="Zaza Draft logo"
@@ -80,7 +88,7 @@ export function AppShell({
                     height={40}
                     className="h-full w-full object-cover"
                   />
-                </div>
+                </Link>
                 <div>
                   <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Editorial Workflow</p>
                   <p className="mt-1 text-sm text-slate-700">Human-in-the-loop signal interpretation and draft prep.</p>
