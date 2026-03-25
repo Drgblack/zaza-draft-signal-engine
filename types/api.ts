@@ -505,6 +505,9 @@ export const factoryInputActionRequestSchema = z.discriminatedUnion("action", [
     action: z.literal("approve_video_brief_for_generation"),
     opportunityId: z.string().trim().min(1),
   }),
+  z.object({
+    action: z.literal("create_test_opportunity"),
+  }),
 ]);
 
 export const factoryInputGenerateVideoRequestSchema = z.object({
@@ -1218,6 +1221,7 @@ export interface FounderOverrideResponse {
 export interface FactoryInputResponse {
   success: boolean;
   state: ContentOpportunityState | null;
+  opportunityId?: string | null;
   message?: string;
   error?: string;
 }

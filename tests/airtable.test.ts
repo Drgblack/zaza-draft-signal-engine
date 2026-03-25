@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { filterFieldsToSupportedAirtableSchema } from "../lib/airtable";
+import { filterFieldsToSupportedAirtableSchema, getSafeAirtableErrorMessage } from "../lib/airtable";
 
 test("filterFieldsToSupportedAirtableSchema removes unsupported context fields from interpretation saves", () => {
   const fields = {
@@ -30,4 +30,16 @@ test("filterFieldsToSupportedAirtableSchema removes unsupported context fields f
     "Funnel Stage",
     "CTA Goal",
   ]);
+});
+
+test("getSafeAirtableErrorMessage surfaces Airtable 422s as useful interpretation save errors", () => {
+  const message = getSafeAirtableErrorMessage({
+    status: 422,
+    message: 'Unknown field name: "Campaign ID"',
+  });
+
+  assert.equal(
+    message,
+    'Airtable rejected the update: Unknown field name: "Campaign ID"',
+  );
 });

@@ -285,16 +285,17 @@ async function withTempContentOpportunityModule(
     });
   } finally {
     process.chdir(previousCwd);
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    for (let attempt = 0; attempt < 10; attempt += 1) {
       try {
         await rm(tempDir, { recursive: true, force: true });
         break;
       } catch (error) {
-        if ((error as NodeJS.ErrnoException | undefined)?.code !== "EBUSY" || attempt === 4) {
+        if ((error as NodeJS.ErrnoException | undefined)?.code !== "EBUSY" || attempt === 9) {
           throw error;
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+        await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
       }
     }
   }
@@ -493,6 +494,57 @@ test("approveContentOpportunity prepares a pending founder brief flow instead of
     assert.equal(updated?.generationState, null);
     assert.ok((updated?.messageAngles.length ?? 0) >= 2);
     assert.ok((updated?.hookSets.length ?? 0) >= 1);
+  });
+});
+
+test("createTestContentOpportunity bootstraps an approved founder-ready opportunity from an empty store", { concurrency: false }, async () => {
+  await withTempContentOpportunityModule(async ({ dataDir, loadModule }) => {
+    await writeFile(
+      path.join(dataDir, "content-opportunities.json"),
+      `${JSON.stringify(
+        {
+          updatedAt: null,
+          opportunities: [],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const contentOpportunities = await loadModule();
+    const result = await contentOpportunities.createTestContentOpportunity();
+
+    assert.equal(result.state.approvedCount, 1);
+    assert.equal(result.state.opportunities.length, 1);
+    assert.equal(result.opportunity.status, "approved_for_production");
+    assert.equal(result.opportunity.founderSelectionStatus, "pending");
+    assert.equal(result.opportunity.selectedAngleId, null);
+    assert.equal(result.opportunity.selectedHookId, null);
+    assert.equal(result.opportunity.selectedVideoBrief, null);
+    assert.equal(result.opportunity.messageAngles.length, 2);
+    assert.ok(result.opportunity.hookSets.length >= 1);
+    assert.ok(
+      result.opportunity.hookSets.every(
+        (hookSet) => hookSet.variants.length >= 3 && hookSet.variants.length <= 5,
+      ),
+    );
+
+    const rawStore = JSON.parse(
+      await readFile(path.join(dataDir, "content-opportunities.json"), "utf8"),
+    ) as {
+      opportunities: Array<{
+        status?: string;
+        founderSelectionStatus?: string;
+        messageAngles?: Array<unknown>;
+        hookSets?: Array<unknown>;
+      }>;
+    };
+
+    assert.equal(rawStore.opportunities[0]?.status, "approved_for_production");
+    assert.equal(rawStore.opportunities[0]?.founderSelectionStatus, "pending");
+    assert.equal(rawStore.opportunities[0]?.messageAngles?.length, 2);
+    assert.ok((rawStore.opportunities[0]?.hookSets?.length ?? 0) >= 1);
   });
 });
 

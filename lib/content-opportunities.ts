@@ -3953,6 +3953,124 @@ export async function approveContentOpportunity(opportunityId: string) {
   return state;
 }
 
+export async function createTestContentOpportunity() {
+  const timestamp = new Date().toISOString();
+  const syntheticSignalId = `test-signal:${timestamp}`;
+  const baseOpportunity = contentOpportunitySchema.parse({
+    opportunityId: `test-opportunity:${timestamp}`,
+    signalId: syntheticSignalId,
+    title: "Test brief walkthrough: calm a parent reply before you send it",
+    opportunityType: "pain_point_opportunity",
+    status: "approved_for_production",
+    priority: "high",
+    source: {
+      signalId: syntheticSignalId,
+      sourceTitle: "Founder bootstrap opportunity",
+      href: "/review?view=ready_to_approve#approval-ready",
+      clusterId: null,
+    },
+    primaryPainPoint:
+      "A teacher is rewriting a parent email because they do not want the tone to escalate the situation.",
+    painPointCategory: "parent-communication",
+    teacherLanguage: [
+      "I keep rereading the email because I do not want it to land the wrong way.",
+      "I need to sound clear without sounding defensive.",
+    ],
+    recommendedAngle:
+      "Show the teacher how to steady the message before they press send.",
+    recommendedHookDirection: "teacher-first reassurance with practical clarity",
+    recommendedFormat: "short_video",
+    recommendedPlatforms: ["linkedin", "x"],
+    whyNow:
+      "It is a clear, emotionally familiar founder-safe scenario for testing the full brief-to-video flow.",
+    commercialPotential: "high",
+    trustRisk: "low",
+    riskSummary: "Keep the message practical and avoid implying legal certainty.",
+    confidence: 0.91,
+    historicalCostAvg: null,
+    historicalApprovalRate: null,
+    suggestedNextStep: "Choose an angle, pick a hook, approve the brief, and generate.",
+    skipReason: null,
+    hookOptions: null,
+    hookRanking: null,
+    performanceDrivers: null,
+    intendedViewerEffect:
+      "Make the viewer feel understood quickly enough to keep watching and trust the advice.",
+    suggestedCTA: "If this feels familiar, pause before you send the next reply.",
+    productionComplexity: "low",
+    growthIntelligence: null,
+    supportingSignals: [
+      "Founder-safe bootstrap scenario for the end-to-end ZazaReel walkthrough.",
+    ],
+    memoryContext: {
+      bestCombo: "calm reassurance + practical next step",
+      weakCombo: null,
+      revenuePattern: null,
+      audienceCue: "Teachers handling parent communication pressure",
+      caution: "Avoid sounding accusatory toward parents.",
+    },
+    sourceSignalIds: [syntheticSignalId],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    approvedAt: timestamp,
+    dismissedAt: null,
+    messageAngles: [],
+    hookSets: [],
+    founderSelectionStatus: "pending",
+    selectedAngleId: null,
+    selectedHookId: null,
+    selectedVideoBrief: null,
+    generationState: null,
+    operatorNotes: "Synthetic bootstrap opportunity created from the empty-state founder flow.",
+  });
+  const messageAngles = generateMessageAngles(baseOpportunity, timestamp)
+    .slice(0, 2)
+    .map((angle, index) =>
+      messageAngleSchema.parse({
+        ...angle,
+        rank: index + 1,
+        isRecommended: index === 0,
+      }),
+    );
+  const hookSets = generateHookSets(
+    {
+      ...baseOpportunity,
+      messageAngles,
+    },
+    messageAngles,
+  );
+  const nextOpportunity = normalizePersistedOpportunity({
+    ...baseOpportunity,
+    messageAngles,
+    hookSets,
+  });
+  const store = await readPersistedStore();
+  const nextOpportunities = [nextOpportunity, ...store.opportunities].slice(0, 120);
+
+  await writePersistedStore({
+    updatedAt: timestamp,
+    opportunities: nextOpportunities,
+  });
+
+  await appendAuditEventsSafe([
+    {
+      signalId: syntheticSignalId,
+      eventType: "CONTENT_OPPORTUNITY_APPROVED" as const,
+      actor: "operator",
+      summary: `Created bootstrap content opportunity "${nextOpportunity.title}".`,
+      metadata: {
+        source: "test-bootstrap",
+        founderSelectionStatus: nextOpportunity.founderSelectionStatus,
+      },
+    },
+  ]);
+
+  return {
+    opportunity: nextOpportunity,
+    state: summarizeState(nextOpportunities),
+  };
+}
+
 export async function generateContentOpportunityMessageAngles(input: {
   opportunityId: string;
   regenerate?: boolean;

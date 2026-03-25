@@ -4,6 +4,7 @@ import {
   approveContentOpportunity,
   approveContentOpportunityVideoBrief,
   approveContentOpportunityVideoBriefForGeneration,
+  createTestContentOpportunity,
   dismissContentOpportunity,
   listContentOpportunityState,
   refreshContentOpportunityStateFromSystem,
@@ -110,10 +111,16 @@ export async function PATCH(request: Request) {
 
     let state;
     let message = "Founder selection saved.";
+    let opportunityId: string | null = null;
 
     if (parsed.data.action === "approve_for_production") {
       state = await approveContentOpportunity(parsed.data.opportunityId);
       message = "Factory input approved for production.";
+    } else if (parsed.data.action === "create_test_opportunity") {
+      const result = await createTestContentOpportunity();
+      state = result.state;
+      opportunityId = result.opportunity.opportunityId;
+      message = "Test opportunity created. The brief builder is ready.";
     } else if (parsed.data.action === "approve_video_brief") {
       state = await approveContentOpportunityVideoBrief(parsed.data.opportunityId);
       message = "Video brief approved.";
@@ -162,6 +169,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json<FactoryInputResponse>({
       success: true,
       state,
+      opportunityId,
       message,
     });
   } catch (error) {

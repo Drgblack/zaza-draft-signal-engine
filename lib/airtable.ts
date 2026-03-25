@@ -600,24 +600,46 @@ export function deriveDisplayEngagementScore(signal: SignalRecord): number | nul
 }
 
 export function getSafeAirtableErrorMessage(error: unknown): string {
-  if (error instanceof AirtableClientError) {
-    if (error.code === "mapping_error") {
-      return error.message || "Airtable field mapping rejected the request payload.";
-    }
+  const normalizedError =
+    error instanceof AirtableClientError
+      ? {
+          code: error.code,
+          status: error.status,
+          message: error.message,
+        }
+      : error && typeof error === "object"
+        ? {
+            code:
+              "code" in error && typeof error.code === "string" ? error.code : null,
+            status:
+              "status" in error && typeof error.status === "number"
+                ? error.status
+                : null,
+            message:
+              "message" in error && typeof error.message === "string"
+                ? error.message
+                : "",
+          }
+        : null;
 
-    if (error.status === 401 || error.status === 403) {
-      return "Airtable credentials were rejected. Check the PAT permissions.";
-    }
+  if (normalizedError?.code === "mapping_error") {
+    return normalizedError.message || "Airtable field mapping rejected the request payload.";
+  }
 
-    if (error.status === 404) {
-      return "The Airtable base or table could not be reached.";
-    }
+  if (normalizedError?.status === 401 || normalizedError?.status === 403) {
+    return "Airtable credentials were rejected. Check the PAT permissions.";
+  }
 
-    if (error.status === 422) {
-      return `Airtable rejected the update: ${error.message}`;
-    }
+  if (normalizedError?.status === 404) {
+    return "The Airtable base or table could not be reached.";
+  }
 
-    return `Airtable request failed (${error.status}).`;
+  if (normalizedError?.status === 422) {
+    return `Airtable rejected the update: ${normalizedError.message}`;
+  }
+
+  if (normalizedError?.status) {
+    return `Airtable request failed (${normalizedError.status}).`;
   }
 
   return "Airtable request failed.";

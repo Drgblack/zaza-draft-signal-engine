@@ -42,6 +42,40 @@ function toneClasses(tone: "success" | "warning" | "error") {
   }
 }
 
+function hasContent(value: string | null | undefined) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function validateInterpretationForSave(
+  interpretation: SignalInterpretationResult,
+) {
+  if (!hasContent(interpretation.signalSubtype)) {
+    return "Signal subtype is required before you can save interpretation.";
+  }
+
+  if (!hasContent(interpretation.emotionalPattern)) {
+    return "Emotional pattern is required before you can save interpretation.";
+  }
+
+  if (!hasContent(interpretation.teacherPainPoint)) {
+    return "Teacher pain point is required before you can save interpretation.";
+  }
+
+  if (!hasContent(interpretation.riskToTeacher)) {
+    return "Risk to teacher is required before you can save interpretation.";
+  }
+
+  if (!hasContent(interpretation.contentAngle)) {
+    return "Content angle is required before you can save interpretation.";
+  }
+
+  if (!hasContent(interpretation.interpretationNotes)) {
+    return "Interpretation notes are required before you can save interpretation.";
+  }
+
+  return null;
+}
+
 export function InterpretationWorkbench({
   signal,
   initialInterpretation,
@@ -231,6 +265,16 @@ export function InterpretationWorkbench({
       return;
     }
 
+    const validationError = validateInterpretationForSave(interpretation);
+    if (validationError) {
+      setFeedback({
+        tone: "error",
+        title: "Interpretation is incomplete",
+        body: validationError,
+      });
+      return;
+    }
+
     setFeedback(null);
     setIsSaving(true);
 
@@ -262,6 +306,13 @@ export function InterpretationWorkbench({
       };
 
       if (!response.ok || !data.success) {
+        if (data.errorCode === "airtable_error") {
+          throw new Error(
+            data.error ??
+              "Airtable rejected the save. Check the field mapping and try again.",
+          );
+        }
+
         throw new Error(data.error ?? "Unable to save interpretation.");
       }
 
