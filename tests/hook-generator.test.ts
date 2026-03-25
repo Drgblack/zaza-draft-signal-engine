@@ -54,6 +54,8 @@ function buildOpportunityFixture(): ContentOpportunity {
     updatedAt: "2026-03-23T10:00:00.000Z",
     approvedAt: null,
     dismissedAt: null,
+    messageAngles: [],
+    hookSets: [],
     founderSelectionStatus: "pending",
     selectedAngleId: null,
     selectedHookId: null,

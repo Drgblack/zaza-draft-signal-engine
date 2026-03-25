@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { ContentOpportunity } from "@/lib/content-opportunities";
 import type { MessageAngle } from "@/lib/message-angles";
+import { buildContentIntelligenceFromSignal } from "@/lib/strategic-intelligence-types";
 import {
   buildPhaseBAnchorTokens,
   countPhaseBAnchorOverlap,
@@ -17,26 +18,37 @@ export const HOOK_VARIANT_TYPES = [
   "practical",
 ] as const;
 
+const HOOK_RECOMMENDED_PLATFORMS = ["x", "linkedin", "reddit"] as const;
+
 export type HookVariantType = (typeof HOOK_VARIANT_TYPES)[number];
+export type HookRecommendedPlatform = (typeof HOOK_RECOMMENDED_PLATFORMS)[number];
 
 export const hookVariantTypeSchema = z.enum(HOOK_VARIANT_TYPES);
+export const hookRecommendedPlatformSchema = z.enum(HOOK_RECOMMENDED_PLATFORMS);
 
 export const hookVariantSchema = z.object({
   id: z.string().trim().min(1),
   type: hookVariantTypeSchema,
+  hookType: hookVariantTypeSchema,
   text: z.string().trim().min(1),
+  recommendedPlatforms: z.array(hookRecommendedPlatformSchema).min(1).max(3),
+  intendedEffect: z.string().trim().min(1),
+  rank: z.number().int().min(1).max(5),
+  trustNotes: z.array(z.string().trim().min(1)).max(6),
+  riskNotes: z.array(z.string().trim().min(1)).max(6),
   score: z.number().int().min(0).max(100),
   isRecommended: z.boolean(),
 });
 
-export type HookVariant = z.infer<typeof hookVariantSchema>;
+export type HookOption = z.infer<typeof hookVariantSchema>;
+export type HookVariant = HookOption;
 
 export const hookSetSchema = z.object({
   id: z.string().trim().min(1),
   opportunityId: z.string().trim().min(1),
   angleId: z.string().trim().min(1),
   primaryHook: hookVariantSchema,
-  variants: z.array(hookVariantSchema).min(5).max(10),
+  variants: z.array(hookVariantSchema).min(3).max(5),
   rationale: z.string().trim().min(1),
 });
 
@@ -67,6 +79,18 @@ function cleanLine(value: string | null | undefined): string {
   return normalizeText(value).replace(/[.!?]+$/g, "");
 }
 
+function hookSignature(text: string): string {
+  return normalizeText(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function hookIdSuffix(text: string): string {
+  const signature = hookSignature(text).replace(/\s+/g, "-");
+  return signature.slice(0, 48) || "candidate";
+}
+
 function clipHook(value: string, maxLength = 88): string {
   const normalized = normalizeText(value);
   if (normalized.length <= maxLength) {
@@ -92,12 +116,118 @@ function sharedTokenCount(left: string, right: string): number {
   return countPhaseBAnchorOverlap(left, rightTokens);
 }
 
-function hookId(opportunityId: string, angleId: string, type: HookVariantType, index: number) {
-  return `${opportunityId}:${angleId}:hook:${type}:${index}`;
+function hookId(
+  opportunityId: string,
+  angleId: string,
+  type: HookVariantType,
+  text: string,
+) {
+  return `${opportunityId}:${angleId}:hook:${type}:${hookIdSuffix(text)}`;
 }
 
 function hookSetId(opportunityId: string, angleId: string) {
   return `${opportunityId}:${angleId}:hook-set`;
+}
+
+function normalizeRiskNote(value: string): string | null {
+  const normalized = normalizeText(value);
+  return normalized ? normalized.replace(/[.!?]+$/g, "") : null;
+}
+
+function platformScoreBoost(
+  platforms: HookRecommendedPlatform[],
+  type: HookVariantType,
+): number {
+  let score = 0;
+
+  if (platforms.includes("linkedin")) {
+    score +=
+      type === "direct" || type === "empathetic" || type === "practical"
+        ? 6
+        : type === "pattern-interrupt"
+          ? 2
+          : 0;
+  }
+
+  if (platforms.includes("x")) {
+    score += type === "direct" || type === "pattern-interrupt" ? 4 : 0;
+  }
+
+  if (platforms.includes("reddit")) {
+    score += type === "empathetic" || type === "practical" ? 4 : 0;
+  }
+
+  return score;
+}
+
+function inferHookTypeFromText(text: string): HookVariantType {
+  const normalized = normalizeText(text).toLowerCase();
+
+  if (
+    normalized.includes("usually not") ||
+    normalized.includes("rarely") ||
+    normalized.includes("not what people think")
+  ) {
+    return "pattern-interrupt";
+  }
+
+  if (
+    normalized.startsWith("if ") ||
+    normalized.includes("that makes sense") ||
+    normalized.includes("you are not overreacting")
+  ) {
+    return "empathetic";
+  }
+
+  if (
+    normalized.includes("before you") ||
+    normalized.includes("start with") ||
+    normalized.includes("one useful move") ||
+    normalized.includes("try ")
+  ) {
+    return "practical";
+  }
+
+  if (
+    normalized.includes("risk") ||
+    normalized.includes("escalate") ||
+    normalized.includes("go wrong") ||
+    normalized.includes("be careful")
+  ) {
+    return "calm-warning";
+  }
+
+  if (
+    normalized.includes("some days") ||
+    normalized.includes("i think teachers") ||
+    normalized.includes("i keep")
+  ) {
+    return "teacher-confession";
+  }
+
+  return "direct";
+}
+
+function recommendedPlatformsForHook(
+  opportunity: ContentOpportunity,
+  type: HookVariantType,
+): HookRecommendedPlatform[] {
+  const available = opportunity.recommendedPlatforms.filter(
+    (platform): platform is HookRecommendedPlatform =>
+      HOOK_RECOMMENDED_PLATFORMS.includes(platform as HookRecommendedPlatform),
+  );
+  const preferredByType: Partial<Record<HookVariantType, HookRecommendedPlatform[]>> = {
+    direct: ["linkedin", "x"],
+    empathetic: ["linkedin", "reddit"],
+    "pattern-interrupt": ["x", "linkedin"],
+    "teacher-confession": ["linkedin", "reddit"],
+    "calm-warning": ["linkedin", "x"],
+    practical: ["linkedin", "reddit"],
+  };
+  const preferred = preferredByType[type] ?? [];
+  const intersection = preferred.filter((platform) => available.includes(platform));
+
+  return (intersection.length > 0 ? intersection : available).slice(0, 3);
 }
 
 export function applySelectedHookSelection(
@@ -259,6 +389,18 @@ function practicalHooks(truths: EmotionalTruths): string[] {
   ];
 }
 
+function buildIntelligenceSeedHooks(
+  opportunity: ContentOpportunity,
+): Array<{ type: HookVariantType; text: string }> {
+  const contentIntelligence = buildContentIntelligenceFromSignal(opportunity);
+  const candidates = contentIntelligence.hookCandidates.slice(0, 3);
+
+  return candidates.map((text) => ({
+    type: inferHookTypeFromText(text),
+    text,
+  }));
+}
+
 function buildHookCandidates(
   opportunity: ContentOpportunity,
   angle: MessageAngle,
@@ -266,10 +408,17 @@ function buildHookCandidates(
   const truths = deriveEmotionalTruths(opportunity, angle);
 
   return [
+    ...buildIntelligenceSeedHooks(opportunity),
     ...directHooks(truths).map((text) => ({ type: "direct" as const, text })),
     ...empatheticHooks(truths).map((text) => ({ type: "empathetic" as const, text })),
-    ...patternInterruptHooks().map((text) => ({ type: "pattern-interrupt" as const, text })),
-    ...teacherConfessionHooks(truths).map((text) => ({ type: "teacher-confession" as const, text })),
+    ...patternInterruptHooks().map((text) => ({
+      type: "pattern-interrupt" as const,
+      text,
+    })),
+    ...teacherConfessionHooks(truths).map((text) => ({
+      type: "teacher-confession" as const,
+      text,
+    })),
     ...calmWarningHooks(truths).map((text) => ({ type: "calm-warning" as const, text })),
     ...practicalHooks(truths).map((text) => ({ type: "practical" as const, text })),
   ];
@@ -280,6 +429,10 @@ function scoreTypeFit(
   angle: MessageAngle,
   type: HookVariantType,
 ): number {
+  const contentIntelligence = buildContentIntelligenceFromSignal(opportunity);
+  const performanceDrivers = contentIntelligence.performanceDrivers;
+  const intendedEffect = normalizeText(contentIntelligence.intendedViewerEffect).toLowerCase();
+  const platforms = recommendedPlatformsForHook(opportunity, type);
   let score = 40;
 
   if (type === "direct") {
@@ -314,6 +467,30 @@ function scoreTypeFit(
     score += 10;
   }
 
+  if ((performanceDrivers.stakes ?? 0) >= 4) {
+    score += type === "direct" || type === "calm-warning" ? 8 : 0;
+  }
+
+  if ((performanceDrivers.viewerConnection ?? 0) >= 4) {
+    score += type === "empathetic" || type === "teacher-confession" ? 8 : 0;
+  }
+
+  if ((performanceDrivers.perspectiveShift ?? 0) >= 4) {
+    score += type === "pattern-interrupt" ? 8 : 0;
+  }
+
+  if ((performanceDrivers.conversionPotential ?? 0) >= 4) {
+    score += type === "practical" ? 6 : 0;
+  }
+
+  if (intendedEffect.includes("clarity")) {
+    score += type === "practical" || type === "direct" ? 4 : 0;
+  }
+
+  if (intendedEffect.includes("relief") || intendedEffect.includes("recognition")) {
+    score += type === "empathetic" ? 4 : 0;
+  }
+
   if (opportunity.trustRisk === "high") {
     score += type === "calm-warning" || type === "direct" ? 8 : 0;
     score -= type === "pattern-interrupt" ? 6 : 0;
@@ -323,13 +500,15 @@ function scoreTypeFit(
     score += type === "direct" || type === "practical" ? 4 : 0;
   }
 
+  score += platformScoreBoost(platforms, type);
+
   return score;
 }
 
 export function scoreHookVariant(
   opportunity: ContentOpportunity,
   angle: MessageAngle,
-  variant: Omit<HookVariant, "score" | "isRecommended"> | HookVariant,
+  variant: Omit<HookVariant, "score" | "isRecommended" | "rank"> | HookVariant,
 ): number {
   const anchorText = buildAnchorText(opportunity, angle);
   const normalizedText = normalizeText(variant.text);
@@ -351,11 +530,17 @@ export function scoreHookVariant(
     score += 6;
   }
 
-  if (variant.type === "empathetic" && normalizedText.toLowerCase().includes("makes sense")) {
+  if (
+    variant.type === "empathetic" &&
+    normalizedText.toLowerCase().includes("makes sense")
+  ) {
     score += 6;
   }
 
-  if (variant.type === "pattern-interrupt" && normalizedText.toLowerCase().includes("usually not")) {
+  if (
+    variant.type === "pattern-interrupt" &&
+    normalizedText.toLowerCase().includes("usually not")
+  ) {
     score += 4;
   }
 
@@ -371,7 +556,7 @@ export function scoreHookVariant(
 function hookTrustPenalty(
   opportunity: ContentOpportunity,
   angle: MessageAngle,
-  hook: HookVariant,
+  hook: Pick<HookVariant, "text">,
 ): number {
   let penalty = evaluatePhaseBTrust(hook.text).penalty;
   const anchorOverlap = sharedTokenCount(hook.text, buildAnchorText(opportunity, angle));
@@ -390,7 +575,7 @@ function hookTrustPenalty(
 export function inspectHookTrust(
   opportunity: ContentOpportunity,
   angle: MessageAngle,
-  hook: HookVariant,
+  hook: Pick<HookVariant, "text">,
 ): HookTrustDiagnostics {
   const anchorOverlap = sharedTokenCount(hook.text, buildAnchorText(opportunity, angle));
   const trustCheck = evaluatePhaseBTrust(hook.text);
@@ -402,13 +587,6 @@ export function inspectHookTrust(
     anchorOverlap,
     isUnsafe: penalty >= 24,
   };
-}
-
-function hookSignature(text: string): string {
-  return normalizeText(text)
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, " ");
 }
 
 function areNearDuplicates(left: string, right: string): boolean {
@@ -453,9 +631,7 @@ export function filterUnsafeHooks(
       continue;
     }
 
-    kept.push({
-      ...nextHook,
-    });
+    kept.push(nextHook);
   }
 
   return kept;
@@ -468,10 +644,12 @@ function selectSafestHookFallbacks(
 ): HookVariant[] {
   const kept: HookVariant[] = [];
 
-  for (const hook of [...hooks].sort((left, right) =>
-    hookTrustPenalty(opportunity, angle, left) - hookTrustPenalty(opportunity, angle, right) ||
-    right.score - left.score ||
-    left.text.localeCompare(right.text),
+  for (const hook of [...hooks].sort(
+    (left, right) =>
+      hookTrustPenalty(opportunity, angle, left) -
+        hookTrustPenalty(opportunity, angle, right) ||
+      right.score - left.score ||
+      left.text.localeCompare(right.text),
   )) {
     const normalized = clipHook(hook.text);
     const nextHook = {
@@ -489,11 +667,8 @@ function selectSafestHookFallbacks(
   return kept;
 }
 
-function ensureCoverage(
-  hooks: HookVariant[],
-  rankedHooks: HookVariant[],
-): HookVariant[] {
-  const requiredTypes: HookVariantType[] = ["direct", "empathetic", "pattern-interrupt"];
+function ensureCoverage(hooks: HookVariant[], rankedHooks: HookVariant[]): HookVariant[] {
+  const requiredTypes: HookVariantType[] = ["direct", "empathetic", "practical"];
   const nextHooks = [...hooks];
 
   for (const type of requiredTypes) {
@@ -510,16 +685,76 @@ function ensureCoverage(
   return nextHooks;
 }
 
-export function selectRecommendedPrimaryHook(
-  hooks: HookVariant[],
-): HookVariant {
-  return [...hooks]
-    .sort((left, right) => {
-      const leftPriority = left.type === "direct" ? 0 : left.type === "empathetic" ? 1 : 2;
-      const rightPriority = right.type === "direct" ? 0 : right.type === "empathetic" ? 1 : 2;
+export function selectRecommendedPrimaryHook(hooks: HookVariant[]): HookVariant {
+  return [...hooks].sort((left, right) => {
+    const leftPriority = left.type === "direct" ? 0 : left.type === "empathetic" ? 1 : 2;
+    const rightPriority = right.type === "direct" ? 0 : right.type === "empathetic" ? 1 : 2;
 
-      return right.score - left.score || leftPriority - rightPriority || left.text.localeCompare(right.text);
-    })[0]!;
+    return (
+      right.score - left.score ||
+      leftPriority - rightPriority ||
+      left.text.localeCompare(right.text)
+    );
+  })[0]!;
+}
+
+function buildHookTrustNotes(
+  opportunity: ContentOpportunity,
+  angle: MessageAngle,
+  variant: Pick<HookVariant, "text" | "type">,
+): string[] {
+  const trust = inspectHookTrust(opportunity, angle, variant);
+  const notes = trust.reasons.map((reason) => reason.replace(/-/g, " "));
+
+  if (notes.length > 0) {
+    return notes.slice(0, 4);
+  }
+
+  return ["Stays close to teacher-real language and opportunity anchors"];
+}
+
+function buildHookRiskNotes(
+  opportunity: ContentOpportunity,
+  angle: MessageAngle,
+  variant: Pick<HookVariant, "text" | "type">,
+): string[] {
+  const trust = inspectHookTrust(opportunity, angle, variant);
+  const notes: string[] = [];
+
+  if (opportunity.trustRisk !== "low") {
+    notes.push(`Opportunity trust risk is ${opportunity.trustRisk}`);
+  }
+
+  if (angle.riskPosture === "protective") {
+    notes.push("Angle is intentionally protective");
+  }
+
+  if (trust.anchorOverlap < 2) {
+    notes.push("Keep the hook close to the teacher phrasing in the opportunity");
+  }
+
+  const normalizedReasons = trust.reasons
+    .map((reason) => normalizeRiskNote(reason.replace(/-/g, " ")))
+    .filter((reason): reason is string => Boolean(reason));
+
+  return [...notes, ...normalizedReasons].slice(0, 4);
+}
+
+function rankHookVariants(hooks: HookVariant[]): HookVariant[] {
+  return hooks
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.type.localeCompare(right.type) ||
+        left.text.localeCompare(right.text),
+    )
+    .map((hook, index) =>
+      hookVariantSchema.parse({
+        ...hook,
+        rank: index + 1,
+        isRecommended: index === 0,
+      }),
+    );
 }
 
 function buildRationale(
@@ -537,39 +772,88 @@ function buildRationale(
   return `${primaryHook.type.replaceAll("-", " ")} was selected because it best matches the ${angle.style.replaceAll("-", " ")} angle and stays close to the teacher reality in the opportunity. ${riskClause}`;
 }
 
+function buildDraftHookVariant(input: {
+  opportunity: ContentOpportunity;
+  angle: MessageAngle;
+  type: HookVariantType;
+  text: string;
+}): HookVariant {
+  const contentIntelligence = buildContentIntelligenceFromSignal(input.opportunity);
+  const intendedEffect =
+    normalizeText(contentIntelligence.intendedViewerEffect) ||
+    normalizeText(input.angle.intendedViewerEffect) ||
+    "Create enough recognition to keep watching";
+  const recommendedPlatforms = recommendedPlatformsForHook(
+    input.opportunity,
+    input.type,
+  );
+  const draft = hookVariantSchema.parse({
+    id: hookId(input.opportunity.opportunityId, input.angle.id, input.type, input.text),
+    type: input.type,
+    hookType: input.type,
+    text: clipHook(input.text),
+    recommendedPlatforms,
+    intendedEffect,
+    rank: 5,
+    trustNotes: [],
+    riskNotes: [],
+    score: 0,
+    isRecommended: false,
+  });
+  const score = scoreHookVariant(input.opportunity, input.angle, draft);
+  const trustNotes = buildHookTrustNotes(input.opportunity, input.angle, draft);
+  const riskNotes = buildHookRiskNotes(input.opportunity, input.angle, draft);
+
+  return hookVariantSchema.parse({
+    ...draft,
+    score,
+    trustNotes,
+    riskNotes,
+  });
+}
+
+function normalizePersistedHookSet(hookSet: HookSet): HookSet {
+  const ranked = rankHookVariants([...hookSet.variants]).slice(0, 5);
+  const primaryHook =
+    ranked.find((variant) => variant.id === hookSet.primaryHook.id) ??
+    ranked.find((variant) => variant.isRecommended) ??
+    ranked[0];
+
+  return hookSetSchema.parse({
+    ...hookSet,
+    primaryHook,
+    variants: ranked,
+  });
+}
+
 export function buildHookSet(
   opportunity: ContentOpportunity,
   angle: MessageAngle,
 ): HookSet {
   const rawCandidates = buildHookCandidates(opportunity, angle);
   const rankedCandidates = rawCandidates
-    .map((candidate, index) => {
-      const text = clipHook(candidate.text);
-      const draft = hookVariantSchema.parse({
-        id: hookId(opportunity.opportunityId, angle.id, candidate.type, index),
-        type: candidate.type,
-        text,
-        score: 0,
-        isRecommended: false,
-      });
-
-      return {
-        ...draft,
-        score: scoreHookVariant(opportunity, angle, draft),
-      };
-    })
-    .sort((left, right) => right.score - left.score || left.type.localeCompare(right.type) || left.text.localeCompare(right.text));
+      .map((candidate) =>
+        buildDraftHookVariant({
+          opportunity,
+          angle,
+          type: candidate.type,
+          text: candidate.text,
+        }),
+      )
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.type.localeCompare(right.type) ||
+        left.text.localeCompare(right.text),
+    );
 
   const filtered = filterUnsafeHooks(opportunity, angle, rankedCandidates);
   const safePool =
-    filtered.length >= 5
+    filtered.length >= 3
       ? filtered
       : selectSafestHookFallbacks(opportunity, angle, rankedCandidates);
-  const covered = ensureCoverage(safePool.slice(0, 7), safePool);
-  const finalVariants = covered
-    .sort((left, right) => right.score - left.score || left.type.localeCompare(right.type) || left.text.localeCompare(right.text))
-    .slice(0, 10);
-
+  const covered = ensureCoverage(safePool.slice(0, 5), safePool);
+  const finalVariants = rankHookVariants(covered.slice(0, 5));
   const primaryHook = selectRecommendedPrimaryHook(finalVariants);
   const variants = finalVariants.map((variant) =>
     hookVariantSchema.parse({
@@ -578,12 +862,24 @@ export function buildHookSet(
     }),
   );
 
-  return hookSetSchema.parse({
-    id: hookSetId(opportunity.opportunityId, angle.id),
-    opportunityId: opportunity.opportunityId,
-    angleId: angle.id,
-    primaryHook: variants.find((variant) => variant.id === primaryHook.id),
-    variants,
-    rationale: buildRationale(opportunity, angle, primaryHook),
-  });
+  return normalizePersistedHookSet(
+    hookSetSchema.parse({
+      id: hookSetId(opportunity.opportunityId, angle.id),
+      opportunityId: opportunity.opportunityId,
+      angleId: angle.id,
+      primaryHook:
+        variants.find((variant) => variant.id === primaryHook.id) ?? primaryHook,
+      variants,
+      rationale: buildRationale(opportunity, angle, primaryHook),
+    }),
+  );
+}
+
+export function generateHookSets(
+  opportunity: ContentOpportunity,
+  angles: MessageAngle[],
+): HookSet[] {
+  return angles
+    .map((angle) => buildHookSet(opportunity, angle))
+    .map((hookSet) => normalizePersistedHookSet(hookSet));
 }

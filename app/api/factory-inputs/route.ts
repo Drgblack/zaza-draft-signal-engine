@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 
 import {
   approveContentOpportunity,
+  approveContentOpportunityVideoBrief,
   approveContentOpportunityVideoBriefForGeneration,
   dismissContentOpportunity,
   listContentOpportunityState,
   refreshContentOpportunityStateFromSystem,
   reopenContentOpportunity,
+  saveContentOpportunityVideoBriefDraft,
+  selectContentOpportunityHook,
+  selectContentOpportunityMessageAngle,
   updateContentOpportunityFounderSelection,
   updateContentOpportunityNotes,
 } from "@/lib/content-opportunities";
@@ -104,41 +108,61 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const state =
-      parsed.data.action === "approve_for_production"
-        ? await approveContentOpportunity(parsed.data.opportunityId)
-        : parsed.data.action === "approve_video_brief_for_generation"
-          ? await approveContentOpportunityVideoBriefForGeneration(parsed.data.opportunityId)
-        : parsed.data.action === "dismiss"
-          ? await dismissContentOpportunity(
-              parsed.data.opportunityId,
-              parsed.data.skipReason,
-            )
-          : parsed.data.action === "reopen"
-            ? await reopenContentOpportunity(parsed.data.opportunityId)
-            : parsed.data.action === "update_notes"
-              ? await updateContentOpportunityNotes(parsed.data.opportunityId, parsed.data.notes)
-              : await updateContentOpportunityFounderSelection({
-                  opportunityId: parsed.data.opportunityId,
-                  selectedAngleId: parsed.data.selectedAngleId,
-                  selectedHookId: parsed.data.selectedHookId,
-                });
+    let state;
+    let message = "Founder selection saved.";
+
+    if (parsed.data.action === "approve_for_production") {
+      state = await approveContentOpportunity(parsed.data.opportunityId);
+      message = "Factory input approved for production.";
+    } else if (parsed.data.action === "approve_video_brief") {
+      state = await approveContentOpportunityVideoBrief(parsed.data.opportunityId);
+      message = "Video brief approved.";
+    } else if (parsed.data.action === "approve_video_brief_for_generation") {
+      state = await approveContentOpportunityVideoBriefForGeneration(parsed.data.opportunityId);
+      message = "Video brief approved for generation.";
+    } else if (parsed.data.action === "dismiss") {
+      state = await dismissContentOpportunity(
+        parsed.data.opportunityId,
+        parsed.data.skipReason,
+      );
+      message = "Factory input dismissed.";
+    } else if (parsed.data.action === "reopen") {
+      state = await reopenContentOpportunity(parsed.data.opportunityId);
+      message = "Factory input reopened.";
+    } else if (parsed.data.action === "update_notes") {
+      state = await updateContentOpportunityNotes(parsed.data.opportunityId, parsed.data.notes);
+      message = "Factory input notes updated.";
+    } else if (parsed.data.action === "select_message_angle") {
+      state = await selectContentOpportunityMessageAngle({
+        opportunityId: parsed.data.opportunityId,
+        angleId: parsed.data.angleId,
+      });
+      message = "Message angle selected.";
+    } else if (parsed.data.action === "select_hook_option") {
+      state = await selectContentOpportunityHook({
+        opportunityId: parsed.data.opportunityId,
+        angleId: parsed.data.angleId,
+        hookId: parsed.data.hookId,
+      });
+      message = "Hook option selected.";
+    } else if (parsed.data.action === "save_video_brief_draft") {
+      state = await saveContentOpportunityVideoBriefDraft({
+        opportunityId: parsed.data.opportunityId,
+        briefDraft: parsed.data.briefDraft,
+      });
+      message = "Video brief draft saved.";
+    } else {
+      state = await updateContentOpportunityFounderSelection({
+        opportunityId: parsed.data.opportunityId,
+        selectedAngleId: parsed.data.selectedAngleId,
+        selectedHookId: parsed.data.selectedHookId,
+      });
+    }
 
     return NextResponse.json<FactoryInputResponse>({
       success: true,
       state,
-      message:
-        parsed.data.action === "approve_for_production"
-          ? "Factory input approved for production."
-          : parsed.data.action === "approve_video_brief_for_generation"
-            ? "Video brief approved for generation."
-          : parsed.data.action === "dismiss"
-            ? "Factory input dismissed."
-            : parsed.data.action === "reopen"
-              ? "Factory input reopened."
-              : parsed.data.action === "update_notes"
-                ? "Factory input notes updated."
-                : "Founder selection saved.",
+      message,
     });
   } catch (error) {
     return NextResponse.json<FactoryInputResponse>(

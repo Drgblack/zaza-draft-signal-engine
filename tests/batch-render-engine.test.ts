@@ -91,6 +91,8 @@ function buildOpportunityFixture(input: {
         ? "2026-03-24T09:04:00.000Z"
         : null,
     dismissedAt: null,
+    messageAngles: [],
+    hookSets: [],
     founderSelectionStatus: input.founderSelectionStatus ?? "approved",
     selectedAngleId:
       (input.status ?? "approved_for_production") === "approved_for_production"

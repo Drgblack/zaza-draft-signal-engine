@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { ContentOpportunity } from "@/lib/content-opportunities";
+import { buildContentIntelligenceFromSignal } from "@/lib/strategic-intelligence-types";
 import {
   buildPhaseBAnchorTokens,
   countPhaseBAnchorOverlap,
@@ -17,9 +18,25 @@ export const MESSAGE_ANGLE_STYLES = [
   "teacher-voice",
 ] as const;
 
+export const MESSAGE_ANGLE_FRAMING_TYPES = [
+  "risk-tension",
+  "reassurance-relief",
+  "practical-clarity",
+] as const;
+
+export const MESSAGE_ANGLE_RISK_POSTURES = [
+  "protective",
+  "balanced",
+  "confident",
+] as const;
+
 export type MessageAngleStyle = (typeof MESSAGE_ANGLE_STYLES)[number];
+export type MessageAngleFramingType = (typeof MESSAGE_ANGLE_FRAMING_TYPES)[number];
+export type MessageAngleRiskPosture = (typeof MESSAGE_ANGLE_RISK_POSTURES)[number];
 
 export const messageAngleStyleSchema = z.enum(MESSAGE_ANGLE_STYLES);
+export const messageAngleFramingTypeSchema = z.enum(MESSAGE_ANGLE_FRAMING_TYPES);
+export const messageAngleRiskPostureSchema = z.enum(MESSAGE_ANGLE_RISK_POSTURES);
 
 export const messageAngleSchema = z.object({
   id: z.string().trim().min(1),
@@ -27,6 +44,13 @@ export const messageAngleSchema = z.object({
   title: z.string().trim().min(1),
   summary: z.string().trim().min(1),
   style: messageAngleStyleSchema,
+  framingType: messageAngleFramingTypeSchema,
+  primaryPainPoint: z.string().trim().min(1),
+  promisedOutcome: z.string().trim().min(1),
+  intendedViewerEffect: z.string().trim().min(1),
+  riskPosture: messageAngleRiskPostureSchema,
+  rank: z.number().int().min(1).max(3),
+  createdAt: z.string().trim().min(1),
   audienceFrame: z.string().trim().min(1),
   coreMessage: z.string().trim().min(1),
   teacherVoiceLine: z.string().trim().min(1),
@@ -47,35 +71,27 @@ export interface MessageAngleTrustDiagnostics {
 }
 
 export const MESSAGE_ANGLE_PLAYBOOK: Record<
-  MessageAngleStyle,
+  MessageAngleFramingType,
   {
     label: string;
     purpose: string;
+    style: MessageAngleStyle;
   }
 > = {
-  validation: {
-    label: "Validation",
-    purpose: "Name the teacher pressure clearly before trying to solve it.",
+  "risk-tension": {
+    label: "Risk / tension",
+    purpose: "Make the cost of leaving the pain point unaddressed visible without sounding alarmist.",
+    style: "risk-awareness",
   },
-  reframe: {
-    label: "Reframe",
-    purpose: "Offer a steadier way to interpret the situation without overselling certainty.",
+  "reassurance-relief": {
+    label: "Reassurance / relief",
+    purpose: "Lower emotional load first so the founder can offer steadiness before advice.",
+    style: "calm-relief",
   },
-  "practical-help": {
-    label: "Practical help",
-    purpose: "Give one grounded next move teachers can actually use.",
-  },
-  "risk-awareness": {
-    label: "Risk awareness",
-    purpose: "Keep caution visible so the message stays trustworthy under pressure.",
-  },
-  "calm-relief": {
-    label: "Calm relief",
-    purpose: "Reduce emotional load rather than adding more pressure or performance.",
-  },
-  "teacher-voice": {
-    label: "Teacher voice",
-    purpose: "Make the message sound like a steady colleague, not a marketer.",
+  "practical-clarity": {
+    label: "Practical clarity",
+    purpose: "Turn the opportunity into one useful next move the viewer can trust and act on.",
+    style: "practical-help",
   },
 };
 
@@ -89,16 +105,16 @@ function normalizeSentence(value: string | null | undefined): string {
     return "";
   }
 
-  const trimmed = normalized.replace(/[.!?]+$/g, "");
-  return `${trimmed}.`;
+  return `${normalized.replace(/[.!?]+$/g, "")}.`;
 }
 
 function clipText(value: string, maxLength: number): string {
-  if (value.length <= maxLength) {
-    return value;
+  const normalized = normalizeText(value);
+  if (normalized.length <= maxLength) {
+    return normalized;
   }
 
-  return `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}.`;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}.`;
 }
 
 function firstNonEmpty(...values: Array<string | null | undefined>): string {
@@ -112,21 +128,46 @@ function firstNonEmpty(...values: Array<string | null | undefined>): string {
   return "";
 }
 
-function firstTeacherLine(opportunity: ContentOpportunity): string {
+function containsStressLanguage(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return [
+    "pressure",
+    "stress",
+    "overwhelm",
+    "drain",
+    "tense",
+    "tension",
+    "spiral",
+    "escalat",
+    "panic",
+  ].some((token) => normalized.includes(token));
+}
+
+function cleanAnchor(value: string | null | undefined): string {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return "teacher pressure";
+  }
+
+  return normalized.replace(/[.!?]+$/g, "");
+}
+
+function angleId(opportunityId: string, framingType: MessageAngleFramingType): string {
+  return `${opportunityId}:message-angle:${framingType}`;
+}
+
+function selectedStyleForFramingType(
+  framingType: MessageAngleFramingType,
+): MessageAngleStyle {
+  return MESSAGE_ANGLE_PLAYBOOK[framingType].style;
+}
+
+function primaryTeacherPhrase(opportunity: ContentOpportunity): string {
   return firstNonEmpty(
     opportunity.teacherLanguage[0],
     opportunity.primaryPainPoint,
     opportunity.recommendedAngle,
     opportunity.title,
-  );
-}
-
-function secondTeacherLine(opportunity: ContentOpportunity): string {
-  return firstNonEmpty(
-    opportunity.teacherLanguage[1],
-    opportunity.teacherLanguage[0],
-    opportunity.memoryContext.audienceCue,
-    opportunity.primaryPainPoint,
   );
 }
 
@@ -139,30 +180,226 @@ function cautionLine(opportunity: ContentOpportunity): string {
   );
 }
 
-function bestMemoryLine(opportunity: ContentOpportunity): string {
-  return firstNonEmpty(
-    opportunity.memoryContext.bestCombo,
-    opportunity.memoryContext.revenuePattern,
-    opportunity.memoryContext.audienceCue,
-    opportunity.supportingSignals[0],
-  );
-}
+function viewerEffectForFramingType(
+  opportunity: ContentOpportunity,
+  framingType: MessageAngleFramingType,
+): string {
+  const contentIntelligence = buildContentIntelligenceFromSignal(opportunity);
+  const existingEffect = normalizeText(contentIntelligence.intendedViewerEffect);
 
-function cleanAnchor(value: string): string {
-  const normalized = normalizeText(value);
-  if (!normalized) {
-    return "teacher pressure";
+  if (existingEffect) {
+    return existingEffect;
   }
 
-  return normalized.replace(/[.!?]+$/g, "");
+  switch (framingType) {
+    case "risk-tension":
+      return "heightened caution with enough clarity to act earlier";
+    case "reassurance-relief":
+      return "recognition and relief before the viewer takes the next step";
+    case "practical-clarity":
+    default:
+      return "clearer action and more confidence in the next move";
+  }
 }
 
-function angleId(opportunityId: string, style: MessageAngleStyle) {
-  return `${opportunityId}:message-angle:${style}`;
+function riskPostureForFramingType(
+  opportunity: ContentOpportunity,
+  framingType: MessageAngleFramingType,
+): MessageAngleRiskPosture {
+  const growthRisk = opportunity.growthIntelligence?.riskLevel ?? null;
+
+  if (
+    framingType === "risk-tension" ||
+    opportunity.trustRisk === "high" ||
+    growthRisk === "high"
+  ) {
+    return "protective";
+  }
+
+  if (framingType === "practical-clarity" && opportunity.trustRisk === "low") {
+    return "confident";
+  }
+
+  return "balanced";
+}
+
+function promisedOutcomeForFramingType(
+  opportunity: ContentOpportunity,
+  framingType: MessageAngleFramingType,
+): string {
+  const teacherPhrase = cleanAnchor(primaryTeacherPhrase(opportunity)).toLowerCase();
+  const recommendedAngle = cleanAnchor(opportunity.recommendedAngle).toLowerCase();
+
+  switch (framingType) {
+    case "risk-tension":
+      return normalizeSentence(
+        `Help the viewer spot the hidden risk around ${teacherPhrase} before it escalates and respond more safely`,
+      );
+    case "reassurance-relief":
+      return normalizeSentence(
+        `Help the viewer feel steadier and less alone around ${teacherPhrase} without adding more pressure`,
+      );
+    case "practical-clarity":
+    default:
+      return normalizeSentence(
+        `Give the viewer one clearer next move grounded in ${recommendedAngle || teacherPhrase}`,
+      );
+  }
+}
+
+function audienceFrameForFramingType(
+  opportunity: ContentOpportunity,
+  framingType: MessageAngleFramingType,
+): string {
+  const painPoint = cleanAnchor(opportunity.primaryPainPoint);
+
+  switch (framingType) {
+    case "risk-tension":
+      return `Teachers dealing with ${painPoint} who need the downstream risk named before anyone jumps to a neat answer.`;
+    case "reassurance-relief":
+      return `Teachers carrying ${painPoint} who respond better to relief and recognition than more urgency.`;
+    case "practical-clarity":
+    default:
+      return `Teachers dealing with ${painPoint} who need one calm, practical next step they can trust.`;
+  }
+}
+
+function titleForFramingType(
+  opportunity: ContentOpportunity,
+  framingType: MessageAngleFramingType,
+): string {
+  const painPoint = cleanAnchor(opportunity.primaryPainPoint);
+
+  switch (framingType) {
+    case "risk-tension":
+      return clipText(`${painPoint}: show what gets worse if it keeps sliding`, 88);
+    case "reassurance-relief":
+      return clipText(`${painPoint}: lower the pressure before offering advice`, 88);
+    case "practical-clarity":
+    default:
+      return clipText(`${painPoint}: turn it into one clearer next step`, 88);
+  }
+}
+
+function teacherVoiceLineForFramingType(
+  opportunity: ContentOpportunity,
+  framingType: MessageAngleFramingType,
+): string {
+  const teacherPhrase = cleanAnchor(primaryTeacherPhrase(opportunity));
+
+  switch (framingType) {
+    case "risk-tension":
+      return normalizeSentence(
+        `"${teacherPhrase}" is exactly the kind of moment that gets harder when the risk is softened too early`,
+      );
+    case "reassurance-relief":
+      return normalizeSentence(
+        `"${teacherPhrase}" already tells you the pressure is real, so the first job is to make the viewer feel less pinned down by it`,
+      );
+    case "practical-clarity":
+    default:
+      return normalizeSentence(
+        `"${teacherPhrase}" should lead to one usable move, not more noise about what teachers should be doing`,
+      );
+  }
+}
+
+function coreMessageForFramingType(
+  opportunity: ContentOpportunity,
+  framingType: MessageAngleFramingType,
+): string {
+  const teacherPhrase = cleanAnchor(primaryTeacherPhrase(opportunity)).toLowerCase();
+  const recommendedAngle = cleanAnchor(opportunity.recommendedAngle).toLowerCase();
+  const caution = cleanAnchor(cautionLine(opportunity)).toLowerCase();
+
+  switch (framingType) {
+    case "risk-tension":
+      return normalizeSentence(
+        `Foreground the tension inside ${teacherPhrase}, keep ${caution || "the caution"} visible, and frame the message as protection rather than alarm`,
+      );
+    case "reassurance-relief":
+      return normalizeSentence(
+        `Lead with recognition, use ${recommendedAngle || teacherPhrase}, and promise steadiness rather than more effort`,
+      );
+    case "practical-clarity":
+    default:
+      return normalizeSentence(
+        `Use ${recommendedAngle || teacherPhrase} to turn the pain point into one clear next move the viewer can actually use`,
+      );
+  }
+}
+
+function whyThisAngleForFramingType(
+  opportunity: ContentOpportunity,
+  framingType: MessageAngleFramingType,
+): string {
+  const whyNow = cleanAnchor(opportunity.whyNow).toLowerCase();
+  const growthRisk = opportunity.growthIntelligence?.riskLevel ?? opportunity.trustRisk;
+
+  switch (framingType) {
+    case "risk-tension":
+      return normalizeSentence(
+        `This opportunity already carries ${growthRisk} risk signals, so keeping caution visible makes the framing more trustworthy`,
+      );
+    case "reassurance-relief":
+      return normalizeSentence(
+        `The teacher-facing language is emotionally loaded enough that relief will land better than another pressure-forward message`,
+      );
+    case "practical-clarity":
+    default:
+      return normalizeSentence(
+        `The why-now case is already ${whyNow || "clear"}, so the strongest founder-facing version is one that gives the viewer a specific next step`,
+      );
+  }
+}
+
+function summaryForAngle(input: {
+  opportunity: ContentOpportunity;
+  framingType: MessageAngleFramingType;
+  promisedOutcome: string;
+  intendedViewerEffect: string;
+}): string {
+  const painPoint = cleanAnchor(input.opportunity.primaryPainPoint);
+  const emotionalPayoff = cleanAnchor(input.promisedOutcome).toLowerCase();
+  const viewerEffect = cleanAnchor(input.intendedViewerEffect).toLowerCase();
+
+  switch (input.framingType) {
+    case "risk-tension":
+      return clipText(
+        `${painPoint} is framed as a pressure point that can quietly escalate. The payoff is to ${emotionalPayoff}, while aiming for ${viewerEffect}.`,
+        220,
+      );
+    case "reassurance-relief":
+      return clipText(
+        `${painPoint} is framed as something heavy but survivable. The payoff is to ${emotionalPayoff}, while aiming for ${viewerEffect}.`,
+        220,
+      );
+    case "practical-clarity":
+    default:
+      return clipText(
+        `${painPoint} is framed as a solvable moment that needs cleaner direction. The payoff is to ${emotionalPayoff}, while aiming for ${viewerEffect}.`,
+        220,
+      );
+  }
+}
+
+function deriveAngleTrustRisk(
+  opportunity: ContentOpportunity,
+  framingType: MessageAngleFramingType,
+): MessageAngle["trustRisk"] {
+  if (framingType === "risk-tension") {
+    return opportunity.trustRisk === "low" ? "medium" : opportunity.trustRisk;
+  }
+
+  if (framingType === "reassurance-relief" && opportunity.trustRisk === "high") {
+    return "medium";
+  }
+
+  return opportunity.trustRisk;
 }
 
 function getOpportunityAnchorTokens(opportunity: ContentOpportunity): Set<string> {
-  const anchorFields = [
+  return buildPhaseBAnchorTokens([
     opportunity.title,
     opportunity.primaryPainPoint,
     ...opportunity.teacherLanguage,
@@ -173,262 +410,97 @@ function getOpportunityAnchorTokens(opportunity: ContentOpportunity): Set<string
     opportunity.memoryContext.revenuePattern,
     opportunity.memoryContext.audienceCue,
     opportunity.memoryContext.caution,
-  ];
-
-  return buildPhaseBAnchorTokens(anchorFields);
+  ]);
 }
 
-function buildTitle(opportunity: ContentOpportunity, style: MessageAngleStyle): string {
-  const anchor = cleanAnchor(opportunity.primaryPainPoint);
-
-  switch (style) {
-    case "validation":
-      return clipText(`${anchor}: name the pressure first`, 72);
-    case "reframe":
-      return clipText(`${anchor}: offer a steadier frame`, 72);
-    case "practical-help":
-      return clipText(`${anchor}: give one useful next step`, 72);
-    case "risk-awareness":
-      return clipText(`${anchor}: keep the caution visible`, 72);
-    case "calm-relief":
-      return clipText(`${anchor}: lower the pressure`, 72);
-    case "teacher-voice":
-    default:
-      return clipText(`${anchor}: sound like a trusted colleague`, 72);
-  }
-}
-
-function buildAudienceFrame(opportunity: ContentOpportunity, style: MessageAngleStyle): string {
-  const painPoint = cleanAnchor(opportunity.primaryPainPoint);
-
-  switch (style) {
-    case "validation":
-      return `Teachers who are carrying ${painPoint} and want the pressure named honestly before advice shows up.`;
-    case "reframe":
-      return `Teachers who are close to the problem and need a clearer frame, not a louder opinion.`;
-    case "practical-help":
-      return `Teachers who need one calm, usable move they can apply in a real school day.`;
-    case "risk-awareness":
-      return `Teachers who want practical guidance without pretending the risk has disappeared.`;
-    case "calm-relief":
-      return `Teachers who are already carrying enough and respond better to relief than urgency.`;
-    case "teacher-voice":
-    default:
-      return `Teachers who trust language that sounds lived-in, specific, and respectful of classroom reality.`;
-  }
-}
-
-function buildCoreMessage(opportunity: ContentOpportunity, style: MessageAngleStyle): string {
-  const teacherLine = cleanAnchor(firstTeacherLine(opportunity));
-  const recommendedAngle = cleanAnchor(opportunity.recommendedAngle);
-  const whyNow = cleanAnchor(opportunity.whyNow);
-  const caution = cleanAnchor(cautionLine(opportunity));
-  const bestMemory = cleanAnchor(bestMemoryLine(opportunity));
-
-  switch (style) {
-    case "validation":
-      return normalizeSentence(
-        `${teacherLine} is a real load, not a small complaint. Start by acknowledging that pressure, then move into ${recommendedAngle.toLowerCase()}`,
-      );
-    case "reframe":
-      return normalizeSentence(
-        `What looks like a single difficult moment is often a wider pattern teachers are carrying. Reframe it through ${recommendedAngle.toLowerCase()} while staying close to ${whyNow.toLowerCase()}`,
-      );
-    case "practical-help":
-      return normalizeSentence(
-        `Keep the message concrete: use ${recommendedAngle.toLowerCase()} and give one next move teachers can actually try without adding more noise`,
-      );
-    case "risk-awareness":
-      return normalizeSentence(
-        `Lead with the value of the idea, but keep the caution visible. ${caution} should stay in view while the message holds on to ${recommendedAngle.toLowerCase()}`,
-      );
-    case "calm-relief":
-      return normalizeSentence(
-        `The promise here is less pressure, not more effort. Use ${recommendedAngle.toLowerCase()} to help teachers feel steadier around ${teacherLine.toLowerCase()}`,
-      );
-    case "teacher-voice":
-    default:
-      return normalizeSentence(
-        `Say this the way a trusted colleague would say it after a long week: grounded in ${teacherLine.toLowerCase()}, shaped by ${recommendedAngle.toLowerCase()}, and supported by ${bestMemory.toLowerCase()}`,
-      );
-  }
-}
-
-function buildTeacherVoiceLine(opportunity: ContentOpportunity, style: MessageAngleStyle): string {
-  const teacherLine = cleanAnchor(firstTeacherLine(opportunity));
-  const secondLine = cleanAnchor(secondTeacherLine(opportunity));
-
-  switch (style) {
-    case "validation":
-      return normalizeSentence(`${teacherLine} is heavier than it sounds when you are the one carrying it every day`);
-    case "reframe":
-      return normalizeSentence(`This is not only about one hard moment; it is about what ${secondLine.toLowerCase()} keeps asking teachers to absorb`);
-    case "practical-help":
-      return normalizeSentence(`Teachers do not need a speech here. They need one useful move that respects the day they are already having`);
-    case "risk-awareness":
-      return normalizeSentence(`Keep the message steady enough that it helps, but honest enough that it does not overpromise`);
-    case "calm-relief":
-      return normalizeSentence(`The value is not doing more. The value is feeling less pinned down by ${teacherLine.toLowerCase()}`);
-    case "teacher-voice":
-    default:
-      return normalizeSentence(`If this does not sound like something a steady teacher would actually say, it is not ready yet`);
-  }
-}
-
-function buildWhyThisAngle(opportunity: ContentOpportunity, style: MessageAngleStyle): string {
-  const whyNow = cleanAnchor(opportunity.whyNow);
-  const recommendedAngle = cleanAnchor(opportunity.recommendedAngle);
-  const trustRisk = opportunity.trustRisk;
-
-  switch (style) {
-    case "validation":
-      return normalizeSentence(
-        `This opportunity is rooted in a clear teacher pain point, so naming the pressure first makes the message feel earned`,
-      );
-    case "reframe":
-      return normalizeSentence(
-        `The current opportunity already points toward ${recommendedAngle.toLowerCase()}, so a calmer interpretation can add value without drifting away from the source`,
-      );
-    case "practical-help":
-      return normalizeSentence(
-        `The why-now case is already defined as ${whyNow.toLowerCase()}, which makes a practical angle more useful than a broad inspirational one`,
-      );
-    case "risk-awareness":
-      return normalizeSentence(
-        `Trust risk is ${trustRisk}, so the angle should keep caution visible instead of sounding too certain`,
-      );
-    case "calm-relief":
-      return normalizeSentence(
-        `The strongest teacher-facing version of this idea is relief-oriented, because it lowers pressure while staying close to the real pain point`,
-      );
-    case "teacher-voice":
-    default:
-      return normalizeSentence(
-        `The opportunity already carries teacher-real language, so the safest version is one that sounds human, plainspoken, and lived-in`,
-      );
-  }
-}
-
-function deriveAngleTrustRisk(
+function baseFitScore(
   opportunity: ContentOpportunity,
-  style: MessageAngleStyle,
-): MessageAngle["trustRisk"] {
-  if (opportunity.trustRisk === "high") {
-    if (style === "risk-awareness") {
-      return "medium";
-    }
+  framingType: MessageAngleFramingType,
+): number {
+  const contentIntelligence = buildContentIntelligenceFromSignal(opportunity);
+  const effectText = normalizeText(contentIntelligence.intendedViewerEffect).toLowerCase();
+  const rationaleText = normalizeText(contentIntelligence.rationale).toLowerCase();
+  const growthRisk = opportunity.growthIntelligence?.riskLevel ?? opportunity.trustRisk;
+  const stressText = `${opportunity.primaryPainPoint} ${opportunity.teacherLanguage.join(" ")}`.toLowerCase();
+  let score = 52;
 
-    if (style === "validation" || style === "teacher-voice" || style === "calm-relief") {
-      return "medium";
-    }
-
-    return "high";
+  if (framingType === "practical-clarity") {
+    score += opportunity.priority === "high" ? 18 : 12;
+    score += opportunity.recommendedFormat === "short_video" ? 6 : 0;
+    score += (contentIntelligence.performanceDrivers.viewerConnection ?? 0) >= 4 ? 4 : 0;
   }
 
-  if (opportunity.trustRisk === "medium") {
-    if (style === "practical-help" && opportunity.riskSummary) {
-      return "medium";
-    }
-
-    return style === "risk-awareness" ? "medium" : "low";
+  if (framingType === "reassurance-relief") {
+    score += containsStressLanguage(stressText) ? 18 : 10;
+    score += containsStressLanguage(effectText) ? 10 : 0;
+    score += containsStressLanguage(rationaleText) ? 6 : 0;
   }
 
-  return "low";
-}
-
-function scoreStyleFit(opportunity: ContentOpportunity, style: MessageAngleStyle): number {
-  let score = 40;
-
-  if (style === "teacher-voice") {
-    score += 18;
-  }
-
-  if (style === "validation" && opportunity.teacherLanguage.length > 0) {
-    score += 16;
-  }
-
-  if (style === "practical-help") {
-    score += 14;
-  }
-
-  if (style === "reframe" && normalizeText(opportunity.recommendedAngle)) {
-    score += 12;
-  }
-
-  if (style === "risk-awareness") {
-    score += opportunity.trustRisk === "high" ? 24 : opportunity.trustRisk === "medium" ? 12 : 2;
-  }
-
-  if (style === "calm-relief") {
-    const stressLanguage = `${opportunity.primaryPainPoint} ${opportunity.teacherLanguage.join(" ")}`.toLowerCase();
-    if (
-      stressLanguage.includes("pressure") ||
-      stressLanguage.includes("stress") ||
-      stressLanguage.includes("overwhelm") ||
-      stressLanguage.includes("drain") ||
-      stressLanguage.includes("tension")
-    ) {
-      score += 15;
-    } else {
-      score += 8;
-    }
-  }
-
-  if (opportunity.memoryContext.caution && style === "risk-awareness") {
-    score += 8;
-  }
-
-  if (opportunity.memoryContext.audienceCue && style === "validation") {
-    score += 6;
-  }
-
-  if (opportunity.priority === "high") {
-    score += style === "practical-help" || style === "teacher-voice" ? 5 : 2;
+  if (framingType === "risk-tension") {
+    score += growthRisk === "high" ? 22 : growthRisk === "medium" ? 12 : 4;
+    score += normalizeText(opportunity.riskSummary) ? 8 : 0;
+    score += normalizeText(opportunity.memoryContext.caution) ? 6 : 0;
   }
 
   return score;
 }
 
-export function selectMessageAngleStyles(opportunity: ContentOpportunity): MessageAngleStyle[] {
-  const ranked = MESSAGE_ANGLE_STYLES
-    .map((style) => ({
-      style,
-      fit: scoreStyleFit(opportunity, style),
-    }))
-    .sort((left, right) => right.fit - left.fit || left.style.localeCompare(right.style));
-
-  const targetCount = opportunity.trustRisk === "high" ? 5 : opportunity.priority === "high" ? 4 : 3;
-  const selected = ranked.slice(0, targetCount).map((entry) => entry.style);
-
-  if (!selected.includes("teacher-voice")) {
-    selected.push("teacher-voice");
-  }
-
-  if (opportunity.trustRisk !== "low" && !selected.includes("risk-awareness")) {
-    selected.push("risk-awareness");
-  }
-
-  return MESSAGE_ANGLE_STYLES.filter((style) => selected.includes(style)).slice(0, 5);
+export function selectMessageAngleStyles(
+  opportunity: ContentOpportunity,
+): MessageAngleStyle[] {
+  return MESSAGE_ANGLE_FRAMING_TYPES.map((framingType) => ({
+    framingType,
+    score: baseFitScore(opportunity, framingType),
+  }))
+    .sort(
+      (left, right) =>
+        right.score - left.score || left.framingType.localeCompare(right.framingType),
+    )
+    .map((entry) => selectedStyleForFramingType(entry.framingType));
 }
 
 export function buildMessageAngleForStyle(
   opportunity: ContentOpportunity,
   style: MessageAngleStyle,
+  createdAt?: string,
 ): MessageAngle {
+  const framingType = MESSAGE_ANGLE_FRAMING_TYPES.find(
+    (candidate) => selectedStyleForFramingType(candidate) === style,
+  );
+
+  if (!framingType) {
+    throw new Error(`Unsupported message angle style: ${style}`);
+  }
+
+  const intendedViewerEffect = viewerEffectForFramingType(opportunity, framingType);
+  const promisedOutcome = promisedOutcomeForFramingType(opportunity, framingType);
   const angle = messageAngleSchema.parse({
-    id: angleId(opportunity.opportunityId, style),
+    id: angleId(opportunity.opportunityId, framingType),
     opportunityId: opportunity.opportunityId,
-    title: buildTitle(opportunity, style),
-    summary: clipText(
-      `${buildAudienceFrame(opportunity, style)} ${buildCoreMessage(opportunity, style)}`,
-      220,
-    ),
+    title: titleForFramingType(opportunity, framingType),
+    summary: summaryForAngle({
+      opportunity,
+      framingType,
+      promisedOutcome,
+      intendedViewerEffect,
+    }),
     style,
-    audienceFrame: buildAudienceFrame(opportunity, style),
-    coreMessage: buildCoreMessage(opportunity, style),
-    teacherVoiceLine: buildTeacherVoiceLine(opportunity, style),
-    whyThisAngle: buildWhyThisAngle(opportunity, style),
-    trustRisk: deriveAngleTrustRisk(opportunity, style),
+    framingType,
+    primaryPainPoint: normalizeSentence(opportunity.primaryPainPoint),
+    promisedOutcome,
+    intendedViewerEffect: normalizeSentence(intendedViewerEffect),
+    riskPosture: riskPostureForFramingType(opportunity, framingType),
+    rank: 3,
+    createdAt:
+      normalizeText(createdAt) ||
+      normalizeText(opportunity.updatedAt) ||
+      normalizeText(opportunity.createdAt) ||
+      new Date().toISOString(),
+    audienceFrame: audienceFrameForFramingType(opportunity, framingType),
+    coreMessage: coreMessageForFramingType(opportunity, framingType),
+    teacherVoiceLine: teacherVoiceLineForFramingType(opportunity, framingType),
+    whyThisAngle: whyThisAngleForFramingType(opportunity, framingType),
+    trustRisk: deriveAngleTrustRisk(opportunity, framingType),
     score: 0,
     isRecommended: false,
   });
@@ -441,34 +513,33 @@ export function buildMessageAngleForStyle(
 
 export function scoreMessageAngle(
   opportunity: ContentOpportunity,
-  angle: Omit<MessageAngle, "score" | "isRecommended"> | MessageAngle,
+  angle: Omit<MessageAngle, "score" | "isRecommended" | "rank"> | MessageAngle,
 ): number {
-  const anchorTokens = getOpportunityAnchorTokens(opportunity);
   const combinedText = [
     angle.title,
     angle.summary,
     angle.coreMessage,
     angle.teacherVoiceLine,
     angle.whyThisAngle,
+    angle.promisedOutcome,
   ].join(" ");
-  const sharedAnchors = countPhaseBAnchorOverlap(combinedText, anchorTokens);
+  const anchorOverlap = countPhaseBAnchorOverlap(
+    combinedText,
+    getOpportunityAnchorTokens(opportunity),
+  );
   const trustCheck = evaluatePhaseBTrust(combinedText);
-  let score = 48 + Math.min(18, sharedAnchors * 3);
+  let score = baseFitScore(opportunity, angle.framingType);
 
-  score += scoreStyleFit(opportunity, angle.style) - 40;
-  score += angle.style === "teacher-voice" ? 6 : 0;
-  score += angle.style === "risk-awareness" && opportunity.trustRisk !== "low" ? 8 : 0;
-  score += angle.style === "practical-help" && opportunity.priority === "high" ? 5 : 0;
+  score += Math.min(16, anchorOverlap * 4);
+  score += angle.framingType === "practical-clarity" ? 4 : 0;
+  score += angle.framingType === "reassurance-relief" && containsStressLanguage(combinedText) ? 3 : 0;
   score -= angle.trustRisk === "high" ? 14 : angle.trustRisk === "medium" ? 6 : 0;
   score -= trustCheck.penalty;
 
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-function angleTrustPenalty(
-  opportunity: ContentOpportunity,
-  angle: MessageAngle,
-): number {
+function angleTrustPenalty(opportunity: ContentOpportunity, angle: MessageAngle): number {
   const combinedText = [
     angle.title,
     angle.summary,
@@ -508,8 +579,8 @@ function isAngleLowQuality(opportunity: ContentOpportunity, angle: MessageAngle)
   return (
     angle.score < 54 ||
     sharedAnchors < 2 ||
-    angle.summary.length < 48 ||
-    angle.coreMessage.length < 40
+    angle.summary.length < 56 ||
+    angle.coreMessage.length < 48
   );
 }
 
@@ -543,7 +614,9 @@ export function inspectMessageAngleTrust(
 }
 
 function signature(angle: MessageAngle): string {
-  return normalizeText(`${angle.style} ${angle.title} ${angle.coreMessage}`)
+  return normalizeText(
+    `${angle.framingType} ${angle.title} ${angle.summary} ${angle.coreMessage}`,
+  )
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, "");
 }
@@ -566,7 +639,12 @@ export function filterUnsafeAngles(
       seen.add(nextSignature);
       return true;
     })
-    .sort((left, right) => right.score - left.score || left.style.localeCompare(right.style));
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.framingType.localeCompare(right.framingType),
+    )
+    .slice(0, 3);
 }
 
 export const filterMessageAngles = filterUnsafeAngles;
@@ -578,10 +656,11 @@ function selectSafestAngleFallbacks(
   const seen = new Set<string>();
 
   return [...angles]
-    .sort((left, right) =>
-      angleTrustPenalty(opportunity, left) - angleTrustPenalty(opportunity, right) ||
-      right.score - left.score ||
-      left.style.localeCompare(right.style),
+    .sort(
+      (left, right) =>
+        angleTrustPenalty(opportunity, left) - angleTrustPenalty(opportunity, right) ||
+        right.score - left.score ||
+        left.framingType.localeCompare(right.framingType),
     )
     .filter((angle) => {
       const nextSignature = signature(angle);
@@ -591,37 +670,70 @@ function selectSafestAngleFallbacks(
 
       seen.add(nextSignature);
       return true;
-    });
+    })
+    .slice(0, 3);
 }
 
 export function markRecommendedMessageAngle(angles: MessageAngle[]): MessageAngle[] {
-  if (angles.length === 0) {
+  const ranked = [...angles]
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.framingType.localeCompare(right.framingType),
+    )
+    .slice(0, 3);
+
+  return ranked.map((angle, index) =>
+    messageAngleSchema.parse({
+      ...angle,
+      rank: index + 1,
+      isRecommended: index === 0,
+    }),
+  );
+}
+
+function normalizePersistedAngles(angles: MessageAngle[] | null | undefined): MessageAngle[] {
+  if (!angles?.length) {
     return [];
   }
 
-  const recommendedId = [...angles]
-    .sort((left, right) => right.score - left.score || left.style.localeCompare(right.style))[0]?.id;
+  const parsed = angles
+    .map((angle) => messageAngleSchema.safeParse(angle))
+    .filter((result): result is { success: true; data: MessageAngle } => result.success)
+    .map((result) => result.data);
 
-  return angles.map((angle) => ({
-    ...angle,
-    isRecommended: angle.id === recommendedId,
-  }));
+  if (parsed.length === 0) {
+    return [];
+  }
+
+  return markRecommendedMessageAngle(parsed);
+}
+
+export function generateMessageAngles(
+  opportunity: ContentOpportunity,
+  createdAt?: string,
+): MessageAngle[] {
+  const builtAngles = MESSAGE_ANGLE_FRAMING_TYPES.map((framingType) =>
+    buildMessageAngleForStyle(
+      opportunity,
+      selectedStyleForFramingType(framingType),
+      createdAt,
+    ),
+  );
+  const filtered = filterUnsafeAngles(opportunity, builtAngles);
+  const finalAngles =
+    filtered.length >= 2
+      ? filtered
+      : selectSafestAngleFallbacks(opportunity, builtAngles).slice(0, 2);
+
+  return markRecommendedMessageAngle(finalAngles);
 }
 
 export function buildMessageAngles(opportunity: ContentOpportunity): MessageAngle[] {
-  const selectedStyles = selectMessageAngleStyles(opportunity);
-  const builtAngles = selectedStyles.map((style) => buildMessageAngleForStyle(opportunity, style));
-  const filtered = filterUnsafeAngles(opportunity, builtAngles);
+  const persisted = normalizePersistedAngles(opportunity.messageAngles ?? null);
+  if (persisted.length > 0) {
+    return persisted;
+  }
 
-  const fallbackAngles =
-    filtered.length >= 3
-      ? filtered
-      : MESSAGE_ANGLE_STYLES
-          .filter((style) => !selectedStyles.includes(style))
-          .map((style) => buildMessageAngleForStyle(opportunity, style));
-  const finalAngles = filtered.length >= 3
-    ? filtered.slice(0, 5)
-    : selectSafestAngleFallbacks(opportunity, [...filtered, ...fallbackAngles]).slice(0, 5);
-
-  return markRecommendedMessageAngle(finalAngles).map((angle) => messageAngleSchema.parse(angle));
+  return generateMessageAngles(opportunity);
 }

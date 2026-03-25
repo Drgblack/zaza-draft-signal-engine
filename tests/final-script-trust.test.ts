@@ -64,6 +64,8 @@ function buildOpportunityFixture(
     updatedAt: "2026-03-23T10:00:00.000Z",
     approvedAt: "2026-03-23T10:01:00.000Z",
     dismissedAt: null,
+    messageAngles: [],
+    hookSets: [],
     founderSelectionStatus: "approved",
     selectedAngleId: null,
     selectedHookId: null,

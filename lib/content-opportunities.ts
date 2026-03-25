@@ -15,7 +15,13 @@ import { buildCampaignCadenceSummary, getCampaignStrategy } from "@/lib/campaign
 import { assessAutonomousSignal } from "@/lib/auto-advance";
 import { buildUnifiedGuidanceModel } from "@/lib/guidance";
 import { buildGrowthMemory, type GrowthMemoryState } from "@/lib/growth-memory";
-import { applySelectedHookSelection, buildHookSet } from "@/lib/hook-engine";
+import {
+  applySelectedHookSelection,
+  buildHookSet,
+  generateHookSets,
+  hookSetSchema,
+  type HookSet,
+} from "@/lib/hook-engine";
 import {
   type GrowthIntelligence,
 } from "@/lib/strategic-intelligence-types";
@@ -26,7 +32,12 @@ import {
   findLinkedBatchRenderJobForOpportunity,
   getActiveAutoApproveConfig,
 } from "@/lib/factory-batch-control";
-import { buildMessageAngles } from "@/lib/message-angles";
+import {
+  buildMessageAngles,
+  generateMessageAngles,
+  messageAngleSchema,
+  type MessageAngle,
+} from "@/lib/message-angles";
 import {
   filterSignalsForActiveReviewQueue,
   indexConfirmedClusterByCanonicalSignalId,
@@ -95,6 +106,8 @@ import {
 } from "@/lib/video-generation";
 import {
   buildVideoBrief,
+  VIDEO_BRIEF_CONTENT_TYPES,
+  validateVideoBrief,
   type VideoBrief,
   videoBriefSchema,
 } from "@/lib/video-briefs";
@@ -331,6 +344,8 @@ export interface ContentOpportunity {
   updatedAt: string;
   approvedAt: string | null;
   dismissedAt: string | null;
+  messageAngles: MessageAngle[];
+  hookSets: HookSet[];
   founderSelectionStatus: ContentOpportunityFounderSelectionStatus;
   selectedAngleId: string | null;
   selectedHookId: string | null;
@@ -929,6 +944,8 @@ export const contentOpportunitySchema = z.object({
   updatedAt: z.string().trim().min(1),
   approvedAt: z.string().trim().nullable().default(null),
   dismissedAt: z.string().trim().nullable().default(null),
+  messageAngles: z.array(messageAngleSchema).max(3).default([]),
+  hookSets: z.array(hookSetSchema).max(3).default([]),
   founderSelectionStatus: z
     .enum(CONTENT_OPPORTUNITY_FOUNDER_SELECTION_STATUSES)
     .default("pending"),
@@ -977,6 +994,41 @@ export const contentOpportunityActionRequestSchema = z.discriminatedUnion("actio
     opportunityId: z.string().trim().min(1),
     selectedAngleId: z.string().trim().nullable(),
     selectedHookId: z.string().trim().nullable(),
+  }),
+  z.object({
+    action: z.literal("select_message_angle"),
+    opportunityId: z.string().trim().min(1),
+    angleId: z.string().trim().min(1),
+  }),
+  z.object({
+    action: z.literal("select_hook_option"),
+    opportunityId: z.string().trim().min(1),
+    angleId: z.string().trim().min(1),
+    hookId: z.string().trim().min(1),
+  }),
+  z.object({
+    action: z.literal("save_video_brief_draft"),
+    opportunityId: z.string().trim().min(1),
+    briefDraft: z.object({
+      title: z.string(),
+      hook: z.string(),
+      goal: z.string(),
+      structure: z.array(
+        z.object({
+          order: z.number().int().min(1).max(4),
+          purpose: z.string(),
+          guidance: z.string(),
+          suggestedOverlay: z.string().nullable().optional(),
+        }),
+      ).min(3).max(4),
+      overlayLines: z.array(z.string()).min(2).max(4),
+      cta: z.string(),
+      contentType: z.enum(VIDEO_BRIEF_CONTENT_TYPES).nullable().optional(),
+    }),
+  }),
+  z.object({
+    action: z.literal("approve_video_brief"),
+    opportunityId: z.string().trim().min(1),
   }),
   z.object({
     action: z.literal("approve_video_brief_for_generation"),
@@ -1226,7 +1278,80 @@ function normalizeFounderSelectionStatus(input: {
   return "pending" as const;
 }
 
-function mergePersistedVideoBriefMetadata(
+function resolveOpportunityMessageAngles(
+  opportunity: ContentOpportunity,
+  options?: {
+    regenerate?: boolean;
+    createdAt?: string;
+  },
+): MessageAngle[] {
+  if (!options?.regenerate) {
+    const existingAngles = opportunity.messageAngles
+      ?.map((angle) => messageAngleSchema.safeParse(angle))
+      .filter((result): result is { success: true; data: MessageAngle } => result.success)
+      .map((result) => result.data);
+
+    if (existingAngles && existingAngles.length > 0) {
+      return buildMessageAngles({
+        ...opportunity,
+        messageAngles: existingAngles,
+      });
+    }
+  }
+
+  return generateMessageAngles(opportunity, options?.createdAt);
+}
+
+function resolveOpportunityHookSets(
+  opportunity: ContentOpportunity,
+  options?: {
+    regenerate?: boolean;
+    createdAt?: string;
+    angleId?: string | null;
+  },
+): HookSet[] {
+  const angleId = normalizeText(options?.angleId);
+  const messageAngles = resolveOpportunityMessageAngles(opportunity, {
+    regenerate: false,
+  });
+  const eligibleAngles = angleId
+    ? messageAngles.filter((angle) => angle.id === angleId)
+    : messageAngles;
+
+  if (!options?.regenerate) {
+    const existingHookSets = opportunity.hookSets
+      ?.map((hookSet) => hookSetSchema.safeParse(hookSet))
+      .filter((result): result is { success: true; data: HookSet } => result.success)
+      .map((result) => result.data)
+      .filter((hookSet) =>
+        eligibleAngles.some((angle) => angle.id === hookSet.angleId),
+      );
+
+    if (
+      existingHookSets &&
+      existingHookSets.length >= eligibleAngles.length &&
+      eligibleAngles.length > 0
+    ) {
+      return existingHookSets
+        .sort((left, right) => left.angleId.localeCompare(right.angleId))
+        .slice(0, eligibleAngles.length);
+    }
+  }
+
+  if (eligibleAngles.length === 0) {
+    return [];
+  }
+
+  return generateHookSets(
+    {
+      ...opportunity,
+      messageAngles,
+    },
+    eligibleAngles,
+  );
+}
+
+function mergePersistedVideoBriefDraft(
   nextBrief: VideoBrief | null,
   existingBrief: VideoBrief | null | undefined,
 ): VideoBrief | null {
@@ -1240,10 +1365,78 @@ function mergePersistedVideoBriefMetadata(
 
   return videoBriefSchema.parse({
     ...nextBrief,
-    contentType: existingBrief.contentType ?? nextBrief.contentType ?? null,
+    title: existingBrief.title ?? nextBrief.title,
+    hook: existingBrief.hook ?? nextBrief.hook,
+    format: existingBrief.format ?? nextBrief.format,
+    durationSec: existingBrief.durationSec ?? nextBrief.durationSec,
+    goal: existingBrief.goal ?? nextBrief.goal,
+    tone: existingBrief.tone ?? nextBrief.tone,
+    structure:
+      existingBrief.structure?.length &&
+      existingBrief.structure.length === nextBrief.structure.length
+        ? existingBrief.structure
+        : nextBrief.structure,
+    visualDirection: existingBrief.visualDirection ?? nextBrief.visualDirection,
+    overlayLines:
+      existingBrief.overlayLines?.length &&
+      existingBrief.overlayLines.length >= 2
+        ? existingBrief.overlayLines
+        : nextBrief.overlayLines,
+    cta: existingBrief.cta ?? nextBrief.cta,
+    productionNotes:
+      existingBrief.productionNotes?.length
+        ? existingBrief.productionNotes
+        : nextBrief.productionNotes,
     finalScriptTrustScore:
       existingBrief.finalScriptTrustScore ?? nextBrief.finalScriptTrustScore ?? null,
+    contentType: existingBrief.contentType ?? nextBrief.contentType ?? null,
   });
+}
+
+function buildPersistedVideoBrief(
+  opportunity: ContentOpportunity,
+  angle: MessageAngle,
+  hookSet: HookSet,
+  existingBrief?: VideoBrief | null,
+) {
+  const rebuiltBrief = buildVideoBrief(opportunity, angle, hookSet);
+  const mergedDraft = mergePersistedVideoBriefDraft(rebuiltBrief, existingBrief);
+
+  return validateVideoBrief(
+    opportunity,
+    angle,
+    hookSet,
+    mergedDraft ?? rebuiltBrief,
+  );
+}
+
+function resolveSelectedAngle(
+  opportunity: ContentOpportunity,
+  angleId: string | null | undefined,
+) {
+  const normalizedAngleId = normalizeText(angleId);
+  if (!normalizedAngleId) {
+    return null;
+  }
+
+  const angles = resolveOpportunityMessageAngles(opportunity, {
+    regenerate: false,
+  });
+
+  return angles.find((item) => item.id === normalizedAngleId) ?? null;
+}
+
+function resolveSelectedHookSet(
+  opportunity: ContentOpportunity,
+  angle: MessageAngle,
+  hookId?: string | null,
+) {
+  const baseHookSet =
+    resolveOpportunityHookSets(opportunity, {
+      angleId: angle.id,
+    })[0] ?? buildHookSet(opportunity, angle);
+
+  return applySelectedHookSelection(baseHookSet, normalizeText(hookId));
 }
 
 function applyCompiledPlanToVideoBrief(
@@ -1287,8 +1480,7 @@ function normalizeFounderSelection(
   }
 
   try {
-    const angles = buildMessageAngles(opportunity);
-    const angle = angles.find((item) => item.id === selectedAngleId);
+    const angle = resolveSelectedAngle(opportunity, selectedAngleId);
 
     if (!angle) {
       return {
@@ -1310,8 +1502,15 @@ function normalizeFounderSelection(
       };
     }
 
-    const hookSet = buildHookSet(opportunity, angle);
-    const hook = hookSet.variants.find((item) => item.id === selectedHookId);
+    const hookSet = resolveSelectedHookSet(opportunity, angle, selectedHookId);
+    const persistedHookText = normalizeText(opportunity.selectedVideoBrief?.hook);
+    const hook =
+      hookSet.variants.find((item) => item.id === selectedHookId) ??
+      (persistedHookText
+        ? hookSet.variants.find(
+            (item) => normalizeText(item.text) === persistedHookText,
+          ) ?? null
+        : null);
 
     if (!hook) {
       return {
@@ -1324,7 +1523,12 @@ function normalizeFounderSelection(
     }
 
     const selectedHookSet = applySelectedHookSelection(hookSet, hook.id);
-    const rebuiltBrief = buildVideoBrief(opportunity, angle, selectedHookSet);
+    const rebuiltBrief = buildPersistedVideoBrief(
+      opportunity,
+      angle,
+      selectedHookSet,
+      opportunity.selectedVideoBrief,
+    );
 
     return {
       founderSelectionStatus: normalizeFounderSelectionStatus({
@@ -1334,10 +1538,7 @@ function normalizeFounderSelection(
       }),
       selectedAngleId: angle.id,
       selectedHookId: hook.id,
-      selectedVideoBrief: mergePersistedVideoBriefMetadata(
-        rebuiltBrief,
-        opportunity.selectedVideoBrief,
-      ),
+      selectedVideoBrief: rebuiltBrief,
     };
   } catch {
     return {
@@ -1355,26 +1556,43 @@ export function buildAutoApprovedOpportunity(
   approvedAt: string,
 ): ContentOpportunity | null {
   try {
-    const angle = buildMessageAngles(opportunity)[0] ?? null;
+    const messageAngles = resolveOpportunityMessageAngles(opportunity, {
+      regenerate: true,
+      createdAt: approvedAt,
+    });
+    const hookSets = resolveOpportunityHookSets(
+      {
+        ...opportunity,
+        messageAngles,
+      },
+      {
+        regenerate: true,
+      },
+    );
+    const angle = messageAngles[0] ?? null;
     if (!angle) {
       return null;
     }
 
-    const hookSet = buildHookSet(opportunity, angle);
+    const hookSet =
+      hookSets.find((item) => item.angleId === angle.id) ?? buildHookSet(opportunity, angle);
     const selectedHook = hookSet.variants[0] ?? null;
     if (!selectedHook) {
       return null;
     }
 
-    const selectedVideoBrief = buildVideoBrief(
+    const selectedVideoBrief = buildPersistedVideoBrief(
       opportunity,
       angle,
       applySelectedHookSelection(hookSet, selectedHook.id),
+      opportunity.selectedVideoBrief,
     );
 
     return contentOpportunitySchema.parse({
       ...opportunity,
       status: "approved_for_production",
+      messageAngles,
+      hookSets,
       founderSelectionStatus: "approved",
       selectedAngleId: angle.id,
       selectedHookId: selectedHook.id,
@@ -1468,136 +1686,136 @@ function normalizeGenerationState(
     );
     const approvedBrief = opportunity.selectedVideoBrief;
 
-    if (hasPartialBriefApproval || (!hasBriefApproval && hasGenerationArtifacts)) {
-      return null;
-    }
+      if (hasPartialBriefApproval || (!hasBriefApproval && hasGenerationArtifacts)) {
+        return null;
+      }
 
-    if (!hasBriefApproval && !hasGenerationArtifacts) {
-      return null;
-    }
+      if (!hasBriefApproval && !hasGenerationArtifacts) {
+        return null;
+      }
 
-    if (
-      normalizedState.factoryLifecycle &&
-      normalizedState.factoryLifecycle.videoBriefId !== approvedBrief.id
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.factoryLifecycle &&
+        normalizedState.factoryLifecycle.videoBriefId !== approvedBrief.id
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.narrationSpec &&
-      (normalizedState.narrationSpec.opportunityId !== opportunity.opportunityId ||
-        normalizedState.narrationSpec.videoBriefId !== approvedBrief.id)
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.narrationSpec &&
+        (normalizedState.narrationSpec.opportunityId !== opportunity.opportunityId ||
+          normalizedState.narrationSpec.videoBriefId !== approvedBrief.id)
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.videoPrompt &&
-      (normalizedState.videoPrompt.opportunityId !== opportunity.opportunityId ||
-        normalizedState.videoPrompt.videoBriefId !== approvedBrief.id)
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.videoPrompt &&
+        (normalizedState.videoPrompt.opportunityId !== opportunity.opportunityId ||
+          normalizedState.videoPrompt.videoBriefId !== approvedBrief.id)
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.generationRequest &&
-      (normalizedState.generationRequest.opportunityId !== opportunity.opportunityId ||
-        normalizedState.generationRequest.videoBriefId !== approvedBrief.id ||
-        (normalizedState.narrationSpec &&
-          normalizedState.generationRequest.narrationSpecId !== normalizedState.narrationSpec.id) ||
-        (normalizedState.videoPrompt &&
-          normalizedState.generationRequest.videoPromptId !== normalizedState.videoPrompt.id) ||
-        (normalizedState.renderJob &&
-          normalizedState.generationRequest.renderVersion !== normalizedState.renderJob.renderVersion) ||
-        (normalizedState.renderJob &&
-          normalizedState.generationRequest.idempotencyKey !== normalizedState.renderJob.idempotencyKey))
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.generationRequest &&
+        (normalizedState.generationRequest.opportunityId !== opportunity.opportunityId ||
+          normalizedState.generationRequest.videoBriefId !== approvedBrief.id ||
+          (normalizedState.narrationSpec &&
+            normalizedState.generationRequest.narrationSpecId !== normalizedState.narrationSpec.id) ||
+          (normalizedState.videoPrompt &&
+            normalizedState.generationRequest.videoPromptId !== normalizedState.videoPrompt.id) ||
+          (normalizedState.renderJob &&
+            normalizedState.generationRequest.renderVersion !== normalizedState.renderJob.renderVersion) ||
+          (normalizedState.renderJob &&
+            normalizedState.generationRequest.idempotencyKey !== normalizedState.renderJob.idempotencyKey))
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.renderJob &&
-      (!normalizedState.generationRequest ||
-        normalizedState.renderJob.generationRequestId !== normalizedState.generationRequest.id)
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.renderJob &&
+        (!normalizedState.generationRequest ||
+          normalizedState.renderJob.generationRequestId !== normalizedState.generationRequest.id)
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.renderJob?.compiledProductionPlan &&
-      (normalizedState.renderJob.compiledProductionPlan.opportunityId !== opportunity.opportunityId ||
-        normalizedState.renderJob.compiledProductionPlan.videoBriefId !== approvedBrief.id)
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.renderJob?.compiledProductionPlan &&
+        (normalizedState.renderJob.compiledProductionPlan.opportunityId !== opportunity.opportunityId ||
+          normalizedState.renderJob.compiledProductionPlan.videoBriefId !== approvedBrief.id)
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.renderJob?.productionDefaultsSnapshot &&
-      normalizedState.renderJob.compiledProductionPlan &&
-      !productionDefaultsSnapshotEquals(
-        normalizedState.renderJob.productionDefaultsSnapshot,
-        normalizedState.renderJob.compiledProductionPlan.defaultsSnapshot,
-      )
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.renderJob?.productionDefaultsSnapshot &&
+        normalizedState.renderJob.compiledProductionPlan &&
+        !productionDefaultsSnapshotEquals(
+          normalizedState.renderJob.productionDefaultsSnapshot,
+          normalizedState.renderJob.compiledProductionPlan.defaultsSnapshot,
+        )
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.renderJob?.compiledProductionPlan &&
-      normalizedState.narrationSpec &&
-      normalizedState.renderJob.compiledProductionPlan.narrationSpec.id !==
-        normalizedState.narrationSpec.id
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.renderJob?.compiledProductionPlan &&
+        normalizedState.narrationSpec &&
+        normalizedState.renderJob.compiledProductionPlan.narrationSpec.id !==
+          normalizedState.narrationSpec.id
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.renderedAsset &&
-      (!normalizedState.renderJob ||
-        normalizedState.renderedAsset.renderJobId !== normalizedState.renderJob.id)
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.renderedAsset &&
+        (!normalizedState.renderJob ||
+          normalizedState.renderedAsset.renderJobId !== normalizedState.renderJob.id)
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.factoryLifecycle &&
-      normalizedState.factoryLifecycle.status === "review_pending" &&
-      normalizedState.assetReview?.status !== "pending_review"
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.factoryLifecycle &&
+        normalizedState.factoryLifecycle.status === "review_pending" &&
+        normalizedState.assetReview?.status !== "pending_review"
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.factoryLifecycle &&
-      normalizedState.factoryLifecycle.status === "accepted" &&
-      normalizedState.assetReview?.status !== "accepted"
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.factoryLifecycle &&
+        normalizedState.factoryLifecycle.status === "accepted" &&
+        normalizedState.assetReview?.status !== "accepted"
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.factoryLifecycle &&
-      normalizedState.factoryLifecycle.status === "rejected" &&
-      normalizedState.assetReview?.status !== "rejected"
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.factoryLifecycle &&
+        normalizedState.factoryLifecycle.status === "rejected" &&
+        normalizedState.assetReview?.status !== "rejected"
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.factoryLifecycle &&
-      normalizedState.factoryLifecycle.status === "discarded" &&
-      normalizedState.assetReview?.status !== "discarded"
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.factoryLifecycle &&
+        normalizedState.factoryLifecycle.status === "discarded" &&
+        normalizedState.assetReview?.status !== "discarded"
+      ) {
+        return null;
+      }
 
-    if (
-      normalizedState.assetReview &&
-      (!normalizedState.renderedAsset ||
-        normalizedState.assetReview.renderedAssetId !== normalizedState.renderedAsset.id)
-    ) {
-      return null;
-    }
+      if (
+        normalizedState.assetReview &&
+        (!normalizedState.renderedAsset ||
+          normalizedState.assetReview.renderedAssetId !== normalizedState.renderedAsset.id)
+      ) {
+        return null;
+      }
 
     return normalizedState;
   } catch {
@@ -3286,6 +3504,8 @@ function normalizePersistedOpportunity(opportunity: ContentOpportunity): Content
   return enrichOpportunityPhaseEFields(
     contentOpportunitySchema.parse({
       ...founderNormalizedOpportunity,
+      messageAngles: resolveOpportunityMessageAngles(founderNormalizedOpportunity),
+      hookSets: resolveOpportunityHookSets(founderNormalizedOpportunity),
       painPointCategory: founderNormalizedOpportunity.painPointCategory ?? null,
       confidence: founderNormalizedOpportunity.confidence ?? null,
       historicalCostAvg: founderNormalizedOpportunity.historicalCostAvg ?? null,
@@ -3310,6 +3530,8 @@ function mergePersistedFields(
     createdAt: existingOpportunity.createdAt,
     approvedAt: existingOpportunity.approvedAt,
     dismissedAt: existingOpportunity.dismissedAt,
+    messageAngles: existingOpportunity.messageAngles ?? nextOpportunity.messageAngles ?? [],
+    hookSets: existingOpportunity.hookSets ?? nextOpportunity.hookSets ?? [],
     founderSelectionStatus: existingOpportunity.founderSelectionStatus ?? "pending",
     selectedAngleId: existingOpportunity.selectedAngleId ?? null,
     selectedHookId: existingOpportunity.selectedHookId ?? null,
@@ -3486,6 +3708,8 @@ function buildOpportunityFromCandidate(
     updatedAt: now.toISOString(),
     approvedAt: null,
     dismissedAt: null,
+    messageAngles: [],
+    hookSets: [],
     founderSelectionStatus: "pending",
     selectedAngleId: null,
     selectedHookId: null,
@@ -3681,14 +3905,36 @@ export async function approveContentOpportunity(opportunityId: string) {
     throw new Error("Content opportunity not found.");
   }
 
-  const state = await updateOpportunity(opportunityId, (opportunity) => ({
-    ...opportunity,
-    status: "approved_for_production",
-    founderSelectionStatus: "approved",
-    approvedAt: timestamp,
-    dismissedAt: null,
-    updatedAt: timestamp,
-  }));
+  const state = await updateOpportunity(opportunityId, (opportunity) => {
+    const messageAngles = resolveOpportunityMessageAngles(opportunity, {
+      regenerate: true,
+      createdAt: timestamp,
+    });
+    const hookSets = resolveOpportunityHookSets(
+      {
+        ...opportunity,
+        messageAngles,
+      },
+      {
+        regenerate: true,
+      },
+    );
+
+    return {
+      ...opportunity,
+      status: "approved_for_production",
+      messageAngles,
+      hookSets,
+      founderSelectionStatus: "pending",
+      selectedAngleId: null,
+      selectedHookId: null,
+      selectedVideoBrief: null,
+      generationState: null,
+      approvedAt: timestamp,
+      dismissedAt: null,
+      updatedAt: timestamp,
+    };
+  });
   await appendAuditEventsSafe([
     {
       signalId: current.signalId,
@@ -3697,6 +3943,119 @@ export async function approveContentOpportunity(opportunityId: string) {
       summary: `Approved content opportunity "${current.title}" for production.`,
     },
   ]);
+  return state;
+}
+
+export async function generateContentOpportunityMessageAngles(input: {
+  opportunityId: string;
+  regenerate?: boolean;
+}) {
+  const timestamp = new Date().toISOString();
+  const store = await readPersistedStore();
+  const current = store.opportunities.find(
+    (item) => item.opportunityId === input.opportunityId,
+  );
+
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  if (current.status !== "approved_for_production") {
+    throw new Error(
+      "Message angles are only available after the content opportunity is approved for production.",
+    );
+  }
+
+  const normalizedCurrent = normalizePersistedOpportunity(current);
+  if (
+    normalizedCurrent.messageAngles?.length &&
+    !input.regenerate
+  ) {
+    return summarizeState(store.opportunities);
+  }
+
+  const nextAngles = resolveOpportunityMessageAngles(normalizedCurrent, {
+    regenerate: true,
+    createdAt: timestamp,
+  });
+  const state = await updateOpportunity(input.opportunityId, (opportunity) => ({
+    ...opportunity,
+    messageAngles: nextAngles,
+    hookSets: [],
+    selectedHookId: null,
+    selectedVideoBrief: null,
+    updatedAt: timestamp,
+  }));
+
+  return state;
+}
+
+export async function generateContentOpportunityHookSets(input: {
+  opportunityId: string;
+  angleId?: string | null;
+  regenerate?: boolean;
+}) {
+  const timestamp = new Date().toISOString();
+  const store = await readPersistedStore();
+  const current = store.opportunities.find(
+    (item) => item.opportunityId === input.opportunityId,
+  );
+
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  if (current.status !== "approved_for_production") {
+    throw new Error(
+      "Hook sets are only available after the content opportunity is approved for production.",
+    );
+  }
+
+  const normalizedCurrent = normalizePersistedOpportunity(current);
+  const angleId = normalizeText(input.angleId);
+  const messageAngles = normalizedCurrent.messageAngles;
+  const targetAngles = angleId
+    ? messageAngles.filter((angle) => angle.id === angleId)
+    : messageAngles;
+
+  if (targetAngles.length === 0) {
+    throw new Error("Message angle not found for this opportunity.");
+  }
+
+  const existingForTargets = normalizedCurrent.hookSets.filter((hookSet) =>
+    targetAngles.some((angle) => angle.id === hookSet.angleId),
+  );
+
+  if (
+    existingForTargets.length >= targetAngles.length &&
+    !input.regenerate
+  ) {
+    return summarizeState(store.opportunities);
+  }
+
+  const regenerated = resolveOpportunityHookSets(
+    {
+      ...normalizedCurrent,
+      messageAngles,
+    },
+    {
+      regenerate: true,
+      angleId,
+      createdAt: timestamp,
+    },
+  );
+  const state = await updateOpportunity(input.opportunityId, (opportunity) => {
+    const retained = opportunity.hookSets.filter(
+      (hookSet) => !regenerated.some((nextHookSet) => nextHookSet.angleId === hookSet.angleId),
+    );
+
+    return {
+      ...opportunity,
+      hookSets: [...retained, ...regenerated],
+      updatedAt: timestamp,
+    };
+  });
+
   return state;
 }
 
@@ -3845,6 +4204,255 @@ export async function updateContentOpportunityFounderSelection(input: {
         founderSelectionStatus: nextFounderSelectionStatus,
         hasAngle: Boolean(nextSelectedAngleId),
         hasHook: Boolean(nextSelectedHookId),
+      },
+    },
+  ]);
+
+  return state;
+}
+
+export async function selectContentOpportunityMessageAngle(input: {
+  opportunityId: string;
+  angleId: string;
+}) {
+  const store = await readPersistedStore();
+  const current = store.opportunities.find((item) => item.opportunityId === input.opportunityId);
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const normalizedCurrent = normalizePersistedOpportunity(current);
+  if (normalizedCurrent.status !== "approved_for_production") {
+    throw new Error("Approve the content opportunity before selecting an angle.");
+  }
+
+  const angle = resolveSelectedAngle(normalizedCurrent, input.angleId);
+  if (!angle) {
+    throw new Error("Message angle not found for this opportunity.");
+  }
+
+  return updateContentOpportunityFounderSelection({
+    opportunityId: input.opportunityId,
+    selectedAngleId: angle.id,
+    selectedHookId: null,
+  });
+}
+
+export async function selectContentOpportunityHook(input: {
+  opportunityId: string;
+  angleId: string;
+  hookId: string;
+}) {
+  const store = await readPersistedStore();
+  const current = store.opportunities.find((item) => item.opportunityId === input.opportunityId);
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const normalizedCurrent = normalizePersistedOpportunity(current);
+  if (normalizedCurrent.status !== "approved_for_production") {
+    throw new Error("Approve the content opportunity before selecting a hook.");
+  }
+
+  const angle = resolveSelectedAngle(normalizedCurrent, input.angleId);
+  if (!angle) {
+    throw new Error("Message angle not found for this opportunity.");
+  }
+
+  const hookSet = resolveSelectedHookSet(normalizedCurrent, angle, input.hookId);
+  const selectedHook =
+    hookSet.variants.find((variant) => variant.id === input.hookId) ?? null;
+  if (!selectedHook) {
+    throw new Error("Hook option not found for this angle.");
+  }
+
+  return updateContentOpportunityFounderSelection({
+    opportunityId: input.opportunityId,
+    selectedAngleId: angle.id,
+    selectedHookId: selectedHook.id,
+  });
+}
+
+export async function saveContentOpportunityVideoBriefDraft(input: {
+  opportunityId: string;
+  briefDraft: {
+    title: string;
+    hook: string;
+    goal: string;
+    structure: Array<{
+      order: number;
+      purpose: string;
+      guidance: string;
+      suggestedOverlay?: string | null;
+    }>;
+    overlayLines: string[];
+    cta: string;
+    contentType?: VideoBrief["contentType"];
+  };
+}) {
+  const timestamp = new Date().toISOString();
+  const store = await readPersistedStore();
+  const current = store.opportunities.find((item) => item.opportunityId === input.opportunityId);
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const normalizedCurrent = normalizePersistedOpportunity(current);
+  if (normalizedCurrent.status !== "approved_for_production") {
+    throw new Error("Approve the content opportunity before saving a video brief.");
+  }
+
+  const angle = resolveSelectedAngle(normalizedCurrent, normalizedCurrent.selectedAngleId);
+  if (!angle) {
+    throw new Error("Select a message angle before saving the video brief.");
+  }
+
+  const selectedHookId = normalizeText(normalizedCurrent.selectedHookId);
+  if (!selectedHookId) {
+    throw new Error("Select a hook before saving the video brief.");
+  }
+
+  const selectedHookSet = resolveSelectedHookSet(
+    normalizedCurrent,
+    angle,
+    selectedHookId,
+  );
+  const currentBrief = buildPersistedVideoBrief(
+    normalizedCurrent,
+    angle,
+    selectedHookSet,
+    normalizedCurrent.selectedVideoBrief,
+  );
+  const nextStructure = input.briefDraft.structure.map((beat, index) => ({
+    order: beat.order,
+    purpose:
+      normalizeText(beat.purpose) ??
+      currentBrief.structure[index]?.purpose ??
+      `Beat ${index + 1}`,
+    guidance:
+      normalizeText(beat.guidance) ??
+      currentBrief.structure[index]?.guidance ??
+      "Keep the message grounded and usable.",
+    suggestedOverlay:
+      normalizeText(beat.suggestedOverlay) ??
+      currentBrief.structure[index]?.suggestedOverlay ??
+      undefined,
+  }));
+  const nextOverlayLines = input.briefDraft.overlayLines
+    .map((line) => normalizeText(line))
+    .filter((line): line is string => Boolean(line))
+    .slice(0, 4);
+  const savedBrief = validateVideoBrief(
+    normalizedCurrent,
+    angle,
+    selectedHookSet,
+    videoBriefSchema.parse({
+      ...currentBrief,
+      title: normalizeText(input.briefDraft.title) ?? currentBrief.title,
+      hook: normalizeText(input.briefDraft.hook) ?? currentBrief.hook,
+      goal: normalizeText(input.briefDraft.goal) ?? currentBrief.goal,
+      structure:
+        nextStructure.length >= 3 ? nextStructure : currentBrief.structure,
+      overlayLines:
+        nextOverlayLines.length >= 2
+          ? nextOverlayLines
+          : currentBrief.overlayLines,
+      cta: normalizeText(input.briefDraft.cta) ?? currentBrief.cta,
+      contentType: input.briefDraft.contentType ?? currentBrief.contentType ?? null,
+      finalScriptTrustScore: currentBrief.finalScriptTrustScore ?? null,
+    }),
+  );
+
+  const state = await updateOpportunity(input.opportunityId, (opportunity) => ({
+    ...opportunity,
+    founderSelectionStatus: "hook-selected",
+    selectedAngleId: angle.id,
+    selectedHookId,
+    selectedVideoBrief: savedBrief,
+    generationState: null,
+    updatedAt: timestamp,
+  }));
+  await appendAuditEventsSafe([
+    {
+      signalId: current.signalId,
+      eventType: "CONTENT_OPPORTUNITY_FOUNDER_SELECTION_UPDATED" as const,
+      actor: "operator",
+      summary: `Saved a video brief draft for content opportunity "${current.title}".`,
+      metadata: {
+        founderSelectionStatus: "hook-selected",
+        videoBriefId: savedBrief.id,
+        angleId: angle.id,
+        hookId: selectedHookId,
+      },
+    },
+  ]);
+
+  return state;
+}
+
+export async function approveContentOpportunityVideoBrief(opportunityId: string) {
+  const timestamp = new Date().toISOString();
+  const store = await readPersistedStore();
+  const current = store.opportunities.find((item) => item.opportunityId === opportunityId);
+  if (!current) {
+    throw new Error("Content opportunity not found.");
+  }
+
+  const normalizedCurrent = normalizePersistedOpportunity(current);
+  if (normalizedCurrent.status !== "approved_for_production") {
+    throw new Error("Approve the content opportunity before approving the video brief.");
+  }
+
+  const angle = resolveSelectedAngle(normalizedCurrent, normalizedCurrent.selectedAngleId);
+  if (!angle) {
+    throw new Error("Select a message angle before approving the video brief.");
+  }
+
+  const selectedHookId = normalizeText(normalizedCurrent.selectedHookId);
+  if (!selectedHookId) {
+    throw new Error("Select a hook before approving the video brief.");
+  }
+
+  const selectedHookSet = resolveSelectedHookSet(
+    normalizedCurrent,
+    angle,
+    selectedHookId,
+  );
+  const persistedBrief = normalizedCurrent.selectedVideoBrief
+    ? validateVideoBrief(
+        normalizedCurrent,
+        angle,
+        selectedHookSet,
+        normalizedCurrent.selectedVideoBrief,
+      )
+    : buildPersistedVideoBrief(
+        normalizedCurrent,
+        angle,
+        selectedHookSet,
+        null,
+      );
+
+  const state = await updateOpportunity(opportunityId, (opportunity) => ({
+    ...opportunity,
+    founderSelectionStatus: "approved",
+    selectedAngleId: angle.id,
+    selectedHookId,
+    selectedVideoBrief: persistedBrief,
+    generationState: null,
+    updatedAt: timestamp,
+  }));
+  await appendAuditEventsSafe([
+    {
+      signalId: current.signalId,
+      eventType: "CONTENT_OPPORTUNITY_VIDEO_BRIEF_APPROVED_FOR_GENERATION" as const,
+      actor: "operator",
+      summary: `Approved a video brief draft for content opportunity "${current.title}".`,
+      metadata: {
+        videoBriefId: persistedBrief.id,
+        angleId: angle.id,
+        hookId: selectedHookId,
+        founderSelectionStatus: "approved",
+        builderApproval: true,
       },
     },
   ]);
@@ -4467,8 +5075,10 @@ export async function updateContentOpportunityThumbnail(input: {
           existingThumbnailArtifact?.artifactId ??
           `${attempt.renderJobId ?? attempt.attemptId}:artifact:thumbnail-image:manual-override`,
         artifactType: "thumbnail_image",
-        renderJobId: attempt.renderJobId ?? generationState.renderJob?.id ?? renderedAsset.renderJobId,
-        renderVersion: attempt.renderVersion ?? generationState.renderJob?.renderVersion ?? null,
+        renderJobId:
+          attempt.renderJobId ?? generationState.renderJob?.id ?? renderedAsset.renderJobId,
+        renderVersion:
+          attempt.renderVersion ?? generationState.renderJob?.renderVersion ?? null,
         providerId:
           input.action === "override"
             ? "manual-override"

@@ -1,3 +1,4 @@
+import { VideoBriefBuilderConnected } from "@/components/video-factory/video-brief-builder-connected";
 import { VideoFactoryReviewConnected } from "@/components/video-factory/video-factory-review-connected";
 import { Card, CardContent } from "@/components/ui/card";
 import { listContentOpportunityState } from "@/lib/content-opportunities";
@@ -13,14 +14,31 @@ export default async function FactoryInputsPage({
   const requestedOpportunityId = Array.isArray(searchParams?.opportunityId)
     ? searchParams?.opportunityId[0]
     : searchParams?.opportunityId;
+  const requestedMode = Array.isArray(searchParams?.mode)
+    ? searchParams?.mode[0]
+    : searchParams?.mode;
   const selectedOpportunity =
     state.opportunities.find((item) => item.opportunityId === requestedOpportunityId) ??
+    state.opportunities.find(
+      (item) =>
+        item.status === "approved_for_production" &&
+        item.founderSelectionStatus !== "approved",
+    ) ??
     state.opportunities.find((item) => item.selectedVideoBrief) ??
+    state.opportunities.find((item) => item.status === "approved_for_production") ??
     null;
+  const showBuilder =
+    Boolean(selectedOpportunity) &&
+    selectedOpportunity?.status === "approved_for_production" &&
+    (requestedMode === "builder" ||
+      selectedOpportunity.founderSelectionStatus !== "approved" ||
+      !selectedOpportunity.selectedVideoBrief);
 
   return (
     <div className="min-h-[calc(100vh-8rem)] bg-[#F0EFFF]">
-      {selectedOpportunity?.selectedVideoBrief ? (
+      {selectedOpportunity && showBuilder ? (
+        <VideoBriefBuilderConnected initialOpportunity={selectedOpportunity} />
+      ) : selectedOpportunity?.selectedVideoBrief ? (
         <VideoFactoryReviewConnected initialOpportunity={selectedOpportunity} />
       ) : (
         <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-8">

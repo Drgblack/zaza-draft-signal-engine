@@ -306,7 +306,9 @@ export function VideoFactoryReviewConnected({
       return;
     }
 
-    router.push(`/factory-inputs?opportunityId=${encodeURIComponent(opportunity.opportunityId)}#opportunity-${opportunity.opportunityId}`);
+    router.push(
+      `/factory-inputs?opportunityId=${encodeURIComponent(opportunity.opportunityId)}&mode=builder#brief-builder`,
+    );
   }
 
   function handleDiscard() {

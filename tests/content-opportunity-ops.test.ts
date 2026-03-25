@@ -12,6 +12,7 @@ import {
 import { applySelectedHookSelection, buildHookSet } from "../lib/hook-engine";
 import { buildMessageAngles } from "../lib/message-angles";
 import { buildVideoBrief } from "../lib/video-briefs";
+import { buildVideoFactoryReviewBrief } from "../lib/video-factory-review-model";
 
 const REPO_ROOT = process.cwd();
 
@@ -65,6 +66,8 @@ function buildOpportunityFixture(): ContentOpportunity {
     updatedAt: "2026-03-24T09:05:00.000Z",
     approvedAt: "2026-03-24T09:01:00.000Z",
     dismissedAt: null,
+    messageAngles: [],
+    hookSets: [],
     founderSelectionStatus: "pending",
     selectedAngleId: null,
     selectedHookId: null,
@@ -282,7 +285,18 @@ async function withTempContentOpportunityModule(
     });
   } finally {
     process.chdir(previousCwd);
-    await rm(tempDir, { recursive: true, force: true });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        await rm(tempDir, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException | undefined)?.code !== "EBUSY" || attempt === 4) {
+          throw error;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+      }
+    }
   }
 }
 
@@ -334,6 +348,290 @@ test("buildAutoApprovedOpportunity selects the first stable angle, hook, and bri
   assert.ok(approved?.selectedAngleId);
   assert.ok(approved?.selectedHookId);
   assert.ok(approved?.selectedVideoBrief);
+});
+
+test("generateContentOpportunityMessageAngles persists bounded angles for an approved opportunity", { concurrency: false }, async () => {
+  await withTempContentOpportunityModule(async ({ dataDir, loadModule }) => {
+    const persisted = contentOpportunitySchema.parse({
+      ...buildOpportunityFixture(),
+      messageAngles: [],
+      hookSets: [],
+    });
+
+    await writeFile(
+      path.join(dataDir, "content-opportunities.json"),
+      `${JSON.stringify(
+        {
+          updatedAt: "2026-03-24T09:05:00.000Z",
+          opportunities: [persisted],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const contentOpportunities = await loadModule();
+    const state = await contentOpportunities.generateContentOpportunityMessageAngles({
+      opportunityId: "opportunity-1",
+      regenerate: true,
+    });
+    const updated = state.opportunities.find(
+      (item) => item.opportunityId === "opportunity-1",
+    );
+
+    assert.ok(updated);
+    assert.ok(updated?.messageAngles);
+    assert.ok(
+      (updated?.messageAngles?.length ?? 0) >= 2 &&
+        (updated?.messageAngles?.length ?? 0) <= 3,
+    );
+    assert.equal(updated?.messageAngles?.[0]?.rank, 1);
+    assert.equal(updated?.messageAngles?.[0]?.isRecommended, true);
+
+    const rawStore = JSON.parse(
+      await readFile(path.join(dataDir, "content-opportunities.json"), "utf8"),
+    ) as {
+      opportunities: Array<{
+        messageAngles?: Array<{ id: string; rank: number }> | null;
+      }>;
+    };
+
+    assert.ok((rawStore.opportunities[0]?.messageAngles?.length ?? 0) >= 2);
+    assert.equal(rawStore.opportunities[0]?.messageAngles?.[0]?.rank, 1);
+  });
+});
+
+test("generateContentOpportunityHookSets persists one bounded set per angle", { concurrency: false }, async () => {
+  await withTempContentOpportunityModule(async ({ dataDir, loadModule }) => {
+    const persisted = contentOpportunitySchema.parse({
+      ...buildOpportunityFixture(),
+      hookSets: [],
+    });
+
+    await writeFile(
+      path.join(dataDir, "content-opportunities.json"),
+      `${JSON.stringify(
+        {
+          updatedAt: "2026-03-24T09:05:00.000Z",
+          opportunities: [persisted],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const contentOpportunities = await loadModule();
+    const state = await contentOpportunities.generateContentOpportunityHookSets({
+      opportunityId: "opportunity-1",
+      regenerate: true,
+    });
+    const updated = state.opportunities.find(
+      (item) => item.opportunityId === "opportunity-1",
+    );
+
+    assert.ok(updated?.hookSets);
+    assert.equal(updated?.hookSets.length, updated?.messageAngles.length);
+    assert.ok(
+      updated?.hookSets.every(
+        (hookSet) => hookSet.variants.length >= 3 && hookSet.variants.length <= 5,
+      ),
+    );
+    assert.equal(updated?.hookSets[0]?.primaryHook.isRecommended, true);
+
+    const rawStore = JSON.parse(
+      await readFile(path.join(dataDir, "content-opportunities.json"), "utf8"),
+    ) as {
+      opportunities: Array<{
+        hookSets?: Array<{ angleId: string; variants: Array<{ rank: number }> }> | null;
+      }>;
+    };
+
+    assert.ok((rawStore.opportunities[0]?.hookSets?.length ?? 0) >= 1);
+    assert.equal(rawStore.opportunities[0]?.hookSets?.[0]?.variants[0]?.rank, 1);
+  });
+});
+
+test("approveContentOpportunity prepares a pending founder brief flow instead of auto-approving the brief", { concurrency: false }, async () => {
+  await withTempContentOpportunityModule(async ({ dataDir, loadModule }) => {
+    const openOpportunity = contentOpportunitySchema.parse({
+      ...buildOpportunityFixture(),
+      status: "open",
+      approvedAt: null,
+      messageAngles: [],
+      hookSets: [],
+      founderSelectionStatus: "pending",
+      selectedAngleId: null,
+      selectedHookId: null,
+      selectedVideoBrief: null,
+      generationState: null,
+    });
+
+    await writeFile(
+      path.join(dataDir, "content-opportunities.json"),
+      `${JSON.stringify(
+        {
+          updatedAt: "2026-03-24T09:05:00.000Z",
+          opportunities: [openOpportunity],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const contentOpportunities = await loadModule();
+    const state = await contentOpportunities.approveContentOpportunity("opportunity-1");
+    const updated = state.opportunities.find((item) => item.opportunityId === "opportunity-1");
+
+    assert.equal(updated?.status, "approved_for_production");
+    assert.equal(updated?.founderSelectionStatus, "pending");
+    assert.equal(updated?.selectedAngleId, null);
+    assert.equal(updated?.selectedHookId, null);
+    assert.equal(updated?.selectedVideoBrief, null);
+    assert.equal(updated?.generationState, null);
+    assert.ok((updated?.messageAngles.length ?? 0) >= 2);
+    assert.ok((updated?.hookSets.length ?? 0) >= 1);
+  });
+});
+
+test("founder brief selections, draft edits, and approval persist into the downstream review brief", { concurrency: false }, async () => {
+  await withTempContentOpportunityModule(async ({ dataDir, loadModule }) => {
+    const baseOpportunity = buildOpportunityFixture();
+    const pendingAngles = buildMessageAngles(baseOpportunity);
+    const pendingHookSets = pendingAngles.map((angle) => buildHookSet(baseOpportunity, angle));
+    const pendingOpportunity = contentOpportunitySchema.parse({
+      ...baseOpportunity,
+      messageAngles: pendingAngles,
+      hookSets: pendingHookSets,
+      founderSelectionStatus: "pending",
+      selectedAngleId: null,
+      selectedHookId: null,
+      selectedVideoBrief: null,
+      generationState: null,
+    });
+    const targetAngle = pendingOpportunity.messageAngles[1] ?? pendingOpportunity.messageAngles[0];
+    const targetHookSet = pendingOpportunity.hookSets.find(
+      (hookSet) => hookSet.angleId === targetAngle?.id,
+    );
+    const targetHook = targetHookSet?.variants[0];
+
+    assert.ok(targetAngle);
+    assert.ok(targetHookSet);
+    assert.ok(targetHook);
+
+    await writeFile(
+      path.join(dataDir, "content-opportunities.json"),
+      `${JSON.stringify(
+        {
+          updatedAt: "2026-03-24T09:05:00.000Z",
+          opportunities: [pendingOpportunity],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const contentOpportunities = await loadModule();
+
+    let state = await contentOpportunities.selectContentOpportunityMessageAngle({
+      opportunityId: "opportunity-1",
+      angleId: targetAngle!.id,
+    });
+    let updated = state.opportunities.find((item) => item.opportunityId === "opportunity-1");
+
+    assert.equal(updated?.selectedAngleId, targetAngle!.id);
+    assert.equal(updated?.selectedHookId, null);
+    assert.equal(updated?.founderSelectionStatus, "angle-selected");
+    assert.equal(updated?.selectedVideoBrief, null);
+
+    state = await contentOpportunities.selectContentOpportunityHook({
+      opportunityId: "opportunity-1",
+      angleId: targetAngle!.id,
+      hookId: targetHook!.id,
+    });
+    updated = state.opportunities.find((item) => item.opportunityId === "opportunity-1");
+
+    assert.equal(updated?.selectedAngleId, targetAngle!.id);
+    assert.equal(updated?.selectedHookId, targetHook!.id);
+    assert.equal(updated?.founderSelectionStatus, "hook-selected");
+    assert.equal(updated?.selectedVideoBrief?.hook, targetHook!.text);
+
+    const currentBrief = updated?.selectedVideoBrief;
+    assert.ok(currentBrief);
+
+    state = await contentOpportunities.saveContentOpportunityVideoBriefDraft({
+      opportunityId: "opportunity-1",
+      briefDraft: {
+        title: "Founder tuned reassurance brief",
+        hook: "Before you send that reply, pause on this one line.",
+        goal: "Help a teacher lower the temperature before a parent email escalates.",
+        structure:
+          currentBrief?.structure.map((beat, index) => ({
+            order: beat.order,
+            purpose:
+              index === 0 ? "Pause the reaction" : beat.purpose,
+            guidance:
+              index === 1
+                ? "Name the tension plainly, then slow the viewer down before offering the next move."
+                : beat.guidance,
+            suggestedOverlay: beat.suggestedOverlay ?? null,
+          })) ?? [],
+        overlayLines: [
+          "Pause before you send",
+          "Tone lands before intent",
+          "Keep the reply steadier",
+        ],
+        cta: "If this feels familiar, you are not the only one.",
+        contentType: "validation",
+      },
+    });
+    updated = state.opportunities.find((item) => item.opportunityId === "opportunity-1");
+
+    assert.equal(updated?.founderSelectionStatus, "hook-selected");
+    assert.equal(updated?.selectedVideoBrief?.title, "Founder tuned reassurance brief");
+    assert.equal(
+      updated?.selectedVideoBrief?.goal,
+      "Help a teacher lower the temperature before a parent email escalates.",
+    );
+    assert.equal(
+      updated?.selectedVideoBrief?.structure[0]?.purpose,
+      "Pause the reaction",
+    );
+
+    const reparsedState = await contentOpportunities.listContentOpportunityState();
+    const reparsedOpportunity = reparsedState.opportunities.find(
+      (item) => item.opportunityId === "opportunity-1",
+    );
+
+    assert.equal(
+      reparsedOpportunity?.selectedVideoBrief?.title,
+      "Founder tuned reassurance brief",
+    );
+    assert.equal(
+      reparsedOpportunity?.selectedVideoBrief?.structure[0]?.purpose,
+      "Pause the reaction",
+    );
+
+    state = await contentOpportunities.approveContentOpportunityVideoBrief("opportunity-1");
+    updated = state.opportunities.find((item) => item.opportunityId === "opportunity-1");
+
+    assert.equal(updated?.founderSelectionStatus, "approved");
+    assert.equal(updated?.generationState, null);
+    assert.equal(
+      updated?.selectedVideoBrief?.title,
+      "Founder tuned reassurance brief",
+    );
+
+    const reviewBrief = updated ? buildVideoFactoryReviewBrief(updated) : null;
+    assert.ok(reviewBrief);
+    assert.equal(
+      reviewBrief?.primaryHook,
+      "Before you send that reply, pause on this one line.",
+    );
+  });
 });
 
 test("updateContentOpportunityThumbnail overrides and resets the persisted review thumbnail", { concurrency: false }, async () => {

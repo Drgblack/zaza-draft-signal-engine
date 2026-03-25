@@ -66,6 +66,10 @@ import type {
   ContentOpportunityState,
 } from "@/lib/content-opportunities";
 import { CONTENT_OPPORTUNITY_SKIP_REASONS } from "@/lib/content-opportunity-shared";
+import type { HookSet } from "@/lib/hook-engine";
+import type { MessageAngle } from "@/lib/message-angles";
+import { VIDEO_BRIEF_CONTENT_TYPES } from "@/lib/video-briefs";
+import type { VideoBrief } from "@/lib/video-briefs";
 import type { DuplicateCluster } from "@/lib/duplicate-clusters";
 import type { WeeklyPlanAutoDraft } from "@/lib/weekly-plan-autodraft";
 import type { WeeklyPlan, WeeklyPlanTemplate } from "@/lib/weekly-plan";
@@ -463,6 +467,41 @@ export const factoryInputActionRequestSchema = z.discriminatedUnion("action", [
     selectedHookId: z.string().trim().nullable(),
   }),
   z.object({
+    action: z.literal("select_message_angle"),
+    opportunityId: z.string().trim().min(1),
+    angleId: z.string().trim().min(1),
+  }),
+  z.object({
+    action: z.literal("select_hook_option"),
+    opportunityId: z.string().trim().min(1),
+    angleId: z.string().trim().min(1),
+    hookId: z.string().trim().min(1),
+  }),
+  z.object({
+    action: z.literal("save_video_brief_draft"),
+    opportunityId: z.string().trim().min(1),
+    briefDraft: z.object({
+      title: z.string(),
+      hook: z.string(),
+      goal: z.string(),
+      structure: z.array(
+        z.object({
+          order: z.number().int().min(1).max(4),
+          purpose: z.string(),
+          guidance: z.string(),
+          suggestedOverlay: z.string().nullable().optional(),
+        }),
+      ).min(3).max(4),
+      overlayLines: z.array(z.string()).min(2).max(4),
+      cta: z.string(),
+      contentType: z.enum(VIDEO_BRIEF_CONTENT_TYPES).nullable().optional(),
+    }),
+  }),
+  z.object({
+    action: z.literal("approve_video_brief"),
+    opportunityId: z.string().trim().min(1),
+  }),
+  z.object({
     action: z.literal("approve_video_brief_for_generation"),
     opportunityId: z.string().trim().min(1),
   }),
@@ -474,6 +513,40 @@ export const factoryInputGenerateVideoRequestSchema = z.object({
   preTriageConcern: z.enum(RENDER_JOB_PRE_TRIAGE_CONCERNS).nullable().optional(),
   allowDailyCapOverride: z.boolean().optional(),
 });
+
+export const factoryInputMessageAngleRequestSchema = z.object({
+  opportunityId: z.string().trim().min(1),
+  regenerate: z.boolean().optional(),
+});
+
+export type FactoryInputMessageAngleRequest = z.infer<
+  typeof factoryInputMessageAngleRequestSchema
+>;
+
+export const factoryInputHookSetRequestSchema = z.object({
+  opportunityId: z.string().trim().min(1),
+  angleId: z.string().trim().nullable().optional(),
+  regenerate: z.boolean().optional(),
+});
+
+export type FactoryInputHookSetRequest = z.infer<
+  typeof factoryInputHookSetRequestSchema
+>;
+
+export type FactoryInputVideoBriefDraft = {
+  title: string;
+  hook: string;
+  goal: string;
+  structure: Array<{
+    order: number;
+    purpose: string;
+    guidance: string;
+    suggestedOverlay?: string | null;
+  }>;
+  overlayLines: string[];
+  cta: string;
+  contentType?: VideoBrief["contentType"];
+};
 
 export type FactoryInputGenerateVideoRequest = z.infer<
   typeof factoryInputGenerateVideoRequestSchema
@@ -1144,6 +1217,24 @@ export interface FounderOverrideResponse {
 export interface FactoryInputResponse {
   success: boolean;
   state: ContentOpportunityState | null;
+  message?: string;
+  error?: string;
+}
+
+export interface FactoryInputMessageAnglesResponse {
+  success: boolean;
+  state: ContentOpportunityState | null;
+  opportunity: ContentOpportunity | null;
+  messageAngles: MessageAngle[];
+  message?: string;
+  error?: string;
+}
+
+export interface FactoryInputHookSetsResponse {
+  success: boolean;
+  state: ContentOpportunityState | null;
+  opportunity: ContentOpportunity | null;
+  hookSets: HookSet[];
   message?: string;
   error?: string;
 }
