@@ -951,6 +951,7 @@ export interface SaveInterpretationResponse {
   signal: SignalRecord;
   message: string;
   error?: string;
+  errorCode?: "validation_error" | "airtable_error" | "unknown_error";
 }
 
 export interface ScenarioAngleSuggestResponse {

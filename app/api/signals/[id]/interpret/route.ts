@@ -36,6 +36,7 @@ export async function PATCH(
         signal: null,
         message: "Interpretation could not be saved.",
         error: parsed.error.issues[0]?.message ?? "Invalid interpretation payload.",
+        errorCode: "validation_error",
       },
       { status: 400 },
     );
@@ -105,6 +106,7 @@ export async function PATCH(
         signal: null,
         message: "Interpretation could not be saved.",
         error: result.error ?? "Signal not found.",
+        errorCode: result.source === "airtable" ? "airtable_error" : "unknown_error",
       },
       { status: result.source === "mock" ? 404 : 502 },
     );

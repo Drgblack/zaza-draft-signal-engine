@@ -74,6 +74,9 @@ export function InterpretationWorkbench({
   const [isRunning, setIsRunning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
+  const [didSaveInterpretation, setDidSaveInterpretation] = useState(
+    signal.status === "Interpreted",
+  );
   const [suggestions, setSuggestions] = useState<ScenarioAngleSuggestion[]>([]);
   const [suggestionMeta, setSuggestionMeta] = useState<{
     source: "anthropic" | "openai" | "mock";
@@ -255,6 +258,7 @@ export function InterpretationWorkbench({
         persisted?: boolean;
         message?: string;
         error?: string;
+        errorCode?: "validation_error" | "airtable_error" | "unknown_error";
       };
 
       if (!response.ok || !data.success) {
@@ -262,6 +266,7 @@ export function InterpretationWorkbench({
       }
 
       setCurrentStatus("Interpreted");
+      setDidSaveInterpretation(true);
       setFeedback({
         tone: data.source === "airtable" ? "success" : "warning",
         title: data.source === "airtable" ? "Saved to Airtable" : "Saved in mock mode",
@@ -625,22 +630,40 @@ export function InterpretationWorkbench({
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <Button onClick={handleSaveInterpretation} disabled={isSaving}>
-                  {isSaving ? "Saving..." : "Save interpretation"}
-                </Button>
-                <Link
-                  href={`/signals/${signal.recordId}`}
-                  className={buttonVariants({ variant: "ghost", size: "md" })}
-                >
-                  View record
-                </Link>
-                <Link
-                  href={`/signals/${signal.recordId}/generate`}
-                  className={buttonVariants({ variant: "secondary", size: "md" })}
-                >
-                  Open generation
-                </Link>
-                <p className="text-sm text-slate-500">Saving sets the record status to `Interpreted`.</p>
+                {!didSaveInterpretation ? (
+                  <>
+                    <Button onClick={handleSaveInterpretation} disabled={isSaving}>
+                      {isSaving ? "Saving..." : "Save interpretation"}
+                    </Button>
+                    <Link
+                      href={`/signals/${signal.recordId}`}
+                      className={buttonVariants({ variant: "ghost", size: "md" })}
+                    >
+                      View record
+                    </Link>
+                    <p className="text-sm text-slate-500">
+                      Saving sets the record status to `Interpreted`.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Link
+                      href="/review?view=ready_to_approve#approval-ready"
+                      className={buttonVariants({ size: "md" })}
+                    >
+                      Continue to Review
+                    </Link>
+                    <Link
+                      href={`/signals/${signal.recordId}`}
+                      className={buttonVariants({ variant: "secondary", size: "md" })}
+                    >
+                      View record
+                    </Link>
+                    <p className="text-sm text-slate-500">
+                      Brief creation only starts after this signal is approved in Review.
+                    </p>
+                  </>
+                )}
               </div>
             </>
           )}

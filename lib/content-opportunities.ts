@@ -3899,8 +3899,15 @@ async function updateOpportunity(
 
 export async function approveContentOpportunity(opportunityId: string) {
   const timestamp = new Date().toISOString();
-  const store = await readPersistedStore();
-  const current = store.opportunities.find((item) => item.opportunityId === opportunityId);
+  let store = await readPersistedStore();
+  let current = store.opportunities.find((item) => item.opportunityId === opportunityId);
+
+  if (!current) {
+    await refreshContentOpportunityStateFromSystem();
+    store = await readPersistedStore();
+    current = store.opportunities.find((item) => item.opportunityId === opportunityId);
+  }
+
   if (!current) {
     throw new Error("Content opportunity not found.");
   }

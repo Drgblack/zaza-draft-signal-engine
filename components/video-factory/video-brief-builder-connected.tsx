@@ -121,23 +121,26 @@ export function VideoBriefBuilderConnected({
       ? 2
       : !opportunity.selectedHookId
         ? 3
-        : 5;
+        : 4;
+  const isAngleStep = currentStep === 2;
+  const isHookStep = currentStep === 3;
+  const isBriefStep = currentStep === 4;
   const currentStepTitle =
-    currentStep === 2
+    isAngleStep
       ? "Choose the angle first."
-      : currentStep === 3
+      : isHookStep
         ? "Choose the opening hook next."
         : "Review the brief, then approve it.";
   const currentStepCopy =
-    currentStep === 2
+    isAngleStep
       ? "A brief is the production plan for the video. The angle decides which teacher tension, promise, and emotional payoff the brief will carry."
-      : currentStep === 3
+      : isHookStep
         ? "The hook is the first line the viewer hears. Pick the opening that best matches the angle before you edit the brief beats."
         : "Once the brief is approved, generation becomes available in the existing ZazaReel review screen. Saving is optional; approving is the main next action.";
   const upcomingLabel =
-    currentStep === 2
+    isAngleStep
       ? "Use the recommended angle"
-      : currentStep === 3
+      : isHookStep
         ? "Use the strongest hook"
         : "Approve brief";
 
@@ -267,7 +270,7 @@ export function VideoBriefBuilderConnected({
       return;
     }
 
-    if (currentStep === 5) {
+    if (currentStep === 4) {
       handleApproveBrief();
     }
   }
@@ -322,8 +325,6 @@ export function VideoBriefBuilderConnected({
                 const stepNumber = index + 1;
                 const isCurrent = stepNumber === currentStep;
                 const isComplete = stepNumber < currentStep;
-                const isFuture = stepNumber > currentStep;
-
                 return (
                   <div
                     key={label}
@@ -332,9 +333,7 @@ export function VideoBriefBuilderConnected({
                         ? "rounded-2xl border border-[#6B62D9] bg-[#F4F2FF] px-3 py-3"
                         : isComplete
                           ? "rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3"
-                          : isFuture
-                            ? "rounded-2xl border border-black/8 bg-white px-3 py-3"
-                            : "rounded-2xl border border-black/8 bg-white px-3 py-3"
+                          : "rounded-2xl border border-black/8 bg-white/70 px-3 py-3 opacity-60"
                     }
                   >
                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -349,7 +348,7 @@ export function VideoBriefBuilderConnected({
               <Button type="button" onClick={handlePrimaryNextAction} disabled={isPending}>
                 {upcomingLabel}
               </Button>
-              {currentStep === 5 ? (
+              {isBriefStep ? (
                 <Button
                   type="button"
                   variant="secondary"
@@ -363,8 +362,55 @@ export function VideoBriefBuilderConnected({
           </CardContent>
         </Card>
 
+        {(selectedAngle || opportunity.selectedHookId) && !isAngleStep ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card className="bg-white/78">
+              <CardHeader>
+                <CardTitle className="text-base">Chosen angle</CardTitle>
+                <CardDescription>
+                  This is the framing the brief is currently built around.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {selectedAngle ? (
+                  <div className="space-y-2 text-sm leading-6 text-slate-600">
+                    <p className="font-semibold text-slate-950">{selectedAngle.title}</p>
+                    <p>{selectedAngle.summary}</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No angle selected yet.</p>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="bg-white/78">
+              <CardHeader>
+                <CardTitle className="text-base">Chosen hook</CardTitle>
+                <CardDescription>
+                  This is the opening line the brief will carry into generation.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {selectedHookSet && opportunity.selectedHookId ? (
+                  <div className="space-y-2 text-sm leading-6 text-slate-600">
+                    <p className="font-semibold text-slate-950">
+                      {selectedHookSet.variants.find((hook) => hook.id === opportunity.selectedHookId)?.text ??
+                        selectedHookSet.primaryHook.text}
+                    </p>
+                    <p>
+                      {selectedHookSet.variants.find((hook) => hook.id === opportunity.selectedHookId)?.intendedEffect ??
+                        selectedHookSet.primaryHook.intendedEffect}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No hook selected yet.</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
+
         <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <Card className="bg-white/92">
+          <Card className={isAngleStep ? "bg-white/92" : "bg-white/76 opacity-70"}>
             <CardHeader>
               <CardTitle>2. Choose a message angle</CardTitle>
               <CardDescription>
@@ -437,7 +483,15 @@ export function VideoBriefBuilderConnected({
             </CardContent>
           </Card>
 
-          <Card className={selectedAngle ? "bg-white/92" : "bg-white/84 opacity-80"}>
+          <Card
+            className={
+              isHookStep
+                ? "bg-white/92"
+                : selectedAngle
+                  ? "bg-white/80 opacity-70"
+                  : "bg-white/84 opacity-60"
+            }
+          >
             <CardHeader>
               <CardTitle>3. Choose a hook</CardTitle>
               <CardDescription>
@@ -516,7 +570,7 @@ export function VideoBriefBuilderConnected({
           </Card>
         </div>
 
-        <Card className={draft ? "bg-white/92" : "bg-white/84 opacity-80"}>
+        <Card className={isBriefStep && draft ? "bg-white/92" : draft ? "bg-white/80 opacity-75" : "bg-white/84 opacity-60"}>
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>

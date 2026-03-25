@@ -985,6 +985,41 @@ export default async function ReviewPage({
         </CardContent>
       </Card>
 
+      <Card className="border-black/6 bg-white/82 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+        <CardHeader>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className="bg-slate-100 text-slate-700 ring-slate-200">Founder path</Badge>
+            <Badge className="bg-[#E9E7FF] text-[#5448B3] ring-[#D8D3FF]">
+              {approvalReadyCandidates.length > 0 ? "Ready for approval" : "Interpretation needs saving"}
+            </Badge>
+          </div>
+          <CardTitle>
+            {approvalReadyCandidates.length > 0
+              ? "Approve one opportunity, then continue into brief creation."
+              : "Finish interpretation first, then return here to approve an opportunity."}
+          </CardTitle>
+          <CardDescription className="max-w-3xl">
+            {approvalReadyCandidates.length > 0
+              ? "Use the approval-ready lane below. The primary button on each candidate now approves it and opens the brief builder directly in ZazaReel."
+              : "There is nothing approval-ready yet. Save interpretation on the signal first so it can surface here for approval."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <Link
+            href={
+              approvalReadyCandidates.length > 0
+                ? "/review?view=ready_to_approve#approval-ready"
+                : "/review#needs-interpretation"
+            }
+            className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+          >
+            {approvalReadyCandidates.length > 0
+              ? "Go to approval-ready opportunities"
+              : "Go to signals that still need interpretation"}
+          </Link>
+        </CardContent>
+      </Card>
+
       {showScheduledSoon ? (
       <Card className="border-black/6 bg-white/72 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
         <CardHeader>

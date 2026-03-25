@@ -39,6 +39,11 @@ interface SignalLookupResult {
   error?: string;
 }
 
+type AirtableFieldSupportCache = {
+  expiresAt: number;
+  fields: Set<string>;
+};
+
 class AirtableClientError extends Error {
   constructor(
     message: string,
@@ -49,6 +54,9 @@ class AirtableClientError extends Error {
     this.name = "AirtableClientError";
   }
 }
+
+const AIRTABLE_FIELD_SUPPORT_CACHE_TTL_MS = 5 * 60 * 1000;
+let airtableFieldSupportCache: AirtableFieldSupportCache | null = null;
 
 function getConfiguredAirtable() {
   const config = getAppConfig();
@@ -81,6 +89,35 @@ function buildMetaUrl() {
     pat: config.pat,
     tableName: config.tableName,
   };
+}
+
+async function getLiveAirtableFieldNames(): Promise<Set<string> | null> {
+  const now = Date.now();
+  if (airtableFieldSupportCache && airtableFieldSupportCache.expiresAt > now) {
+    return new Set(airtableFieldSupportCache.fields);
+  }
+
+  try {
+    const metaTarget = buildMetaUrl();
+    const metadata = await airtableFetch<AirtableTableMetadataResponse>({
+      url: metaTarget.url,
+      pat: metaTarget.pat,
+    });
+    const table = metadata.tables?.find((item) => item.name === metaTarget.tableName);
+
+    if (!table) {
+      return null;
+    }
+
+    const fields = new Set(table.fields.map((field) => field.name));
+    airtableFieldSupportCache = {
+      expiresAt: now + AIRTABLE_FIELD_SUPPORT_CACHE_TTL_MS,
+      fields,
+    };
+    return new Set(fields);
+  } catch {
+    return null;
+  }
 }
 
 async function airtableFetch<TResponse>(
@@ -414,6 +451,47 @@ function mapUpdateInputToAirtableFields(input: UpdateSignalInput): AirtableField
   return fields;
 }
 
+export function filterFieldsToSupportedAirtableSchema(
+  fields: AirtableFields,
+  supportedFieldNames: Iterable<string>,
+): {
+  fields: AirtableFields;
+  omittedFields: string[];
+} {
+  const supported = new Set(supportedFieldNames);
+  const filteredFields: AirtableFields = {};
+  const omittedFields: string[] = [];
+
+  for (const [label, value] of Object.entries(fields)) {
+    if (!supported.has(label)) {
+      omittedFields.push(label);
+      continue;
+    }
+
+    filteredFields[label] = value;
+  }
+
+  return {
+    fields: filteredFields,
+    omittedFields,
+  };
+}
+
+async function filterFieldsToLiveAirtableSchema(fields: AirtableFields): Promise<{
+  fields: AirtableFields;
+  omittedFields: string[];
+}> {
+  const supportedFieldNames = await getLiveAirtableFieldNames();
+  if (!supportedFieldNames) {
+    return {
+      fields,
+      omittedFields: [],
+    };
+  }
+
+  return filterFieldsToSupportedAirtableSchema(fields, supportedFieldNames);
+}
+
 function mapCreatePayloadToAirtableFields(input: SignalCreatePayload): AirtableFields {
   return {
     [getAirtableFieldLabel("createdDate")]: new Date().toISOString(),
@@ -524,7 +602,7 @@ export function deriveDisplayEngagementScore(signal: SignalRecord): number | nul
 export function getSafeAirtableErrorMessage(error: unknown): string {
   if (error instanceof AirtableClientError) {
     if (error.code === "mapping_error") {
-      return "Airtable field mapping rejected the request payload.";
+      return error.message || "Airtable field mapping rejected the request payload.";
     }
 
     if (error.status === 401 || error.status === 403) {
@@ -533,6 +611,10 @@ export function getSafeAirtableErrorMessage(error: unknown): string {
 
     if (error.status === 404) {
       return "The Airtable base or table could not be reached.";
+    }
+
+    if (error.status === 422) {
+      return `Airtable rejected the update: ${error.message}`;
     }
 
     return `Airtable request failed (${error.status}).`;
@@ -577,10 +659,12 @@ export async function getSignal(recordId: string): Promise<SignalRecord> {
 }
 
 export async function createSignal(input: SignalCreatePayload): Promise<SignalRecord> {
+  const mappedFields = mapCreatePayloadToAirtableFields(input);
+  const { fields } = await filterFieldsToLiveAirtableSchema(mappedFields);
   const response = await airtableFetch<AirtableRecord<AirtableFields>>(buildDataUrl(), {
     method: "POST",
     body: JSON.stringify({
-      fields: mapCreatePayloadToAirtableFields(input),
+      fields,
     }),
   });
 
@@ -588,10 +672,17 @@ export async function createSignal(input: SignalCreatePayload): Promise<SignalRe
 }
 
 export async function updateSignal(recordId: string, input: UpdateSignalInput): Promise<SignalRecord> {
+  const mappedFields = mapUpdateInputToAirtableFields(input);
+  const { fields } = await filterFieldsToLiveAirtableSchema(mappedFields);
+
+  if (Object.keys(fields).length === 0) {
+    return getSignal(recordId);
+  }
+
   const response = await airtableFetch<AirtableRecord<AirtableFields>>(buildDataUrl(`/${recordId}`), {
     method: "PATCH",
     body: JSON.stringify({
-      fields: mapUpdateInputToAirtableFields(input),
+      fields,
     }),
   });
 

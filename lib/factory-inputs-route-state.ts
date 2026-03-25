@@ -16,6 +16,7 @@ export interface FactoryInputsRouteResolution {
 export function resolveFactoryInputsRouteState(input: {
   opportunities: ContentOpportunity[];
   requestedOpportunityId?: string | null;
+  requestedSignalId?: string | null;
   requestedMode?: string | null;
 }): FactoryInputsRouteResolution {
   const approvedOpportunities = input.opportunities.filter(
@@ -26,6 +27,10 @@ export function resolveFactoryInputsRouteState(input: {
       ? approvedOpportunities.find(
           (item) => item.opportunityId === input.requestedOpportunityId,
         ) ?? null
+      : input.requestedSignalId
+        ? approvedOpportunities.find(
+            (item) => item.signalId === input.requestedSignalId,
+          ) ?? null
       : null;
   const selectedOpportunity =
     requestedApprovedOpportunity ??
@@ -48,7 +53,7 @@ export function resolveFactoryInputsRouteState(input: {
     approvedOpportunities,
     requestedApprovedOpportunity,
     selectedOpportunity,
-    selectedOpportunityFound: input.requestedOpportunityId
+    selectedOpportunityFound: input.requestedOpportunityId || input.requestedSignalId
       ? Boolean(requestedApprovedOpportunity)
       : Boolean(selectedOpportunity),
     routeState,

@@ -7,6 +7,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { listContentOpportunityState } from "@/lib/content-opportunities";
 import { resolveFactoryInputsRouteState } from "@/lib/factory-inputs-route-state";
+import { getFounderProgressForOpportunity } from "@/lib/founder-progress";
+import { listSignalsWithFallback } from "@/lib/signal-repository";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +18,13 @@ export default async function FactoryInputsPage({
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const state = await listContentOpportunityState();
+  const { signals } = await listSignalsWithFallback({ limit: 1000 });
   const requestedOpportunityId = Array.isArray(searchParams?.opportunityId)
     ? searchParams?.opportunityId[0]
     : searchParams?.opportunityId;
+  const requestedSignalId = Array.isArray(searchParams?.signalId)
+    ? searchParams?.signalId[0]
+    : searchParams?.signalId;
   const requestedMode = Array.isArray(searchParams?.mode)
     ? searchParams?.mode[0]
     : searchParams?.mode;
@@ -31,8 +37,50 @@ export default async function FactoryInputsPage({
   } = resolveFactoryInputsRouteState({
     opportunities: state.opportunities,
     requestedOpportunityId,
+    requestedSignalId,
     requestedMode,
   });
+  const founderProgress = getFounderProgressForOpportunity(selectedOpportunity);
+  const founderStatusLabel =
+    founderProgress === "ready-to-build-brief"
+      ? "Ready to build brief"
+      : founderProgress === "ready-to-generate"
+        ? "Ready to generate"
+        : founderProgress === "ready-to-review-render"
+          ? "Ready to review render"
+          : "No approved opportunity";
+  const founderTitle =
+    founderProgress === "ready-to-build-brief"
+      ? "Create the next video brief."
+      : founderProgress === "ready-to-generate"
+        ? "Generate the first portrait render."
+        : founderProgress === "ready-to-review-render"
+          ? "Review the finished render."
+          : "Nothing is ready for brief creation yet.";
+  const founderCopy =
+    founderProgress === "ready-to-build-brief"
+      ? "One approved opportunity is ready. Choose the angle, choose the hook, tighten the brief, and approve it so generation becomes available."
+      : founderProgress === "ready-to-generate"
+        ? "The brief is already approved. The next step is to generate the first video in the existing ZazaReel review flow."
+        : founderProgress === "ready-to-review-render"
+          ? "The render is back. Review it in ZazaReel, then approve it, regenerate it, or go back to the brief if the message still needs work."
+          : signals.some((signal) => signal.status === "Interpreted")
+            ? "There are currently 0 approved opportunities ready for brief creation. The next step is to open Review and approve one interpreted candidate."
+            : "There are currently 0 approved opportunities ready for brief creation. The next step is to open Review and approve one opportunity once the signal is ready.";
+  const primaryActionLabel =
+    founderProgress === "ready-to-build-brief"
+      ? selectedOpportunity?.selectedVideoBrief
+        ? "Continue brief"
+        : "Start brief"
+      : founderProgress === "ready-to-generate" || founderProgress === "ready-to-review-render"
+        ? "Open ZazaReel"
+        : "Open Review to approve one opportunity";
+  const primaryActionHref =
+    founderProgress === "ready-to-build-brief" && selectedOpportunity
+      ? `/factory-inputs?opportunityId=${encodeURIComponent(selectedOpportunity.opportunityId)}&mode=builder#brief-builder`
+      : founderProgress === "ready-to-generate" || founderProgress === "ready-to-review-render"
+        ? `/factory-inputs?opportunityId=${encodeURIComponent(selectedOpportunity?.opportunityId ?? "")}#review`
+        : "/review?view=ready_to_approve#approval-ready";
   const reviewStep =
     selectedOpportunity?.generationState?.assetReview?.status === "pending_review" ||
     selectedOpportunity?.generationState?.assetReview?.status === "accepted" ||
@@ -53,56 +101,62 @@ export default async function FactoryInputsPage({
                 <Badge className="bg-[#E9E7FF] text-[#5448B3] ring-[#D8D3FF]">
                   {routeState}
                 </Badge>
+                <Badge className="bg-white text-slate-700 ring-slate-200">
+                  {founderStatusLabel}
+                </Badge>
               </div>
-              <CardTitle>
-                {routeState === "builder"
-                  ? "Brief creation is available."
-                  : routeState === "review"
-                    ? "The approved brief is ready for generation or final review."
-                    : "No brief is ready for production yet."}
-              </CardTitle>
-              <CardDescription className="max-w-3xl">
-                {routeState === "builder"
-                  ? "An approved opportunity is in state and the builder is the active founder step."
-                  : routeState === "review"
-                    ? "A selectedVideoBrief is already approved, so the downstream ZazaReel review flow is the active screen."
-                    : "There are currently 0 approved opportunities ready for brief creation."}
-              </CardDescription>
+              <CardTitle>{founderTitle}</CardTitle>
+              <CardDescription className="max-w-3xl">{founderCopy}</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-2xl border border-black/6 bg-white px-4 py-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Approved opportunities
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {approvedOpportunities.length}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-black/6 bg-white px-4 py-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Selected opportunity found
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {selectedOpportunityFound ? "Yes" : "No"}
-                </p>
-                {requestedOpportunityId && !requestedApprovedOpportunity ? (
-                  <p className="mt-1 text-sm text-slate-500">
-                    The requested opportunity is not currently approved for production.
-                  </p>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <Link href={primaryActionHref} className={buttonVariants({})}>
+                  {primaryActionLabel}
+                </Link>
+                {founderProgress === "ready-to-build-brief" || founderProgress === "ready-to-generate" || founderProgress === "ready-to-review-render" ? (
+                  <Link
+                    href="/review?view=ready_to_approve#approval-ready"
+                    className={buttonVariants({ variant: "secondary" })}
+                  >
+                    Open Review
+                  </Link>
                 ) : null}
               </div>
-              <div className="rounded-2xl border border-black/6 bg-white px-4 py-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Founder status
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {selectedOpportunity?.founderSelectionStatus ?? "n/a"}
-                </p>
-                {selectedOpportunity?.selectedVideoBrief ? (
-                  <p className="mt-1 text-sm text-slate-500">
-                    A brief is already saved on the selected opportunity.
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-2xl border border-black/6 bg-white px-4 py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Approved opportunities
                   </p>
-                ) : null}
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">
+                    {approvedOpportunities.length}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-black/6 bg-white px-4 py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Selected opportunity found
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">
+                    {selectedOpportunityFound ? "Yes" : "No"}
+                  </p>
+                  {(requestedOpportunityId || requestedSignalId) && !requestedApprovedOpportunity ? (
+                    <p className="mt-1 text-sm text-slate-500">
+                      The requested opportunity is not currently approved for production.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="rounded-2xl border border-black/6 bg-white px-4 py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Founder status
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">
+                    {selectedOpportunity?.founderSelectionStatus ?? "n/a"}
+                  </p>
+                  {selectedOpportunity?.selectedVideoBrief ? (
+                    <p className="mt-1 text-sm text-slate-500">
+                      A brief is already saved on the selected opportunity.
+                    </p>
+                  ) : null}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -126,10 +180,10 @@ export default async function FactoryInputsPage({
                   </p>
                   <div className="mt-4">
                     <Link
-                      href="/review"
+                      href="/review?view=ready_to_approve#approval-ready"
                       className={buttonVariants({ size: "sm" })}
                     >
-                      Open Review
+                      Open Review to approve one opportunity
                     </Link>
                   </div>
                 </div>
@@ -188,6 +242,26 @@ export default async function FactoryInputsPage({
             </CardContent>
           </Card>
 
+          <details className="rounded-3xl border border-black/8 bg-white/80 px-5 py-4">
+            <summary className="cursor-pointer text-sm font-medium text-slate-800">
+              Advanced tools
+            </summary>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link
+                href="/review?view=ready_to_approve#approval-ready"
+                className={buttonVariants({ variant: "secondary", size: "sm" })}
+              >
+                Open Review
+              </Link>
+              <Link
+                href="/ingestion"
+                className={buttonVariants({ variant: "secondary", size: "sm" })}
+              >
+                Open operator tools
+              </Link>
+            </div>
+          </details>
+
           {routeState === "builder" && selectedOpportunity ? (
             <VideoBriefBuilderConnected initialOpportunity={selectedOpportunity} />
           ) : routeState === "review" && selectedOpportunity?.selectedVideoBrief ? (
@@ -216,25 +290,7 @@ export default async function FactoryInputsPage({
               </Card>
               <VideoFactoryReviewConnected initialOpportunity={selectedOpportunity} />
             </div>
-          ) : (
-            <div className="flex min-h-[20rem] items-center justify-center px-4 py-2">
-              <Card className="w-full max-w-xl border-black/6 bg-white/90 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
-                <CardContent className="py-10 text-center">
-                  <p className="text-xl font-semibold text-slate-950">
-                    No brief ready for production
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-500">
-                    There are currently 0 approved opportunities ready for brief creation.
-                  </p>
-                  <div className="mt-4">
-                    <Link href="/review" className={buttonVariants({ size: "sm" })}>
-                      Open Review
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

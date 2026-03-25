@@ -21,7 +21,7 @@ import { getQueueTriageLabel, type QueueTriageState } from "@/lib/queue-triage";
 import { buildRepurposingBundleSummary, buildSignalRepurposingBundle } from "@/lib/repurposing";
 import { getStrategicValueLabel } from "@/lib/strategic-outcome-memory";
 import { formatDate } from "@/lib/utils";
-import type { StaleQueueActionResponse } from "@/types/api";
+import type { FactoryInputResponse, StaleQueueActionResponse } from "@/types/api";
 import type { SignalRecord } from "@/types/signal";
 import type { AutomationConfidenceLevel } from "@/lib/confidence";
 import type { DistributionPriorityAssessment } from "@/lib/distribution-priority";
@@ -369,6 +369,10 @@ function staleOperatorActionLabel(action: StaleQueueOperatorAction): string {
   }
 }
 
+function founderFactoryInputsHref(signalId: string) {
+  return `/factory-inputs?signalId=${encodeURIComponent(signalId)}&mode=builder#brief-builder`;
+}
+
 export function ApprovalQueueSection({
   candidates,
   initialView = "all",
@@ -495,6 +499,64 @@ export function ApprovalQueueSection({
           router.refresh();
         } catch (error) {
           setStaleFeedback(error instanceof Error ? error.message : "Unable to update stale queue state.");
+        }
+      })();
+    });
+  }
+
+  function handleApproveAndContinue(signalId: string) {
+    if (isPendingAction) {
+      return;
+    }
+
+    startTransition(() => {
+      void (async () => {
+        try {
+          setStaleFeedback(null);
+
+          const refreshResponse = await fetch("/api/factory-inputs", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ refresh: true }),
+          });
+          const refreshData = (await refreshResponse.json().catch(() => null)) as
+            | FactoryInputResponse
+            | null;
+
+          if (!refreshResponse.ok || !refreshData?.success) {
+            throw new Error(
+              refreshData?.error ?? "Unable to refresh content opportunities.",
+            );
+          }
+
+          const approveResponse = await fetch("/api/factory-inputs", {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              action: "approve_for_production",
+              opportunityId: `content-opportunity:${signalId}`,
+            }),
+          });
+          const approveData = (await approveResponse.json().catch(() => null)) as
+            | FactoryInputResponse
+            | null;
+
+          if (!approveResponse.ok || !approveData?.success) {
+            throw new Error(approveData?.error ?? "Unable to approve the opportunity.");
+          }
+
+          router.push(founderFactoryInputsHref(signalId));
+          router.refresh();
+        } catch (error) {
+          setStaleFeedback(
+            error instanceof Error
+              ? error.message
+              : "Unable to approve the opportunity.",
+          );
         }
       })();
     });
@@ -657,6 +719,14 @@ export function ApprovalQueueSection({
                       <div className="rounded-2xl bg-slate-950 px-3 py-3 text-sm text-slate-100"><p className="font-medium text-white">Action now</p><p className="mt-1.5">{candidate.commercialRisk.topRisk?.suggestedFix ?? (candidate.automationConfidence.level === "low" ? candidate.automationConfidence.summary : candidate.conflicts.topConflicts[0]?.suggestedFix ?? candidate.triage.suggestedNextAction ?? (candidate.stale.state !== "fresh" ? `${candidate.stale.actionSummary}. ${candidate.guidance.primaryAction}` : candidate.preReviewRepair.decision === "applied" ? candidate.preReviewRepair.summary : candidate.guidance.primaryAction))}</p></div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center rounded-full bg-slate-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => handleApproveAndContinue(candidate.signal.recordId)}
+                        disabled={isPendingAction}
+                      >
+                        Approve and continue
+                      </button>
                       <Link href={`/signals/${candidate.signal.recordId}/review`} className={buttonVariants({ variant: "secondary", size: "sm" })}>Open final review</Link>
                       <Link href={`/signals/${candidate.signal.recordId}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>Open record</Link>
                       <button type="button" className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-sm font-medium text-slate-700 transition hover:bg-slate-200" onClick={() => setExpandedById((current) => ({ ...current, [candidate.signal.recordId]: !current[candidate.signal.recordId] }))}>{expanded ? "Collapse detail" : "Expand detail"}</button>

@@ -9,6 +9,7 @@ function buildOpportunity(
 ): ContentOpportunity {
   return {
     opportunityId: "opportunity-1",
+    signalId: "signal-1",
     status: "approved_for_production",
     founderSelectionStatus: "pending",
     selectedVideoBrief: null,
@@ -69,4 +70,20 @@ test("resolveFactoryInputsRouteState ignores non-approved requested ids when app
   assert.equal(resolution.routeState, "builder");
   assert.equal(resolution.selectedOpportunity?.opportunityId, "approved-opportunity");
   assert.equal(resolution.selectedOpportunityFound, false);
+});
+
+test("resolveFactoryInputsRouteState can select an approved opportunity by signal id", () => {
+  const resolution = resolveFactoryInputsRouteState({
+    opportunities: [
+      buildOpportunity({
+        opportunityId: "approved-opportunity",
+        signalId: "signal-2",
+      }),
+    ],
+    requestedSignalId: "signal-2",
+  });
+
+  assert.equal(resolution.routeState, "builder");
+  assert.equal(resolution.selectedOpportunity?.opportunityId, "approved-opportunity");
+  assert.equal(resolution.selectedOpportunityFound, true);
 });
