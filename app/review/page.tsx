@@ -7,6 +7,7 @@ import {
   EvergreenResurfacingSection,
 } from "@/components/signals/approval-queue-section";
 import { BorderlineReviewWorkbenchSection } from "@/components/signals/borderline-review-workbench-section";
+import { CreateTestSignalButton } from "@/components/signals/create-test-signal-button";
 import { DuplicateClusterReviewSection } from "@/components/signals/duplicate-cluster-review-section";
 import { ExperimentProposalSection } from "@/components/signals/experiment-proposal-section";
 import { WorkflowQueueSection } from "@/components/signals/workflow-queue-section";
@@ -1005,18 +1006,24 @@ export default async function ReviewPage({
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0">
-          <Link
-            href={
-              approvalReadyCandidates.length > 0
-                ? "/review?view=ready_to_approve#approval-ready"
-                : "/review#needs-interpretation"
-            }
-            className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
-          >
-            {approvalReadyCandidates.length > 0
-              ? "Go to approval-ready opportunities"
-              : "Go to signals that still need interpretation"}
-          </Link>
+          {approvalReadyCandidates.length > 0 ? (
+            <Link
+              href="/review?view=ready_to_approve#approval-ready"
+              className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+            >
+              Go to approval-ready opportunities
+            </Link>
+          ) : (
+            <div className="flex flex-wrap items-start gap-3">
+              <CreateTestSignalButton />
+              <Link
+                href="/review#needs-interpretation"
+                className="rounded-full border border-black/5 bg-white/76 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-white"
+              >
+                Go to signals that still need interpretation
+              </Link>
+            </div>
+          )}
         </CardContent>
       </Card>
 

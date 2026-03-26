@@ -911,6 +911,16 @@ export interface CreateSignalApiResponse {
   errorCode?: "validation_error" | "airtable_error" | "unknown_error";
 }
 
+export interface CreateTestSignalApiResponse {
+  success: boolean;
+  source: SignalDataSource;
+  persisted: boolean;
+  signal: SignalRecord | null;
+  message: string;
+  error?: string;
+  errorCode?: "validation_error" | "airtable_error" | "unknown_error";
+}
+
 export interface AirtableHealthResponse {
   success: boolean;
   diagnostics: {
