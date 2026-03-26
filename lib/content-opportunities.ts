@@ -121,6 +121,10 @@ import { buildWeeklyPostingPack } from "@/lib/weekly-posting-pack";
 import { buildWeeklyPlanState, getCurrentWeeklyPlan } from "@/lib/weekly-plan";
 import { syncPhaseEArtifactsForProductionPackage } from "@/lib/phase-e-orchestration";
 import {
+  isReadOnlyFilesystemError,
+  logServerlessPersistenceFallback,
+} from "@/lib/serverless-persistence";
+import {
   buildVideoFactoryThumbnailSpec,
   upsertVideoFactoryThumbnailSpec,
 } from "@/lib/video-factory-thumbnail-specs";
@@ -226,9 +230,14 @@ import {
 } from "@/lib/video-factory-review-reasons";
 import type { PostingPlatform } from "@/lib/posting-memory";
 
-const CONTENT_OPPORTUNITY_STORE_PATH = path.join(process.cwd(), "data", "content-opportunities.json");
+const CONTENT_OPPORTUNITY_STORE_PATH = path.join(
+  process.env.VERCEL ? "/tmp" : process.cwd(),
+  "data",
+  "content-opportunities.json",
+);
 const CURRENT_RENDER_VERSION = "phase-c-render-v1";
 const ENABLE_FORMAT_INTELLIGENCE = true;
+let inMemoryContentOpportunityStore: z.infer<typeof contentOpportunityStoreSchema> | null = null;
 
 export const CONTENT_OPPORTUNITY_TYPES = [
   "pain_point_opportunity",
@@ -3598,13 +3607,18 @@ function summarizeState(opportunities: ContentOpportunity[]) {
 async function readPersistedStore() {
   try {
     const raw = await readFile(CONTENT_OPPORTUNITY_STORE_PATH, "utf8");
-    return contentOpportunityStoreSchema.parse(JSON.parse(raw));
+    const parsed = contentOpportunityStoreSchema.parse(JSON.parse(raw));
+    inMemoryContentOpportunityStore = parsed;
+    return parsed;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return contentOpportunityStoreSchema.parse({
-        updatedAt: null,
-        opportunities: [],
-      });
+      return (
+        inMemoryContentOpportunityStore ??
+        contentOpportunityStoreSchema.parse({
+          updatedAt: null,
+          opportunities: [],
+        })
+      );
     }
 
     throw error;
@@ -3612,8 +3626,20 @@ async function readPersistedStore() {
 }
 
 async function writePersistedStore(store: z.infer<typeof contentOpportunityStoreSchema>) {
-  await mkdir(path.dirname(CONTENT_OPPORTUNITY_STORE_PATH), { recursive: true });
-  await writeFile(CONTENT_OPPORTUNITY_STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const parsed = contentOpportunityStoreSchema.parse(store);
+  inMemoryContentOpportunityStore = parsed;
+
+  try {
+    await mkdir(path.dirname(CONTENT_OPPORTUNITY_STORE_PATH), { recursive: true });
+    await writeFile(CONTENT_OPPORTUNITY_STORE_PATH, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      logServerlessPersistenceFallback("content-opportunities", error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 function applyStrategicIntelligence(
